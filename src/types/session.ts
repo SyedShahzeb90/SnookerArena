@@ -4,6 +4,12 @@ export type SessionType =
   | "time"
   | "private";
 
+export type PaymentMethod =
+  | "cash"
+  | "card"
+  | "jazzcash"
+  | "easypaisa";
+
 export interface Session {
   id: string;
 
@@ -18,6 +24,18 @@ export interface Session {
   startTime: Date;
 
   endTime?: Date;
+
+  // Billing
+
+  gameAmount: number;
+
+  cafeAmount: number;
+
+  discount: number;
+
+  totalAmount: number;
+
+  paymentMethod?: PaymentMethod;
 
   isPaid: boolean;
 }

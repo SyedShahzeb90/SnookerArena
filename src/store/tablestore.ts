@@ -1,6 +1,13 @@
 import { create } from "zustand";
+
 import { initialTables } from "@/data/initialTables";
-import type { Session, SessionType } from "@/types/session";
+
+import type {
+  PaymentMethod,
+  Session,
+  SessionType,
+} from "@/types/session";
+
 import type { Table } from "@/types/table";
 
 interface StartSessionData {
@@ -11,55 +18,105 @@ interface StartSessionData {
   startTime: Date;
 }
 
+interface ReceivePaymentData {
+  tableId: number;
+  paymentMethod: PaymentMethod;
+}
+
 interface TableStore {
   tables: Table[];
 
-  startSession: (data: StartSessionData) => void;
+  startSession: (
+    data: StartSessionData
+  ) => void;
 
-  endSession: (tableId: number) => void;
+  endSession: (
+    tableId: number
+  ) => void;
+
+  receivePayment: (
+    data: ReceivePaymentData
+  ) => void;
 }
 
-export const useTableStore = create<TableStore>((set) => ({
-  tables: initialTables,
+export const useTableStore =
+  create<TableStore>((set) => ({
+    tables: initialTables,
 
-  startSession: (data) =>
-    set((state) => ({
-      tables: state.tables.map((table) => {
-        if (table.id !== data.tableId) return table;
+    startSession: (data) =>
+      set((state) => ({
+        tables: state.tables.map((table) => {
+          if (table.id !== data.tableId)
+            return table;
 
-        const session: Session = {
-          id: `SA-${Date.now()}`,
-          tableId: table.id,
-          sessionType: data.sessionType,
-          player1: data.player1,
-          player2: data.player2,
-          startTime: data.startTime,
-          isPaid: false,
-        };
+          const session: Session = {
+            id: `SA-${Date.now()}`,
+            tableId: table.id,
+            sessionType: data.sessionType,
+            player1: data.player1,
+            player2: data.player2,
+            startTime: data.startTime,
 
-        return {
-          ...table,
-          status: "running",
-          session,
-        };
-      }),
-    })),
+            gameAmount: 0,
+            cafeAmount: 0,
+            discount: 0,
+            totalAmount: 0,
 
-  endSession: (tableId) =>
-    set((state) => ({
-      tables: state.tables.map((table) => {
-        if (table.id !== tableId) return table;
+            isPaid: false,
+          };
 
-        if (!table.session) return table;
+          return {
+            ...table,
+            status: "running",
+            session,
+          };
+        }),
+      })),
 
-        return {
-          ...table,
-          status: "payment-pending",
-          session: {
-            ...table.session,
-            endTime: new Date(),
-          },
-        };
-      }),
-    })),
-}));
+    endSession: (tableId) =>
+      set((state) => ({
+        tables: state.tables.map((table) => {
+          if (table.id !== tableId)
+            return table;
+
+          if (!table.session)
+            return table;
+
+          return {
+            ...table,
+            status: "payment-pending",
+
+            session: {
+              ...table.session,
+              endTime: new Date(),
+            },
+          };
+        }),
+      })),
+
+    receivePayment: ({
+      tableId,
+      paymentMethod,
+    }) =>
+      set((state) => ({
+        tables: state.tables.map((table) => {
+          if (table.id !== tableId)
+            return table;
+
+          if (!table.session)
+            return table;
+
+          return {
+            ...table,
+
+            status: "available",
+
+            session: {
+              ...table.session,
+              paymentMethod,
+              isPaid: true,
+            },
+          };
+        }),
+      })),
+  }));
