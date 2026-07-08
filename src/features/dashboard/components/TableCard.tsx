@@ -36,7 +36,7 @@ function TableCard({ table, onClick }: Props) {
     (state) => state.endSession
   );
 
-  const { openBilling } = useBilling();
+  
 
   return (
     <Card

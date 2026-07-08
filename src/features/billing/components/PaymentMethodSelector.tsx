@@ -1,11 +1,3 @@
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-
 import type { PaymentMethod } from "@/types/session";
 
 interface Props {
@@ -19,42 +11,35 @@ function PaymentMethodSelector({
 }: Props) {
   return (
     <div className="space-y-2">
-
-      <label className="text-sm font-medium">
+      <label className="font-medium">
         Payment Method
       </label>
 
-      <Select
+      <select
         value={value}
-        onValueChange={(value) =>
-          onChange(value as PaymentMethod)
+        onChange={(e) =>
+          onChange(
+            e.target.value as PaymentMethod
+          )
         }
+        className="w-full rounded-md border p-2"
       >
-        <SelectTrigger className="w-full">
-          <SelectValue />
-        </SelectTrigger>
+        <option value="cash">
+          Cash
+        </option>
 
-        <SelectContent>
+        <option value="card">
+          Card
+        </option>
 
-          <SelectItem value="cash">
-            Cash
-          </SelectItem>
+        <option value="jazzcash">
+          JazzCash
+        </option>
 
-          <SelectItem value="card">
-            Card
-          </SelectItem>
-
-          <SelectItem value="jazzcash">
-            JazzCash
-          </SelectItem>
-
-          <SelectItem value="easypaisa">
-            Easypaisa
-          </SelectItem>
-
-        </SelectContent>
-      </Select>
-
+        <option value="easypaisa">
+          Easypaisa
+        </option>
+      </select>
     </div>
   );
 }
