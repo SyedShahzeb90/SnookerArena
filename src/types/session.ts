@@ -1,20 +1,23 @@
 export type SessionType =
-  | "single-game"
-  | "double-game"
-  | "time-booking";
+  | "single"
+  | "double"
+  | "time"
+  | "private";
 
 export interface Session {
   id: string;
 
   tableId: number;
 
-  tableName: string;
+  sessionType: SessionType;
 
-  type: SessionType;
+  player1: string;
 
-  startedAt: Date;
+  player2?: string;
 
-  players: string[];
+  startTime: Date;
 
-  status: "running" | "finished";
+  endTime?: Date;
+
+  isPaid: boolean;
 }

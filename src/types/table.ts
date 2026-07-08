@@ -1,25 +1,20 @@
-export type SessionType =
-  | "single-game"
-  | "double-game"
-  | "time-booking";
+import type { Session } from "./session";
 
 export type TableStatus =
   | "available"
   | "running"
-  | "payment-pending";
+  | "payment-pending"
+  | "reserved"
+  | "maintenance";
 
 export interface Table {
   id: number;
+
   name: string;
+
   type: "table" | "private-room";
 
   status: TableStatus;
 
-  sessionType?: SessionType;
-
-  players?: string[];
-
-  sessionId?: string;
-
-  startedAt?: number;
+  session?: Session;
 }
