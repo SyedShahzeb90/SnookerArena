@@ -28,6 +28,8 @@ function SessionForm({ onSubmit }: Props) {
       onSubmit={(e) => {
         e.preventDefault();
 
+        console.log("✅ SessionForm Submitted");
+
         onSubmit({
           player1,
           player2,
@@ -73,7 +75,7 @@ function SessionForm({ onSubmit }: Props) {
         </select>
       </div>
 
-      <Button className="w-full">
+      <Button type="submit" className="w-full">
         Start Session
       </Button>
     </form>
