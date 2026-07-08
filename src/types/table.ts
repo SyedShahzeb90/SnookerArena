@@ -1,8 +1,12 @@
-export type TableStatus =
-  | "available"
+export type SessionType =
   | "single-game"
   | "double-game"
   | "time-booking";
+
+export type TableStatus =
+  | "available"
+  | "running"
+  | "payment-pending";
 
 export interface Table {
   id: number;
@@ -11,9 +15,11 @@ export interface Table {
 
   status: TableStatus;
 
-  sessionId?: string;
-
-  startedAt?: Date;
+  sessionType?: SessionType;
 
   players?: string[];
+
+  sessionId?: string;
+
+  startedAt?: number;
 }
