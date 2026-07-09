@@ -1,4 +1,9 @@
-import { Coffee, LayoutDashboard } from "lucide-react";
+import {
+  Coffee,
+  LayoutDashboard,
+  ReceiptText,
+  WalletCards,
+} from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -9,9 +14,15 @@ import type { DashboardView } from "./components/DashboardHeader";
 import DashboardStats from "./components/DashboardStats";
 import TableGrid from "./components/TableGrid";
 import FloorPlanView from "@/features/floor-plan/FloorPlanView";
+import BusinessSummaryCards from "@/features/sales/components/BusinessSummaryCards";
+import { useCheckoutStore } from "@/features/billing/store/checkoutStore";
 
 function Dashboard() {
   const navigate = useNavigate();
+  const pendingBillsCount =
+    useCheckoutStore(
+      (state) => state.pendingBills.length
+    );
   const [activeView, setActiveView] =
     useState<DashboardView>("grid");
 
@@ -39,17 +50,63 @@ function Dashboard() {
             </div>
           </div>
 
-          <Button
-            className="gap-2 bg-emerald-950 hover:bg-emerald-900"
-            size="lg"
-            onClick={() => navigate("/cafe")}
-          >
-            <Coffee className="h-4 w-4" />
-            Cafe POS
-          </Button>
+          <div className="flex items-center gap-2">
+            <div className="rounded-lg border bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-sm">
+              Pending Bills:{" "}
+              <span className="font-bold text-slate-950">
+                {pendingBillsCount}
+              </span>
+            </div>
+
+            <Button
+              variant="outline"
+              className="gap-2"
+              size="lg"
+              onClick={() =>
+                navigate("/checkout")
+              }
+            >
+              <ReceiptText className="h-4 w-4" />
+              Billing / Checkout
+            </Button>
+
+            <Button
+              variant="outline"
+              className="gap-2"
+              size="lg"
+              onClick={() =>
+                navigate("/sales")
+              }
+            >
+              <ReceiptText className="h-4 w-4" />
+              Sales History
+            </Button>
+
+            <Button
+              variant="outline"
+              className="gap-2"
+              size="lg"
+              onClick={() =>
+                navigate("/expenses")
+              }
+            >
+              <WalletCards className="h-4 w-4" />
+              Expenses
+            </Button>
+
+            <Button
+              className="gap-2 bg-emerald-950 hover:bg-emerald-900"
+              size="lg"
+              onClick={() => navigate("/cafe")}
+            >
+              <Coffee className="h-4 w-4" />
+              Cafe POS
+            </Button>
+          </div>
         </div>
 
         <DashboardStats />
+        <BusinessSummaryCards />
 
         <div className="mt-6">
           {activeView === "grid" ? (

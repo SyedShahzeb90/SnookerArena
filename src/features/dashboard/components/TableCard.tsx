@@ -12,6 +12,7 @@ import TableInfo from "./TableInfo";
 import RunningPanel from "./RunningPanel";
 import PendingPaymentPanel from "./PendingPaymentPanel";
 import EditSessionDialog from "./EditSessionDialog";
+import EndSessionDialog from "./EndSessionDialog";
 
 type Props = {
   table: Table;
@@ -46,6 +47,8 @@ function TableCard({
   const now = useCurrentTime();
 
   const [editOpen, setEditOpen] =
+    useState(false);
+  const [endOpen, setEndOpen] =
     useState(false);
 
   const endSession = useTableStore(
@@ -120,7 +123,7 @@ function TableCard({
                     setEditOpen(true)
                   }
                   onEndSession={() =>
-                    endSession(table.id)
+                    setEndOpen(true)
                   }
                 />
               )}
@@ -153,6 +156,21 @@ function TableCard({
         table={table}
         onOpenChange={setEditOpen}
       />
+
+      {table.session && (
+        <EndSessionDialog
+          open={endOpen}
+          table={table}
+          onOpenChange={setEndOpen}
+          onConfirm={(result) => {
+            endSession({
+              tableId: table.id,
+              ...result,
+            });
+            setEndOpen(false);
+          }}
+        />
+      )}
     </>
   );
 }

@@ -26,6 +26,18 @@ export interface OrderItem {
   subtotal: number;
 
   timeAdded: Date;
+
+  tableId?: number;
+
+  sessionId?: string;
+
+  customerName?: string;
+
+  playerName?: string;
+
+  playerId?: string;
+
+  orderedAt?: string;
 }
 
 export interface WaitingCustomer {

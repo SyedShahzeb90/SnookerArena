@@ -49,12 +49,19 @@ function CafePage() {
     saveOrder,
     playerOrders,
     getTableOrderItems,
+    getSavedOrderForTable,
   } = useCafeStore();
 
   const [search, setSearch] = useState("");
   const [selectedTarget, setSelectedTarget] =
     useState<SelectedTarget>(null);
   const [expandedTable, setExpandedTable] =
+    useState<number | null>(null);
+  const [orderMessage, setOrderMessage] =
+    useState("");
+  const [orderError, setOrderError] =
+    useState("");
+  const [lastSavedTotal, setLastSavedTotal] =
     useState<number | null>(null);
 
   const runningTables = useMemo(() => {
@@ -102,12 +109,21 @@ function CafePage() {
     updateSessionCafe,
   ]);
 
+  const savedTableOrder =
+    selectedTarget?.type === "player"
+      ? getSavedOrderForTable(
+          selectedTarget.tableId,
+          selectedTarget.sessionId,
+          selectedTarget.playerName
+        )
+      : undefined;
+
   const selectedOrder =
     selectedTarget?.type === "player"
       ? getPlayerOrder(
           selectedTarget.tableId,
           selectedTarget.playerName
-        )
+        ) ?? savedTableOrder
       : selectedTarget?.type === "waiting"
         ? getWaitingCustomerOrder(
             selectedTarget.customerId
@@ -127,6 +143,15 @@ function CafePage() {
     selectedTarget?.type === "player"
       ? `Table ${selectedTarget.tableId}`
       : "Waiting Customer";
+
+  const selectedTable =
+    selectedTarget?.type === "player"
+      ? tables.find(
+          (table) =>
+            table.id ===
+            selectedTarget.tableId
+        )
+      : undefined;
 
   const handleIncrease = (
     menuItemId: string
@@ -181,6 +206,74 @@ function CafePage() {
       type: "waiting",
       customerId,
     });
+  };
+
+  const handleSaveOrder = () => {
+    setOrderMessage("");
+    setOrderError("");
+    setLastSavedTotal(null);
+
+    if (!selectedTarget) {
+      setOrderError(
+        "Please select a customer first."
+      );
+      return;
+    }
+
+    const currentItems =
+      selectedTarget.type === "player"
+        ? selectedOrder?.orderItems ?? []
+        : selectedOrder?.orderItems ?? [];
+
+    if (currentItems.length === 0) {
+      setOrderError(
+        "Please add at least one item."
+      );
+      return;
+    }
+
+    try {
+      const savedOrder = saveOrder({
+        tableId:
+          selectedTarget.type === "player"
+            ? selectedTarget.tableId
+            : undefined,
+        tableName: selectedTable?.name,
+        sessionId:
+          selectedTarget.type === "player"
+            ? selectedTarget.sessionId
+            : undefined,
+        customerName:
+          selectedCustomerName,
+        orderItems: currentItems,
+      });
+
+      if (selectedTarget.type === "player") {
+        updateSessionCafe({
+          tableId: selectedTarget.tableId,
+          cafeOrders:
+            useCafeStore
+              .getState()
+              .getTableOrderItems(
+                selectedTarget.tableId
+              ),
+        });
+      }
+
+      setOrderMessage(
+        savedOrder.tableName
+          ? `Order saved for ${savedOrder.tableName}. Cafe bill is Rs. ${savedOrder.totalAmount}.`
+          : `Order saved for ${savedOrder.customerName}`
+      );
+      setLastSavedTotal(
+        savedOrder.totalAmount
+      );
+    } catch (error) {
+      console.error(error);
+      setOrderError(
+        "Order could not be saved. Please try again."
+      );
+    }
   };
 
   return (
@@ -401,22 +494,44 @@ function CafePage() {
                 </div>
               </div>
             ) : (
-              <OrderCart
-                customerName={
-                  selectedCustomerName
-                }
-                customerMeta={
-                  selectedCustomerMeta
-                }
-                items={
-                  selectedOrder?.orderItems ?? []
-                }
-                onIncrease={handleIncrease}
-                onDecrease={handleDecrease}
-                onSave={() =>
-                  saveOrder(selectedCustomerName)
-                }
-              />
+              <div className="flex h-full min-h-0 flex-col gap-3">
+                {orderMessage && (
+                  <p className="rounded-lg bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
+                    {orderMessage}
+                  </p>
+                )}
+
+                {orderError && (
+                  <p className="rounded-lg bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+                    {orderError}
+                  </p>
+                )}
+
+                <OrderCart
+                  customerName={
+                    selectedCustomerName
+                  }
+                  customerMeta={
+                    selectedCustomerMeta
+                  }
+                  items={
+                    selectedOrder?.orderItems ?? []
+                  }
+                  onIncrease={handleIncrease}
+                  onDecrease={handleDecrease}
+                  onSave={handleSaveOrder}
+                  saveDisabled={
+                    !selectedTarget
+                  }
+                  saveLabel={
+                    lastSavedTotal ===
+                    (selectedOrder?.totalAmount ??
+                      0)
+                      ? "Order Saved"
+                      : "Save Order"
+                  }
+                />
+              </div>
             )}
           </aside>
         </div>

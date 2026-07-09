@@ -33,6 +33,10 @@ export function calculateGamePrice({
   );
 
   let gameAmount = 0;
+  const tableRate =
+    tableType === "private-room"
+      ? PRIVATE_ROOM_RATE_PER_MINUTE
+      : TABLE_RATE_PER_MINUTE;
 
   switch (sessionType) {
     case "single":
@@ -46,7 +50,7 @@ export function calculateGamePrice({
     case "time":
       gameAmount =
         duration.totalMinutes *
-        TABLE_RATE_PER_MINUTE;
+        tableRate;
       break;
 
     case "private":

@@ -10,6 +10,8 @@ interface Props {
   onIncrease: (menuItemId: string) => void;
   onDecrease: (menuItemId: string) => void;
   onSave: () => void;
+  saveDisabled?: boolean;
+  saveLabel?: string;
 }
 
 function OrderCart({
@@ -19,6 +21,8 @@ function OrderCart({
   onIncrease,
   onDecrease,
   onSave,
+  saveDisabled = false,
+  saveLabel = "Save Order",
 }: Props) {
   const total = items.reduce(
     (sum, item) =>
@@ -131,9 +135,11 @@ function OrderCart({
           className="w-full text-lg"
           size="lg"
           onClick={onSave}
-          disabled={!items.length}
+          disabled={
+            saveDisabled || !items.length
+          }
         >
-          Save Order
+          {saveLabel}
         </Button>
       </div>
     </Card>

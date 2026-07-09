@@ -10,10 +10,10 @@ function PaymentActions({
   return (
     <div className="flex gap-3">
       <Button
-        className="flex-1"
+        className="h-11 flex-1 text-base"
         onClick={onReceivePayment}
       >
-        Receive Payment
+        Generate Bill & Receive Payment
       </Button>
     </div>
   );

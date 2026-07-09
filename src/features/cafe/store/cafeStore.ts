@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 
 import { menuItems as initialMenu } from "../data/menu";
 
@@ -20,12 +21,43 @@ export interface PlayerOrder {
   totalAmount: number;
 }
 
+export interface SavedCafeOrder {
+  id: string;
+  tableId?: number;
+  tableName?: string;
+  sessionId?: string;
+  customerName: string;
+  orderItems: OrderItem[];
+  totalAmount: number;
+  createdAt: string;
+  updatedAt: string;
+  status: "saved";
+}
+
+interface SaveOrderInput {
+  tableId?: number;
+  tableName?: string;
+  sessionId?: string;
+  customerName: string;
+  orderItems: OrderItem[];
+}
+
+interface OrderItemContext {
+  tableId?: number;
+  sessionId?: string;
+  customerName?: string;
+  playerName?: string;
+  playerId?: string;
+}
+
 interface CafeStore {
   menu: MenuItem[];
 
   waitingCustomers: WaitingCustomer[];
 
   playerOrders: PlayerOrder[];
+
+  savedOrders: SavedCafeOrder[];
 
   addWaitingCustomer: (
     name: string
@@ -53,6 +85,12 @@ interface CafeStore {
   getTableOrderItems: (
     tableId: number
   ) => OrderItem[];
+
+  getSavedOrderForTable: (
+    tableId: number,
+    sessionId?: string,
+    customerName?: string
+  ) => SavedCafeOrder | undefined;
 
   addItemToPlayer: (
     tableId: number,
@@ -92,9 +130,14 @@ interface CafeStore {
     tableId: number
   ) => void;
 
-  saveOrder: (
-    targetName: string
+  clearSessionOrders: (
+    tableId: number,
+    sessionId: string
   ) => void;
+
+  saveOrder: (
+    input: SaveOrderInput
+  ) => SavedCafeOrder;
 }
 
 const calculateTotal = (
@@ -109,7 +152,8 @@ const calculateTotal = (
 
 const upsertOrderItem = (
   orderItems: OrderItem[],
-  item: MenuItem
+  item: MenuItem,
+  context: OrderItemContext = {}
 ) => {
   const existing = orderItems.find(
     (orderItem) =>
@@ -140,6 +184,15 @@ const upsertOrderItem = (
       quantity: 1,
       subtotal: item.price,
       timeAdded: new Date(),
+      tableId: context.tableId,
+      sessionId: context.sessionId,
+      customerName:
+        context.customerName ??
+        context.playerName,
+      playerName: context.playerName,
+      playerId: context.playerId,
+      orderedAt:
+        new Date().toISOString(),
     },
   ];
 };
@@ -179,12 +232,16 @@ const decreaseOrderItem = (
     .filter((item) => item.quantity > 0);
 
 export const useCafeStore =
-  create<CafeStore>((set, get) => ({
+  create<CafeStore>()(
+    persist(
+      (set, get) => ({
     menu: initialMenu,
 
     waitingCustomers: [],
 
     playerOrders: [],
+
+    savedOrders: [],
 
     addWaitingCustomer: (
       name
@@ -277,6 +334,29 @@ export const useCafeStore =
           (order) => order.orderItems
         ),
 
+    getSavedOrderForTable: (
+      tableId,
+      sessionId,
+      customerName
+    ) =>
+      get().savedOrders.find((order) => {
+        if (
+          customerName &&
+          order.customerName !== customerName
+        ) {
+          return false;
+        }
+
+        if (
+          sessionId &&
+          order.sessionId === sessionId
+        ) {
+          return true;
+        }
+
+        return order.tableId === tableId;
+      }),
+
 addItemToPlayer: (
   tableId,
   sessionId,
@@ -317,7 +397,14 @@ addItemToPlayer: (
           const orderItems =
             upsertOrderItem(
               player.orderItems,
-              item
+              item,
+              {
+                tableId,
+                sessionId,
+                customerName: playerName,
+                playerName,
+                playerId: playerName,
+              }
             );
 
           return {
@@ -414,7 +501,11 @@ addItemToWaitingCustomer: (
           const orderItems =
             upsertOrderItem(
               customer.orderItems,
-              item
+              item,
+              {
+                customerName:
+                  customer.name,
+              }
             );
 
           return {
@@ -494,11 +585,165 @@ clearTableOrders: (tableId) =>
         (order) =>
           order.tableId !== tableId
       ),
+    savedOrders:
+      state.savedOrders.filter(
+        (order) =>
+          order.tableId !== tableId
+      ),
   })),
 
-saveOrder: (targetName) => {
-  console.log(
-    `Order saved for ${targetName}`
+clearSessionOrders: (tableId, sessionId) =>
+  set((state) => ({
+    playerOrders:
+      state.playerOrders.filter(
+        (order) =>
+          !(
+            order.tableId === tableId &&
+            order.sessionId === sessionId
+          )
+      ),
+    savedOrders:
+      state.savedOrders.filter(
+        (order) =>
+          !(
+            order.tableId === tableId &&
+            order.sessionId === sessionId
+          )
+      ),
+  })),
+
+saveOrder: (input) => {
+  const totalAmount = calculateTotal(
+    input.orderItems
   );
+
+  if (!input.customerName.trim()) {
+    throw new Error(
+      "Customer is required."
+    );
+  }
+
+  if (input.orderItems.length === 0) {
+    throw new Error(
+      "Order cart is empty."
+    );
+  }
+
+  const now = new Date().toISOString();
+  const existingOrder =
+    get().savedOrders.find((order) => {
+      if (
+        input.sessionId &&
+        order.sessionId === input.sessionId &&
+        order.customerName ===
+          input.customerName
+      ) {
+        return true;
+      }
+
+      return (
+        input.tableId !== undefined &&
+        order.tableId === input.tableId &&
+        order.customerName ===
+          input.customerName &&
+        order.status === "saved"
+      );
+    });
+
+  const savedOrder: SavedCafeOrder = {
+    id:
+      existingOrder?.id ??
+      `CAFE-${Date.now()}`,
+    tableId: input.tableId,
+    tableName: input.tableName,
+    sessionId: input.sessionId,
+    customerName: input.customerName,
+    orderItems: input.orderItems.map(
+      (item) => ({ ...item })
+    ),
+    totalAmount,
+    createdAt:
+      existingOrder?.createdAt ?? now,
+    updatedAt: now,
+    status: "saved",
+  };
+
+  set((state) => {
+    const savedOrders = existingOrder
+      ? state.savedOrders.map((order) =>
+          order.id === existingOrder.id
+            ? savedOrder
+            : order
+        )
+      : [
+          savedOrder,
+          ...state.savedOrders,
+        ];
+
+    const playerOrderExists =
+      input.tableId !== undefined &&
+      input.sessionId &&
+      state.playerOrders.some(
+        (order) =>
+          order.tableId === input.tableId &&
+          order.sessionId === input.sessionId &&
+          order.playerName ===
+            input.customerName
+      );
+
+    const playerOrders =
+      input.tableId !== undefined &&
+      input.sessionId
+        ? playerOrderExists
+          ? state.playerOrders.map((order) =>
+              order.tableId ===
+                input.tableId &&
+              order.sessionId ===
+                input.sessionId &&
+              order.playerName ===
+                input.customerName
+                ? {
+                    ...order,
+                    orderItems:
+                      savedOrder.orderItems,
+                    totalAmount:
+                      savedOrder.totalAmount,
+                  }
+                : order
+            )
+          : [
+              ...state.playerOrders,
+              {
+                tableId: input.tableId,
+                sessionId:
+                  input.sessionId,
+                playerName:
+                  input.customerName,
+                orderItems:
+                  savedOrder.orderItems,
+                totalAmount:
+                  savedOrder.totalAmount,
+              },
+            ]
+        : state.playerOrders;
+
+    return {
+      savedOrders,
+      playerOrders,
+    };
+  });
+
+  return savedOrder;
 },
-}));
+      }),
+      {
+        name: "snooker-arena-cafe",
+        partialize: (state) => ({
+          waitingCustomers:
+            state.waitingCustomers,
+          playerOrders: state.playerOrders,
+          savedOrders: state.savedOrders,
+        }),
+      }
+    )
+  );

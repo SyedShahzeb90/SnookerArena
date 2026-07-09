@@ -22,6 +22,18 @@ export interface CafeOrderItem {
   subtotal: number;
 
   timeAdded: Date;
+
+  tableId?: number;
+
+  sessionId?: string;
+
+  customerName?: string;
+
+  playerName?: string;
+
+  playerId?: string;
+
+  orderedAt?: string;
 }
 
 export interface Session {
@@ -48,6 +60,12 @@ export interface Session {
   cafeOrders: CafeOrderItem[];
 
   discount: number;
+
+  winnerName?: string;
+
+  loserName?: string;
+
+  payerName?: string;
 
   paymentMethod?: PaymentMethod;
 

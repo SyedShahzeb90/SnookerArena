@@ -1,7 +1,10 @@
 import { create } from "zustand";
 
 import { initialTables } from "@/data/initialTables";
+import { useCheckoutStore } from "@/features/billing/store/checkoutStore";
 import { useCafeStore } from "@/features/cafe/store/cafeStore";
+import { useSalesStore } from "@/features/sales/store/salesStore";
+import { createSaleFromTable } from "@/features/sales/utils/createSale";
 
 import type {
   CafeOrderItem,
@@ -31,11 +34,19 @@ interface UpdateSessionData {
 interface ReceivePaymentData {
   tableId: number;
   paymentMethod: PaymentMethod;
+  payerName?: string;
 }
 
 interface UpdateSessionCafeData {
   tableId: number;
   cafeOrders: CafeOrderItem[];
+}
+
+interface EndSessionData {
+  tableId: number;
+  winnerName?: string;
+  loserName?: string;
+  payerName?: string;
 }
 
 interface TableStore {
@@ -57,9 +68,7 @@ interface TableStore {
     tableId: number
   ) => void;
 
-  endSession: (
-    tableId: number
-  ) => void;
+  endSession: (data: EndSessionData) => void;
 
   updateSessionCafe: (
     data: UpdateSessionCafeData
@@ -183,7 +192,12 @@ export const useTableStore =
         }),
       })),
 
-    endSession: (tableId) =>
+    endSession: ({
+      tableId,
+      winnerName,
+      loserName,
+      payerName,
+    }) =>
       set((state) => ({
         tables: state.tables.map((table) => {
           if (table.id !== tableId)
@@ -204,15 +218,27 @@ export const useTableStore =
               ).getTime();
           }
 
+          const endedSession: Session = {
+            ...table.session,
+            pausedAt: undefined,
+            totalPausedMilliseconds,
+            endTime: new Date(),
+            winnerName,
+            loserName,
+            payerName,
+          };
+
+          useCheckoutStore
+            .getState()
+            .addPendingBill({
+              table,
+              session: endedSession,
+            });
+
           return {
             ...table,
-            status: "payment-pending",
-            session: {
-              ...table.session,
-              pausedAt: undefined,
-              totalPausedMilliseconds,
-              endTime: new Date(),
-            },
+            status: "available",
+            session: undefined,
           };
         }),
       })),
@@ -277,6 +303,7 @@ export const useTableStore =
     receivePayment: ({
       tableId,
       paymentMethod,
+      payerName,
     }) =>
       set((state) => ({
         tables: state.tables.map((table) => {
@@ -286,8 +313,31 @@ export const useTableStore =
           if (!table.session)
             return table;
 
+          const salesStore =
+            useSalesStore.getState();
+          const invoiceNumber =
+            salesStore.getNextInvoiceNumber();
+          const tableForSale = {
+            ...table,
+            session: {
+              ...table.session,
+              payerName:
+                payerName ??
+                table.session.payerName,
+            },
+          };
+          const sale = createSaleFromTable({
+            table: tableForSale,
+            paymentMethod,
+            invoiceNumber,
+          });
+
+          if (sale) {
+            salesStore.addSale(sale);
+          }
+
           console.log("Paid Session", {
-            ...table.session,
+            ...tableForSale.session,
             paymentMethod,
             isPaid: true,
           });

@@ -411,10 +411,35 @@ function CafeDialog({
         }
       }}
       onSave={() => {
+        const selectedTableRecord =
+          tables.find(
+            (table) =>
+              table.id === selectedTable
+          );
+        const orderItems =
+          selectedPlayer &&
+          selectedTable
+            ? getTableOrderItems(
+                selectedTable
+              )
+            : currentWaitingCustomer
+                ?.orderItems ?? [];
+
         saveOrder(
-          selectedPlayer ||
-            currentWaitingCustomer?.name ||
-            "Customer"
+          {
+            tableId:
+              selectedTableRecord?.id,
+            tableName:
+              selectedTableRecord?.name,
+            sessionId:
+              selectedTableRecord
+                ?.session?.id,
+            customerName:
+              selectedPlayer ||
+              currentWaitingCustomer?.name ||
+              "Customer",
+            orderItems,
+          }
         );
 
         onOpenChange(false);

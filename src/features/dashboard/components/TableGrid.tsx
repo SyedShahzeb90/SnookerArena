@@ -46,13 +46,15 @@ function TableGrid() {
   };
 
   const handleReceivePayment = (
-    paymentMethod: PaymentMethod
+    paymentMethod: PaymentMethod,
+    payerName?: string
   ) => {
     if (!selectedTable) return;
 
     receivePayment({
       tableId: selectedTable.id,
       paymentMethod,
+      payerName,
     });
 
     closeDialog();
