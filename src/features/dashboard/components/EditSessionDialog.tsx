@@ -17,16 +17,16 @@ interface Props {
   onOpenChange: (open: boolean) => void;
 }
 
-function StartSessionDialog({
+function EditSessionDialog({
   open,
   table,
   onOpenChange,
 }: Props) {
-  const startSession = useTableStore(
-    (state) => state.startSession
+  const updateSession = useTableStore(
+    (state) => state.updateSession
   );
 
-  if (!table) {
+  if (!table || !table.session) {
     return null;
   }
 
@@ -38,15 +38,16 @@ function StartSessionDialog({
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>
-            Start Session - {table.name}
+            Edit Session - {table.name}
           </DialogTitle>
         </DialogHeader>
 
         <SessionForm
           tableType={table.type}
-          submitLabel="Start Session"
+          session={table.session}
+          submitLabel="Save Changes"
           onSubmit={(data) => {
-            startSession({
+            updateSession({
               tableId: table.id,
               player1: data.player1,
               player2: data.player2,
@@ -62,4 +63,4 @@ function StartSessionDialog({
   );
 }
 
-export default StartSessionDialog;
+export default EditSessionDialog;

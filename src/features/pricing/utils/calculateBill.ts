@@ -14,15 +14,14 @@ export function calculateBill({
   cafeAmount,
   discount,
 }: BillInput): BillResult {
-  const subtotal = gameAmount + cafeAmount;
-
-  const total = Math.max(
-    subtotal - discount,
-    0
-  );
+  const subtotal =
+    gameAmount + cafeAmount;
 
   return {
     subtotal,
-    total,
+    total: Math.max(
+      subtotal - discount,
+      0
+    ),
   };
 }

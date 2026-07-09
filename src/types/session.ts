@@ -10,6 +10,20 @@ export type PaymentMethod =
   | "jazzcash"
   | "easypaisa";
 
+export interface CafeOrderItem {
+  menuItemId: string;
+
+  name: string;
+
+  price: number;
+
+  quantity: number;
+
+  subtotal: number;
+
+  timeAdded: Date;
+}
+
 export interface Session {
   id: string;
 
@@ -25,15 +39,15 @@ export interface Session {
 
   endTime?: Date;
 
-  // Billing
+  pausedAt?: Date;
 
-  gameAmount: number;
+  totalPausedMilliseconds: number;
 
   cafeAmount: number;
 
-  discount: number;
+  cafeOrders: CafeOrderItem[];
 
-  totalAmount: number;
+  discount: number;
 
   paymentMethod?: PaymentMethod;
 

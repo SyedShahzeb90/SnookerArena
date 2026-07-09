@@ -1,3 +1,5 @@
+import { Clock, Users } from "lucide-react";
+
 import type { Session } from "@/types/session";
 
 interface Props {
@@ -6,43 +8,41 @@ interface Props {
 
 function TableInfo({ session }: Props) {
   return (
-    <div className="space-y-4">
-      <div>
-        <p className="text-sm text-gray-500">
+    <div className="grid grid-cols-2 gap-3">
+      <div className="rounded-lg bg-slate-50 p-3">
+        <div className="mb-2 flex items-center gap-2 text-sm font-medium text-slate-500">
+          <Users className="h-4 w-4" />
           Players
-        </p>
+        </div>
 
-        <p className="font-semibold">
+        <p className="font-semibold text-slate-950">
           {session.player1 || "-"}
         </p>
 
         {session.player2 && (
-          <p className="font-semibold">
+          <p className="font-semibold text-slate-950">
             {session.player2}
           </p>
         )}
       </div>
 
-      <div>
-        <p className="text-sm text-gray-500">
-          Session Type
-        </p>
-
-        <p className="font-semibold capitalize">
-          {session.sessionType}
-        </p>
-      </div>
-
-      <div>
-        <p className="text-sm text-gray-500">
+      <div className="rounded-lg bg-slate-50 p-3">
+        <div className="mb-2 flex items-center gap-2 text-sm font-medium text-slate-500">
+          <Clock className="h-4 w-4" />
           Started
-        </p>
+        </div>
 
-        <p className="font-semibold">
-          {new Date(session.startTime).toLocaleTimeString([], {
+        <p className="font-semibold text-slate-950">
+          {new Date(
+            session.startTime
+          ).toLocaleTimeString([], {
             hour: "2-digit",
             minute: "2-digit",
           })}
+        </p>
+
+        <p className="text-sm capitalize text-slate-500">
+          {session.sessionType}
         </p>
       </div>
     </div>

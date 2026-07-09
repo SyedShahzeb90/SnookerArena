@@ -47,14 +47,14 @@ function BillingDialog({
         </DialogHeader>
 
         <BillingSummary
-          gameAmount={session.gameAmount}
-          cafeAmount={session.cafeAmount}
-          discount={session.discount}
+          session={session}
         />
 
         <PaymentMethodSelector
           value={paymentMethod}
-          onChange={setPaymentMethod}
+          onChange={
+            setPaymentMethod
+          }
         />
 
         <PaymentActions

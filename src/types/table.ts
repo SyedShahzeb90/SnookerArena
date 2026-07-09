@@ -3,6 +3,7 @@ import type { Session } from "./session";
 export type TableStatus =
   | "available"
   | "running"
+  | "paused"
   | "payment-pending"
   | "reserved"
   | "maintenance";

@@ -1,8 +1,10 @@
 import { create } from "zustand";
 
 import { initialTables } from "@/data/initialTables";
+import { useCafeStore } from "@/features/cafe/store/cafeStore";
 
 import type {
+  CafeOrderItem,
   PaymentMethod,
   Session,
   SessionType,
@@ -18,9 +20,22 @@ interface StartSessionData {
   startTime: Date;
 }
 
+interface UpdateSessionData {
+  tableId: number;
+  player1: string;
+  player2?: string;
+  sessionType: SessionType;
+  startTime: Date;
+}
+
 interface ReceivePaymentData {
   tableId: number;
   paymentMethod: PaymentMethod;
+}
+
+interface UpdateSessionCafeData {
+  tableId: number;
+  cafeOrders: CafeOrderItem[];
 }
 
 interface TableStore {
@@ -30,8 +45,24 @@ interface TableStore {
     data: StartSessionData
   ) => void;
 
+  updateSession: (
+    data: UpdateSessionData
+  ) => void;
+
+  pauseSession: (
+    tableId: number
+  ) => void;
+
+  resumeSession: (
+    tableId: number
+  ) => void;
+
   endSession: (
     tableId: number
+  ) => void;
+
+  updateSessionCafe: (
+    data: UpdateSessionCafeData
   ) => void;
 
   receivePayment: (
@@ -57,10 +88,12 @@ export const useTableStore =
             player2: data.player2,
             startTime: data.startTime,
 
-            gameAmount: 0,
+            pausedAt: undefined,
+            totalPausedMilliseconds: 0,
+
             cafeAmount: 0,
+            cafeOrders: [],
             discount: 0,
-            totalAmount: 0,
 
             isPaid: false,
           };
@@ -69,6 +102,83 @@ export const useTableStore =
             ...table,
             status: "running",
             session,
+          };
+        }),
+      })),
+
+    updateSession: (data) =>
+      set((state) => ({
+        tables: state.tables.map((table) => {
+          if (table.id !== data.tableId)
+            return table;
+
+          if (!table.session)
+            return table;
+
+          return {
+            ...table,
+            session: {
+              ...table.session,
+              player1: data.player1,
+              player2: data.player2,
+              sessionType:
+                data.sessionType,
+              startTime:
+                data.startTime,
+            },
+          };
+        }),
+      })),
+
+    pauseSession: (tableId) =>
+      set((state) => ({
+        tables: state.tables.map((table) => {
+          if (table.id !== tableId)
+            return table;
+
+          if (!table.session)
+            return table;
+
+          return {
+            ...table,
+            status: "paused",
+            session: {
+              ...table.session,
+              pausedAt: new Date(),
+            },
+          };
+        }),
+      })),
+
+    resumeSession: (tableId) =>
+      set((state) => ({
+        tables: state.tables.map((table) => {
+          if (table.id !== tableId)
+            return table;
+
+          if (
+            !table.session ||
+            !table.session.pausedAt
+          )
+            return table;
+
+          const pausedTime =
+            Date.now() -
+            new Date(
+              table.session.pausedAt
+            ).getTime();
+
+          return {
+            ...table,
+            status: "running",
+            session: {
+              ...table.session,
+              pausedAt: undefined,
+              totalPausedMilliseconds:
+                table.session
+                  .totalPausedMilliseconds +
+                pausedTime,
+            },
           };
         }),
       })),
@@ -82,17 +192,87 @@ export const useTableStore =
           if (!table.session)
             return table;
 
+          let totalPausedMilliseconds =
+            table.session
+              .totalPausedMilliseconds;
+
+          if (table.session.pausedAt) {
+            totalPausedMilliseconds +=
+              Date.now() -
+              new Date(
+                table.session.pausedAt
+              ).getTime();
+          }
+
           return {
             ...table,
             status: "payment-pending",
-
             session: {
               ...table.session,
+              pausedAt: undefined,
+              totalPausedMilliseconds,
               endTime: new Date(),
             },
           };
         }),
       })),
+
+    updateSessionCafe: ({
+      tableId,
+      cafeOrders,
+    }) =>
+      set((state) => {
+        let changed = false;
+
+        const tables = state.tables.map((table) => {
+          if (table.id !== tableId) {
+            return table;
+          }
+
+          if (!table.session) {
+            return table;
+          }
+
+          const cafeAmount =
+            cafeOrders.reduce(
+              (total, item) =>
+                total + item.subtotal,
+              0
+            );
+
+          const existingSignature =
+            JSON.stringify(
+              table.session.cafeOrders
+            );
+          const nextSignature =
+            JSON.stringify(cafeOrders);
+
+          if (
+            table.session.cafeAmount ===
+              cafeAmount &&
+            existingSignature === nextSignature
+          ) {
+            return table;
+          }
+
+          changed = true;
+
+          return {
+            ...table,
+            session: {
+              ...table.session,
+              cafeOrders,
+              cafeAmount,
+            },
+          };
+        });
+
+        if (!changed) {
+          return state;
+        }
+
+        return { tables };
+      }),
 
     receivePayment: ({
       tableId,
@@ -106,16 +286,20 @@ export const useTableStore =
           if (!table.session)
             return table;
 
+          console.log("Paid Session", {
+            ...table.session,
+            paymentMethod,
+            isPaid: true,
+          });
+
+          useCafeStore
+            .getState()
+            .clearTableOrders(tableId);
+
           return {
             ...table,
-
             status: "available",
-
-            session: {
-              ...table.session,
-              paymentMethod,
-              isPaid: true,
-            },
+            session: undefined,
           };
         }),
       })),

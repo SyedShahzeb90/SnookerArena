@@ -6,45 +6,35 @@ interface Props {
 }
 
 function TableStatusBadge({ status }: Props) {
-  switch (status) {
-    case "available":
-      return (
-        <Badge className="bg-green-600">
-          Available
-        </Badge>
-      );
+  const styles: Record<TableStatus, string> = {
+    available:
+      "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 hover:bg-emerald-50",
+    running:
+      "bg-red-50 text-red-700 ring-1 ring-red-200 hover:bg-red-50",
+    paused:
+      "bg-slate-100 text-slate-700 ring-1 ring-slate-200 hover:bg-slate-100",
+    "payment-pending":
+      "bg-amber-50 text-amber-700 ring-1 ring-amber-200 hover:bg-amber-50",
+    reserved:
+      "bg-blue-50 text-blue-700 ring-1 ring-blue-200 hover:bg-blue-50",
+    maintenance:
+      "bg-zinc-100 text-zinc-700 ring-1 ring-zinc-200 hover:bg-zinc-100",
+  };
 
-    case "running":
-      return (
-        <Badge variant="destructive">
-          Running
-        </Badge>
-      );
+  const labels: Record<TableStatus, string> = {
+    available: "Available",
+    running: "Running",
+    paused: "Paused",
+    "payment-pending": "Payment Due",
+    reserved: "Reserved",
+    maintenance: "Maintenance",
+  };
 
-    case "payment-pending":
-      return (
-        <Badge className="bg-yellow-500 text-black">
-          Payment Pending
-        </Badge>
-      );
-
-    case "reserved":
-      return (
-        <Badge className="bg-blue-600">
-          Reserved
-        </Badge>
-      );
-
-    case "maintenance":
-      return (
-        <Badge variant="secondary">
-          Maintenance
-        </Badge>
-      );
-
-    default:
-      return <Badge>{status}</Badge>;
-  }
+  return (
+    <Badge className={styles[status]}>
+      {labels[status]}
+    </Badge>
+  );
 }
 
 export default TableStatusBadge;
