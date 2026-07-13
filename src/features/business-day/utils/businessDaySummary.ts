@@ -1,5 +1,10 @@
 import type { PendingBill } from "@/features/billing/store/checkoutStore";
+import {
+  getPlayerCafeAmount,
+  hasPlayerName,
+} from "@/features/billing/utils/playerBillIdentity";
 import type { Expense } from "@/features/expenses/types/expense";
+import { isActiveExpense } from "@/features/expenses/utils/expenseHelpers";
 import { calculateBill } from "@/features/pricing/utils/calculateBill";
 import { calculateGamePrice } from "@/features/pricing/utils/calculateGamePrice";
 import type { Sale } from "@/features/sales/types/sale";
@@ -41,23 +46,13 @@ export function getRemainingPendingBillTotal(
     return players.reduce((total, name) => {
       if (
         !name ||
-        paidPlayers.includes(name)
+        hasPlayerName(paidPlayers, name)
       ) {
         return total;
       }
 
       const cafeAmount =
-        session.cafeOrders
-          .filter(
-            (item) =>
-              (item.playerName ??
-                item.customerName) === name
-          )
-          .reduce(
-            (sum, item) =>
-              sum + item.subtotal,
-            0
-          );
+        getPlayerCafeAmount(session, name);
       const tableAmount =
         payerName === name
           ? pricing.gameAmount
@@ -91,7 +86,8 @@ export function calculateBusinessDaySummary({
   );
   const dayExpenses = expenses.filter(
     (expense) =>
-      expense.activeBusinessDayId === day.id
+      expense.activeBusinessDayId === day.id &&
+      isActiveExpense(expense)
   );
 
   const salesTotals = daySales.reduce(

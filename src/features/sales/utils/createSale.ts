@@ -8,6 +8,10 @@ import type {
 import type { Table } from "@/types/table";
 import { getSessionPlayers } from "@/features/sessions/utils/sessionPlayers";
 import { calculateDoubleGamePayerBreakdown } from "@/features/sessions/utils/doubleGameBilling";
+import {
+  findPayerBreakdownForPlayer,
+  getPlayerCafeItems,
+} from "@/features/billing/utils/playerBillIdentity";
 
 import type { Sale } from "../types/sale";
 import type { PaymentSplit } from "../types/sale";
@@ -67,13 +71,6 @@ export function createSaleFromTable({
   });
   const players = getSessionPlayers(session);
 
-  const itemPlayerName = (
-    item: (typeof session.cafeOrders)[number]
-  ) =>
-    item.playerName ??
-    item.customerName ??
-    "";
-
   const payerBreakdown =
     calculateDoubleGamePayerBreakdown({
       session,
@@ -83,10 +80,9 @@ export function createSaleFromTable({
   const playerBreakdown = players.map(
     (playerName) => {
       const cafeItems =
-        session.cafeOrders.filter(
-          (item) =>
-            itemPlayerName(item) ===
-            playerName
+        getPlayerCafeItems(
+          session,
+          playerName
         );
       const cafeAmount =
         cafeItems.reduce(
@@ -95,10 +91,9 @@ export function createSaleFromTable({
           0
         );
       const tableAmountShare =
-        payerBreakdown.find(
-          (payer) =>
-            payer.playerName ===
-            playerName
+        findPayerBreakdownForPlayer(
+          payerBreakdown,
+          playerName
         )?.tableAmountShare ?? 0;
 
       return {

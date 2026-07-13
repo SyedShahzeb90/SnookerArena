@@ -1,5 +1,6 @@
 import {
   Pencil,
+  Plus,
   Play,
   Pause,
   Trash2,
@@ -12,6 +13,7 @@ interface Props {
   elapsed: string;
   isPaused?: boolean;
   onPause?: () => void;
+  onAddCharge?: () => void;
   onEdit?: () => void;
   onCancelSession?: () => void;
   onEndSession: () => void;
@@ -21,6 +23,7 @@ function RunningPanel({
   elapsed,
   isPaused = false,
   onPause,
+  onAddCharge,
   onEdit,
   onCancelSession,
   onEndSession,
@@ -36,6 +39,14 @@ function RunningPanel({
           {elapsed}
         </p>
       </div>
+
+      <Button
+        className="w-full gap-2"
+        onClick={onAddCharge}
+      >
+        <Plus className="h-4 w-4" />
+        Add Game / Time
+      </Button>
 
       <div className="grid grid-cols-4 gap-2">
         <Button

@@ -7,6 +7,9 @@ import type {
   ExpenseInput,
 } from "../types/expense";
 import {
+  isActiveExpense,
+} from "../utils/expenseHelpers";
+import {
   getExpensesByCategory as filterByCategory,
   getExpensesByDateRange as filterByDateRange,
   getExpensesTotal,
@@ -24,6 +27,10 @@ interface ExpensesStore {
     input: ExpenseInput
   ) => void;
   deleteExpense: (id: string) => void;
+  cancelExpense: (
+    id: string,
+    reason?: string
+  ) => void;
   getExpenses: () => Expense[];
   getTodayExpensesTotal: () => number;
   getMonthExpensesTotal: () => number;
@@ -47,6 +54,7 @@ export const useExpensesStore =
           const expense: Expense = {
             id: `EXP-${Date.now()}`,
             ...input,
+            status: "active",
             createdAt:
               new Date().toISOString(),
           };
@@ -83,6 +91,25 @@ export const useExpensesStore =
               ),
           })),
 
+        cancelExpense: (id, reason) =>
+          set((state) => ({
+            expenses: state.expenses.map(
+              (expense) =>
+                expense.id === id &&
+                isActiveExpense(expense)
+                  ? {
+                      ...expense,
+                      status: "cancelled",
+                      cancelledAt:
+                        new Date().toISOString(),
+                      cancellationReason:
+                        reason?.trim() ||
+                        undefined,
+                    }
+                  : expense
+            ),
+          })),
+
         getExpenses: () => get().expenses,
 
         getTodayExpensesTotal: () => {
@@ -94,7 +121,7 @@ export const useExpensesStore =
               get().expenses,
               start,
               end
-            )
+            ).filter(isActiveExpense)
           );
         },
 
@@ -107,7 +134,7 @@ export const useExpensesStore =
               get().expenses,
               start,
               end
-            )
+            ).filter(isActiveExpense)
           );
         },
 
@@ -119,7 +146,7 @@ export const useExpensesStore =
             get().expenses,
             start,
             end
-          ),
+          ).filter(isActiveExpense),
 
         getExpensesByCategory: (
           category
@@ -127,7 +154,7 @@ export const useExpensesStore =
           filterByCategory(
             get().expenses,
             category
-          ),
+          ).filter(isActiveExpense),
 
         resetExpensesStore: () =>
           set({

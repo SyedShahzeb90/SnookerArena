@@ -31,6 +31,7 @@ import {
   getWalkInDisplayName,
   isWalkInName,
 } from "@/features/sessions/utils/walkInLabel";
+import { normalizePlayerName } from "./utils/playerIdentity";
 import { useSalesStore } from "@/features/sales/store/salesStore";
 import { useBusinessDayStore } from "@/features/business-day/store/businessDayStore";
 import { useCustomerAccountStore } from "@/features/customers/store/customerAccountStore";
@@ -156,7 +157,7 @@ function CafePage() {
     useRef("");
   const selectedTargetKey =
     selectedTarget?.type === "runningTable"
-      ? `runningTable-${selectedTarget.tableId}-${selectedTarget.sessionId}-${selectedTarget.playerName}`
+      ? `runningTable-${selectedTarget.tableId}-${selectedTarget.sessionId}-${selectedTarget.customerId ?? normalizePlayerName(selectedTarget.playerName)}`
       : selectedTarget?.type === "waitingCustomer"
         ? `waitingCustomer-${selectedTarget.customerId}-${selectedTarget.customerAccountId ?? ""}`
         : selectedTarget?.type === "openBill"
@@ -436,7 +437,8 @@ function CafePage() {
       ? getSavedOrderForTable(
           selectedTarget.tableId,
           selectedTarget.sessionId,
-          selectedTarget.playerName
+          selectedTarget.playerName,
+          selectedTarget.customerId
         )
       : undefined;
 
@@ -444,7 +446,8 @@ function CafePage() {
     selectedTarget?.type === "runningTable"
       ? getPlayerOrder(
           selectedTarget.tableId,
-          selectedTarget.playerName
+          selectedTarget.playerName,
+          selectedTarget.customerId
         ) ?? savedTableOrder
       : selectedTarget?.type === "waitingCustomer"
         ? getWaitingCustomerOrder(
@@ -646,7 +649,8 @@ function CafePage() {
       increasePlayerItem(
         selectedTarget.tableId,
         selectedTarget.playerName,
-        menuItemId
+        menuItemId,
+        selectedTarget.customerId
       );
       return;
     }
@@ -721,7 +725,8 @@ function CafePage() {
       decreasePlayerItem(
         selectedTarget.tableId,
         selectedTarget.playerName,
-        menuItemId
+        menuItemId,
+        selectedTarget.customerId
       );
       return;
     }
@@ -786,7 +791,8 @@ function CafePage() {
         selectedTarget.tableId,
         selectedTarget.sessionId,
         selectedTarget.playerName,
-        item
+        item,
+        selectedTarget.customerId
       );
       return;
     }
@@ -971,12 +977,12 @@ function CafePage() {
     });
   }, [searchParams, tables]);
 
-  const getPlayerCustomerId = (
+  function getPlayerCustomerId(
     session: NonNullable<
       (typeof tables)[number]["session"]
     >,
     playerName: string
-  ) => {
+  ) {
     const players = [
       {
         name: session.player1,
@@ -1002,8 +1008,64 @@ function CafePage() {
 
     return players.find(
       (player) =>
-        player.name?.trim() === playerName
+        normalizePlayerName(player.name) ===
+        normalizePlayerName(playerName)
     )?.customerId;
+  }
+
+  const isCustomerBillCode = (value?: string) =>
+    /^CUST-\d+$/i.test(value?.trim() ?? "");
+
+  const getRunningPlayerLabel = (
+    table: (typeof tables)[number],
+    playerName: string
+  ) => {
+    const playerCustomerId =
+      getPlayerCustomerId(
+        table.session!,
+        playerName
+      );
+    const playerAccount =
+      customerAccounts.find(
+        (account) =>
+          account.id === playerCustomerId
+      );
+    const accountName =
+      playerAccount?.customerName?.trim();
+    const accountNote =
+      playerAccount?.customerNote?.trim();
+    const cleanPlayerName =
+      playerName.trim();
+
+    if (
+      accountName &&
+      !isWalkInName(accountName) &&
+      !isCustomerBillCode(accountName)
+    ) {
+      return accountName;
+    }
+
+    if (accountNote) {
+      return accountNote;
+    }
+
+    if (
+      cleanPlayerName &&
+      !isWalkInName(cleanPlayerName) &&
+      !isCustomerBillCode(cleanPlayerName)
+    ) {
+      return cleanPlayerName;
+    }
+
+    return playerAccount
+      ? getBillPrimaryLabel(playerAccount)
+      : getWalkInDisplayName({
+          name: playerName,
+          tableId: table.id,
+          tableName: table.name,
+          tableType: table.type,
+          time: table.session!.startTime,
+        });
   };
 
   const handleSaveOrder = () => {
@@ -1192,9 +1254,11 @@ function CafePage() {
         customerName:
           selectedCustomerName,
         customerAccountId:
-          selectedTarget.type === "waitingCustomer"
-            ? selectedTarget.customerAccountId
-            : undefined,
+          selectedTarget.type === "runningTable"
+            ? selectedTarget.customerId
+            : selectedTarget.type === "waitingCustomer"
+              ? selectedTarget.customerAccountId
+              : undefined,
         orderItems: currentItems,
         customerType:
           selectedTarget.type ===
@@ -1646,6 +1710,21 @@ function CafePage() {
                     key={table.id}
                     className="rounded-xl border bg-white"
                   >
+                    {(() => {
+                      const sessionPlayers =
+                        getSessionPlayers(
+                          table.session!
+                        );
+                      const getPlayerLabel = (
+                        player: string
+                      ) =>
+                        getRunningPlayerLabel(
+                          table,
+                          player
+                        );
+
+                      return (
+                        <>
                     <button
                       className="flex w-full items-center justify-between p-4 text-left"
                       onClick={() =>
@@ -1663,6 +1742,11 @@ function CafePage() {
                         <p className="text-sm text-gray-500">
                           Running
                         </p>
+                        <p className="mt-1 line-clamp-2 text-sm font-medium text-slate-700">
+                          {sessionPlayers
+                            .map(getPlayerLabel)
+                            .join(" vs ")}
+                        </p>
                       </div>
 
                       <span className="text-sm text-gray-500">
@@ -1674,19 +1758,11 @@ function CafePage() {
 
                     {expandedTable === table.id && (
                       <div className="space-y-2 border-t p-3">
-                        {getSessionPlayers(
-                          table.session!
-                        ).map((player) => {
+                        {sessionPlayers.map((player) => {
                           const playerCustomerId =
                             getPlayerCustomerId(
                               table.session!,
                               player
-                            );
-                          const playerAccount =
-                            customerAccounts.find(
-                              (account) =>
-                                account.id ===
-                                playerCustomerId
                             );
 
                           return (
@@ -1715,26 +1791,15 @@ function CafePage() {
                                 })
                               }
                             >
-                              {playerAccount
-                                ? getBillPrimaryLabel(
-                                    playerAccount
-                                  )
-                                : getWalkInDisplayName({
-                                    name: player,
-                                    tableId: table.id,
-                                    tableName:
-                                      table.name,
-                                    tableType:
-                                      table.type,
-                                    time:
-                                      table.session!
-                                        .startTime,
-                                  })}
+                              {getPlayerLabel(player)}
                             </Button>
                           );
                         })}
                       </div>
                     )}
+                        </>
+                      );
+                    })()}
                   </div>
                 ))}
               </div>

@@ -28,9 +28,8 @@ import type { PaymentMethod } from "@/types/session";
 import type { PaymentSplit } from "@/features/sales/types/sale";
 import PaymentMethodSelector from "@/features/billing/components/PaymentMethodSelector";
 import {
-  getBillCustomerLabel,
   getBillPrimaryLabel,
-  getBillSecondaryLabel,
+  getBillTableLabel,
 } from "../utils/billDisplay";
 
 const paymentMethods: {
@@ -43,16 +42,16 @@ const paymentMethods: {
   { value: "easypaisa", label: "Easypaisa" },
 ];
 
-function formatDate(value?: string) {
-  if (!value) return "-";
-
-  return new Date(value).toLocaleString();
-}
-
 function formatShortDate(value?: string) {
-  if (!value) return "-";
+  if (!value) return "—";
 
-  return new Date(value).toLocaleDateString(
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "—";
+  }
+
+  return date.toLocaleDateString(
     undefined,
     {
       month: "short",
@@ -63,9 +62,15 @@ function formatShortDate(value?: string) {
 }
 
 function formatTime(value?: string) {
-  if (!value) return "-";
+  if (!value) return "Unavailable";
 
-  return new Date(value).toLocaleTimeString(
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Unavailable";
+  }
+
+  return date.toLocaleTimeString(
     undefined,
     {
       hour: "numeric",
@@ -74,22 +79,152 @@ function formatTime(value?: string) {
   );
 }
 
-function formatDuration(minutes?: number) {
-  if (!minutes || minutes <= 0) return "-";
+function formatDurationMinutes(minutes?: number) {
+  if (
+    minutes === undefined ||
+    !Number.isFinite(minutes) ||
+    minutes < 0
+  ) {
+    return "Unavailable";
+  }
 
   const totalMinutes = Math.round(minutes);
+
+  if (totalMinutes < 1) {
+    return "Less than 1 min";
+  }
+
   const hours = Math.floor(totalMinutes / 60);
   const mins = totalMinutes % 60;
 
   if (hours > 0 && mins > 0) {
-    return `${hours}h ${mins}m`;
+    return `${hours} hr ${mins} min`;
   }
 
   if (hours > 0) {
-    return `${hours}h`;
+    return `${hours} hr`;
   }
 
-  return `${mins} min`;
+  return `${totalMinutes} min`;
+}
+
+function formatDuration(
+  startedAt?: string | number,
+  endedAt?: string,
+  fallbackMinutes?: number
+) {
+  if (typeof startedAt === "number") {
+    return formatDurationMinutes(startedAt);
+  }
+
+  if (startedAt && endedAt) {
+    const start = new Date(startedAt).getTime();
+    const end = new Date(endedAt).getTime();
+
+    if (
+      Number.isFinite(start) &&
+      Number.isFinite(end) &&
+      end >= start
+    ) {
+      return formatDurationMinutes((end - start) / 60000);
+    }
+  }
+
+  return formatDurationMinutes(fallbackMinutes);
+}
+
+function formatCurrency(amount: number) {
+  return `Rs. ${Math.round(amount).toLocaleString()}`;
+}
+
+function formatAmountOrDash(amount: number) {
+  return amount > 0 ? formatCurrency(amount) : "—";
+}
+
+function formatCustomerDisplayName(value?: string) {
+  const name = value?.trim();
+
+  if (!name || name.toLowerCase() === "walk-in customer") {
+    return "Walk-in Customer";
+  }
+
+  if (/^(ID|VIP|CEO|CFO|CTO)$/i.test(name)) {
+    return name.toUpperCase();
+  }
+
+  return name.replace(/\b[\w']+\b/g, (word) =>
+    word.length <= 1
+      ? word.toUpperCase()
+      : word[0].toUpperCase() + word.slice(1).toLowerCase()
+  );
+}
+
+function getBillTimestamp(account: CustomerAccount) {
+  return (
+    account.gameCharges
+      .map((charge) => charge.endedAt)
+      .filter(Boolean)
+      .sort()
+      .at(-1) ??
+    account.lastActivityAt ??
+    account.updatedAt ??
+    account.openedAt
+  );
+}
+
+function getBillTypeLabel(account: CustomerAccount) {
+  if (account.gameCharges.length > 0) {
+    const types = account.gameCharges.map(
+      (charge) => charge.sessionType
+    );
+    const uniqueTypes = Array.from(new Set(types));
+
+    if (uniqueTypes.length > 1) return "Mixed Session";
+
+    const label =
+      uniqueTypes[0] === "single"
+        ? "Single Game"
+        : uniqueTypes[0] === "double"
+          ? "Double Game"
+          : "Table Booking";
+
+    return types.length > 1
+      ? `${label} ×${types.length}`
+      : label;
+  }
+
+  const cafeTotal = getCafeCharges(account).reduce(
+    (total, charge) => total + charge.subtotal,
+    0
+  );
+  const accessoryTotal = getAccessoryCharges(account).reduce(
+    (total, charge) => total + charge.subtotal,
+    0
+  );
+
+  if (cafeTotal > 0 && accessoryTotal > 0) {
+    return "Cafe & Accessories";
+  }
+
+  if (accessoryTotal > 0) return "Accessories Only";
+
+  return "Cafe Only";
+}
+
+function getChargeTypeLabel(
+  sessionType: CustomerAccount["gameCharges"][number]["sessionType"]
+) {
+  if (sessionType === "single") return "Single Game";
+  if (sessionType === "double") return "Double Game";
+  return "Time Charge";
+}
+
+function getDisplayCustomerLabel(account: CustomerAccount) {
+  if (account.customerNote?.trim()) {
+    return formatCustomerDisplayName(account.customerNote);
+  }
+
+  return formatCustomerDisplayName(account.customerName);
 }
 
 function getSessionSummary(
@@ -131,11 +266,34 @@ function getSessionSummary(
     date: formatShortDate(earliestStartedAt),
     started: formatTime(earliestStartedAt),
     ended: formatTime(latestEndedAt),
-    duration:
-      charges.length > 1
-        ? `${formatDuration(totalDuration)} total`
-        : formatDuration(totalDuration),
+    duration: formatDuration(
+      earliestStartedAt,
+      latestEndedAt,
+      totalDuration
+    ),
   };
+}
+
+function getBillAge(value?: string) {
+  if (!value) return "";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return "";
+
+  const diffMinutes = Math.max(
+    0,
+    Math.floor((Date.now() - date.getTime()) / 60000)
+  );
+
+  if (diffMinutes < 60) {
+    return `${Math.max(1, diffMinutes)} min`;
+  }
+
+  const hours = Math.floor(diffMinutes / 60);
+  if (hours < 24) return `${hours} hr`;
+
+  return `${Math.floor(hours / 24)} days`;
 }
 
 function paymentLabel(
@@ -320,9 +478,12 @@ function CustomerBillsPage() {
           account.customerNote,
           account.phone,
           account.lastTableName,
+          getBillPrimaryLabel(account),
+          getBillTableLabel(account),
+          getBillTypeLabel(account),
           ...account.gameCharges.map(
             (charge) =>
-              `${charge.tableName} ${charge.payerName} ${charge.loserName ?? ""} ${charge.winnerName ?? ""}`
+              `${charge.tableName} ${charge.sessionType} ${charge.payerName} ${charge.loserName ?? ""} ${charge.winnerName ?? ""}`
           ),
         ]
           .filter(Boolean)
@@ -369,6 +530,9 @@ function CustomerBillsPage() {
     selectedAccount
       ? getSessionSummary(selectedAccount)
       : undefined;
+  const selectedBillAge = selectedAccount
+    ? getBillAge(getBillTimestamp(selectedAccount))
+    : "";
 
   const totals = openAccounts.reduce(
     (summary, account) => ({
@@ -674,15 +838,15 @@ function CustomerBillsPage() {
                 Open Bills
               </p>
               <p className="mt-1 text-2xl font-bold text-slate-950">
-                {totals.count}
+                {totals.count.toLocaleString()} bills
               </p>
             </Card>
             <Card className="p-4">
               <p className="text-sm text-slate-500">
-                Unpaid Amount
+                Outstanding Amount
               </p>
               <p className="mt-1 text-2xl font-bold text-amber-700">
-                Rs. {totals.amount}
+                {formatCurrency(totals.amount)}
               </p>
             </Card>
           </div>
@@ -705,7 +869,7 @@ function CustomerBillsPage() {
             <div className="flex items-center gap-3 border-b p-4">
               <Search className="h-4 w-4 text-slate-400" />
               <Input
-                placeholder="Search customer, token, note, table..."
+                placeholder="Search bill no, customer, player, table..."
                 value={search}
                 onChange={(event) =>
                   setSearch(event.target.value)
@@ -713,35 +877,35 @@ function CustomerBillsPage() {
               />
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+            <div className="w-full overflow-x-auto">
+              <table className="w-full min-w-[1040px] table-fixed text-sm">
+                <thead className="sticky top-0 z-10 bg-slate-50 text-left text-xs uppercase text-slate-500 shadow-sm">
                   <tr>
-                    <th className="px-4 py-3">
-                      Customer
+                    <th className="w-32 min-w-32 whitespace-nowrap px-4 py-3">
+                      Bill No
                     </th>
-                    <th className="px-4 py-3">
-                      Date
+                    <th className="min-w-48 px-4 py-3">
+                      Customer / Table
                     </th>
-                    <th className="px-4 py-3">
-                      Started
+                    <th className="w-36 min-w-36 whitespace-nowrap px-4 py-3">
+                      Ended At
                     </th>
-                    <th className="px-4 py-3">
-                      Ended
+                    <th className="w-36 min-w-36 whitespace-nowrap px-4 py-3">
+                      Type
                     </th>
-                    <th className="px-4 py-3">
-                      Duration
+                    <th className="w-28 min-w-28 whitespace-nowrap px-4 py-3 text-right">
+                      Table Bill
                     </th>
-                    <th className="px-4 py-3">
-                      Games
+                    <th className="w-28 min-w-28 whitespace-nowrap px-4 py-3 text-right">
+                      Cafe Bill
                     </th>
-                    <th className="px-4 py-3">
-                      Cafe
+                    <th className="w-28 min-w-28 whitespace-nowrap px-4 py-3 text-right">
+                      Accessories
                     </th>
-                    <th className="px-4 py-3">
+                    <th className="w-28 min-w-28 whitespace-nowrap px-4 py-3 text-right">
                       Total
                     </th>
-                    <th className="px-4 py-3">
+                    <th className="w-24 min-w-24 whitespace-nowrap px-4 py-3 text-right">
                       Action
                     </th>
                   </tr>
@@ -753,35 +917,42 @@ function CustomerBillsPage() {
                         getRunningTableForAccount(
                           account
                         );
-                      const sessionSummary =
-                        getSessionSummary(account);
+                      const timestamp = getBillTimestamp(account);
+                      const totals = getBillTotals(account);
+                      const selected =
+                        selectedAccount?.id === account.id;
+                      const tableLabel =
+                        getBillTableLabel(account) ||
+                        runningTable?.name ||
+                        "—";
 
                       return (
                         <tr
                           key={account.id}
-                          className={
-                            selectedAccount?.id ===
-                            account.id
-                              ? "bg-amber-50/60"
-                              : "bg-white"
-                          }
+                          tabIndex={0}
+                          onClick={() => openBill(account)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              openBill(account);
+                            }
+                          }}
+                          className={`cursor-pointer border-l-4 transition focus:outline-none focus:ring-2 focus:ring-inset focus:ring-amber-300 ${
+                            selected
+                              ? "border-l-amber-500 bg-amber-50/80 shadow-[inset_0_0_0_1px_rgba(245,158,11,0.22)]"
+                              : "border-l-transparent bg-white hover:bg-amber-50/40"
+                          }`}
                         >
-                          <td className="px-4 py-3">
-                            <p className="font-bold text-slate-950">
+                          <td className="whitespace-nowrap px-4 py-3 align-middle font-mono text-sm font-semibold text-slate-950">
                               {getBillPrimaryLabel(
                                 account
                               )}
+                          </td>
+                          <td className="px-4 py-3 align-middle">
+                            <p className="font-semibold text-slate-950">
+                              {getDisplayCustomerLabel(account)}
                             </p>
-                            {getBillPrimaryLabel(account) !==
-                              account.customerToken && (
-                              <p className="text-xs text-slate-500">
-                                {account.customerToken}
-                              </p>
-                            )}
                             <p className="text-xs text-slate-500">
-                              {getBillSecondaryLabel(
-                                account
-                              )}
+                              {tableLabel}
                             </p>
                             {runningTable && (
                               <p className="mt-1 inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-bold text-emerald-700 ring-1 ring-emerald-200">
@@ -789,47 +960,40 @@ function CustomerBillsPage() {
                               </p>
                             )}
                           </td>
-                          <td className="px-4 py-3 text-slate-600">
-                            {sessionSummary.date}
+                          <td className="px-4 py-3 align-middle">
+                            <span className="block whitespace-nowrap font-medium text-slate-700">
+                              {formatShortDate(timestamp)}
+                            </span>
+                            <span className="block whitespace-nowrap text-xs text-slate-500">
+                              {formatTime(timestamp)}
+                            </span>
                           </td>
-                          <td className="px-4 py-3 text-slate-600">
-                            {sessionSummary.started}
+                          <td className="whitespace-nowrap px-4 py-3 align-middle">
+                            {getBillTypeLabel(account)}
                           </td>
-                          <td className="px-4 py-3 text-slate-600">
-                            {sessionSummary.ended}
+                          <td className="px-4 py-3 text-right align-middle tabular-nums">
+                            {formatAmountOrDash(account.totalGameAmount)}
                           </td>
-                          <td className="px-4 py-3 text-slate-600">
-                            {sessionSummary.duration}
+                          <td className="px-4 py-3 text-right align-middle tabular-nums">
+                            {formatAmountOrDash(totals.cafeTotal)}
                           </td>
-                          <td className="px-4 py-3">
-                            <p>
-                              {account.gameCharges.length} games
-                            </p>
-                            <p className="font-semibold">
-                              Rs. {account.totalGameAmount}
-                            </p>
+                          <td className="px-4 py-3 text-right align-middle tabular-nums">
+                            {formatAmountOrDash(totals.accessoryTotal)}
                           </td>
-                          <td className="px-4 py-3">
-                            <p>
-                              {getCafeCharges(account).length} cafe
-                              {" / "}
-                              {getAccessoryCharges(account).length} acc.
-                            </p>
-                            <p className="font-semibold">
-                              Rs.{" "}
-                              {getBillTotals(account).cafeTotal +
-                                getBillTotals(account).accessoryTotal}
-                            </p>
+                          <td className="px-4 py-3 text-right align-middle font-bold tabular-nums text-slate-950">
+                            {formatCurrency(totals.grandTotal)}
                           </td>
-                          <td className="px-4 py-3 text-base font-bold">
-                            Rs. {getBillTotals(account).grandTotal}
-                          </td>
-                          <td className="px-4 py-3">
+                          <td className="px-4 py-3 text-right align-middle">
                             <Button
                               size="sm"
-                              onClick={() => openBill(account)}
+                              variant={selected ? "outline" : "default"}
+                              className="min-w-20"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openBill(account);
+                              }}
                             >
-                              Open Bill
+                              {selected ? "Selected" : "View"}
                             </Button>
                           </td>
                         </tr>
@@ -852,11 +1016,11 @@ function CustomerBillsPage() {
             </div>
           </Card>
 
-          <Card className="p-5">
+          <Card className="p-5 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto">
             {selectedAccount ? (
               <div>
                 <div className="mb-4 flex items-start justify-between gap-4">
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-sm font-semibold text-slate-500">
                       Open Bill
                     </p>
@@ -928,9 +1092,10 @@ function CustomerBillsPage() {
                           )}
                         </h2>
                         <p className="text-sm text-slate-500">
-                          {getBillCustomerLabel(
-                            selectedAccount
-                          )}
+                          {getDisplayCustomerLabel(selectedAccount)}
+                          {getBillTableLabel(selectedAccount)
+                            ? ` · ${getBillTableLabel(selectedAccount)}`
+                            : ""}
                         </p>
                         {selectedRunningTable && (
                           <p className="mt-1 inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-bold text-emerald-700 ring-1 ring-emerald-200">
@@ -951,98 +1116,107 @@ function CustomerBillsPage() {
                             }
                           </p>
                         )}
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="mt-2"
-                          onClick={() => {
-                            setEditName(
-                              selectedAccount.customerName
-                            );
-                            setEditNote(
-                              selectedAccount.customerNote ??
-                                ""
-                            );
-                            setEditPhone(
-                              selectedAccount.phone ??
-                                ""
-                            );
-                            setIsEditingCustomer(true);
-                          }}
-                        >
-                          Edit Customer
-                        </Button>
-                        <Button
-                          size="sm"
-                          className="ml-2 mt-2 gap-2 bg-emerald-950 hover:bg-emerald-900"
-                          onClick={() =>
-                            navigate(
-                              `/operator/cafe?customerBillId=${selectedAccount.id}`
-                            )
-                          }
-                        >
-                          <Coffee className="h-4 w-4" />
-                          Add Cafe Order
-                        </Button>
-                        <Button
-                          size="sm"
-                          className="ml-2 mt-2 gap-2 bg-slate-950 hover:bg-slate-900"
-                          onClick={() =>
-                            navigate(
-                              `/operator/accessories?customerBillId=${selectedAccount.id}`
-                            )
-                          }
-                        >
-                          <Package className="h-4 w-4" />
-                          Add Accessories
-                        </Button>
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-9 gap-2 px-3"
+                            onClick={() => {
+                              setEditName(
+                                selectedAccount.customerName
+                              );
+                              setEditNote(
+                                selectedAccount.customerNote ??
+                                  ""
+                              );
+                              setEditPhone(
+                                selectedAccount.phone ??
+                                  ""
+                              );
+                              setIsEditingCustomer(true);
+                            }}
+                          >
+                            Edit Customer
+                          </Button>
+                          <Button
+                            size="sm"
+                            className="h-9 gap-2 bg-emerald-950 px-3 hover:bg-emerald-900"
+                            onClick={() =>
+                              navigate(
+                                `/operator/cafe?customerBillId=${selectedAccount.id}`
+                              )
+                            }
+                          >
+                            <Coffee className="h-4 w-4" />
+                            Add Cafe Order
+                          </Button>
+                          <Button
+                            size="sm"
+                            className="h-9 gap-2 bg-slate-950 px-3 hover:bg-slate-900"
+                            onClick={() =>
+                              navigate(
+                                `/operator/accessories?customerBillId=${selectedAccount.id}`
+                              )
+                            }
+                          >
+                            <Package className="h-4 w-4" />
+                            Add Accessories
+                          </Button>
+                        </div>
                       </>
                     )}
                   </div>
-                  <div className="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700 ring-1 ring-amber-200">
-                    Unpaid
+                  <div className="shrink-0 text-right">
+                    <div className="whitespace-nowrap rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700 ring-1 ring-amber-200">
+                      Awaiting Payment
+                    </div>
+                    {selectedBillAge && (
+                      <p className="mt-1 text-xs text-slate-500">
+                        {selectedBillAge}
+                      </p>
+                    )}
                   </div>
                 </div>
 
                 <section className="mb-5 rounded-xl border bg-slate-50 p-4">
-                  <h3 className="mb-3 font-bold">
+                  <h3 className="mb-3 text-sm font-bold text-slate-900">
                     Session Time
                   </h3>
-                  <div className="grid gap-3 text-sm sm:grid-cols-4">
-                    <div>
-                      <p className="text-slate-500">
+                  <div className="grid gap-3 text-sm sm:grid-cols-[minmax(0,1fr)_auto_auto_minmax(7rem,auto)]">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold uppercase text-slate-500">
                         Date
                       </p>
-                      <p className="font-semibold">
+                      <p className="mt-1 font-semibold text-slate-900">
                         {selectedSessionSummary?.date ??
-                          "-"}
+                          "Unavailable"}
                       </p>
                     </div>
                     <div>
-                      <p className="text-slate-500">
+                      <p className="text-xs font-semibold uppercase text-slate-500">
                         Started
                       </p>
-                      <p className="font-semibold">
+                      <p className="mt-1 whitespace-nowrap font-semibold text-slate-900">
                         {selectedSessionSummary?.started ??
-                          "-"}
+                          "Unavailable"}
                       </p>
                     </div>
                     <div>
-                      <p className="text-slate-500">
+                      <p className="text-xs font-semibold uppercase text-slate-500">
                         Ended
                       </p>
-                      <p className="font-semibold">
+                      <p className="mt-1 whitespace-nowrap font-semibold text-slate-900">
                         {selectedSessionSummary?.ended ??
-                          "-"}
+                          "Unavailable"}
                       </p>
                     </div>
                     <div>
-                      <p className="text-slate-500">
+                      <p className="text-xs font-semibold uppercase text-slate-500">
                         Duration
                       </p>
-                      <p className="font-semibold">
+                      <p className="mt-1 whitespace-nowrap font-semibold text-slate-900">
                         {selectedSessionSummary?.duration ??
-                          "-"}
+                          "Unavailable"}
                       </p>
                     </div>
                   </div>
@@ -1057,40 +1231,38 @@ function CustomerBillsPage() {
                       (charge, index) => (
                         <div
                           key={charge.id}
-                          className="rounded-lg border bg-slate-50 p-3"
+                          className="rounded-lg border bg-white p-3 shadow-sm"
                         >
-                          <div className="flex justify-between gap-3">
-                            <div>
-                              <p className="font-semibold">
-                                {index + 1}.{" "}
-                                {charge.tableName} |{" "}
-                                {charge.sessionType}
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="font-semibold text-slate-950">
+                                {charge.sessionType === "time"
+                                  ? "Time Charge"
+                                  : `Game ${index + 1} · ${getChargeTypeLabel(charge.sessionType)}`}
                               </p>
-                              <p className="text-xs text-slate-500">
-                                {formatShortDate(
-                                  charge.startedAt
-                                )}{" "}
-                                |{" "}
+                              <p className="mt-1 text-xs text-slate-500">
                                 {formatTime(
                                   charge.startedAt
                                 )}{" "}
-                                -{" "}
+                                –
                                 {formatTime(
                                   charge.endedAt
                                 )}{" "}
                                 |{" "}
                                 {formatDuration(
+                                  charge.startedAt,
+                                  charge.endedAt,
                                   charge.durationMinutes
                                 )}
                               </p>
                               <p className="mt-1 text-sm text-slate-600">
                                 {charge.loserName
-                                  ? `${charge.loserName} lost`
-                                  : charge.payerName}
+                                  ? `${formatCustomerDisplayName(charge.loserName)} lost`
+                                  : formatCustomerDisplayName(charge.payerName)}
                               </p>
                             </div>
-                            <p className="font-bold">
-                              Rs. {charge.amount}
+                            <p className="shrink-0 font-bold text-slate-950">
+                              {formatCurrency(charge.amount)}
                             </p>
                           </div>
                         </div>
@@ -1119,18 +1291,14 @@ function CustomerBillsPage() {
                         >
                           <div>
                             <p className="font-semibold">
-                              {charge.name} x
-                              {charge.quantity}
+                              {charge.name}
                             </p>
                             <p className="text-xs text-slate-500">
-                              {formatDate(
-                                charge.orderedAt
-                              )}
+                              {charge.quantity} × {formatCurrency(charge.price)}
                             </p>
                           </div>
                           <p className="font-bold">
-                            Rs.{" "}
-                            {charge.subtotal}
+                            {formatCurrency(charge.subtotal)}
                           </p>
                         </div>
                       )
@@ -1161,17 +1329,14 @@ function CustomerBillsPage() {
                               {charge.name.replace(
                                 "[Accessory]",
                                 ""
-                              ).trim()}{" "}
-                              x{charge.quantity}
+                              ).trim()}
                             </p>
                             <p className="text-xs text-slate-500">
-                              {formatDate(
-                                charge.orderedAt
-                              )}
+                              {charge.quantity} × {formatCurrency(charge.price)}
                             </p>
                           </div>
                           <p className="font-bold">
-                            Rs. {charge.subtotal}
+                            {formatCurrency(charge.subtotal)}
                           </p>
                         </div>
                       )
@@ -1186,30 +1351,23 @@ function CustomerBillsPage() {
                   </div>
                 </section>
 
-                <div className="space-y-2 border-t pt-4 text-sm">
+                <div className="sticky bottom-0 -mx-5 space-y-2 border-t bg-white px-5 py-4 text-sm shadow-[0_-10px_24px_rgba(15,23,42,0.08)]">
                   <div className="flex justify-between">
-                    <span>Game Total</span>
+                    <span>Table Charges</span>
                     <strong>
-                      Rs.{" "}
-                      {
-                        selectedAccount.totalGameAmount
-                      }
+                      {formatCurrency(selectedAccount.totalGameAmount)}
                     </strong>
                   </div>
                   <div className="flex justify-between">
-                    <span>Cafe Total</span>
+                    <span>Cafe Charges</span>
                     <strong>
-                      Rs.{" "}
-                      {
-                        selectedTotals?.cafeTotal ?? 0
-                      }
+                      {formatCurrency(selectedTotals?.cafeTotal ?? 0)}
                     </strong>
                   </div>
                   <div className="flex justify-between">
-                    <span>Accessories Total</span>
+                    <span>Accessories</span>
                     <strong>
-                      Rs.{" "}
-                      {selectedTotals?.accessoryTotal ?? 0}
+                      {formatCurrency(selectedTotals?.accessoryTotal ?? 0)}
                     </strong>
                   </div>
                   <div className="flex items-center justify-between gap-3">
@@ -1241,9 +1399,8 @@ function CustomerBillsPage() {
                     <span className="font-bold">
                       Grand Total
                     </span>
-                    <strong>
-                      Rs.{" "}
-                      {selectedTotals?.grandTotal ?? 0}
+                    <strong className="text-xl text-slate-950">
+                      {formatCurrency(selectedTotals?.grandTotal ?? 0)}
                     </strong>
                   </div>
                 </div>

@@ -10,6 +10,27 @@ export type PaymentMethod =
   | "jazzcash"
   | "easypaisa";
 
+export type TableChargeLineType =
+  | "singleGame"
+  | "doubleGame"
+  | "tableBooking";
+
+export interface TableChargeLine {
+  id: string;
+  sessionId: string;
+  type: TableChargeLineType;
+  label: string;
+  startedAt: string;
+  endedAt?: string;
+  durationMinutes?: number;
+  amount: number;
+  payerName?: string;
+  payerCustomerId?: string;
+  loserName?: string;
+  winnerName?: string;
+  notes?: string;
+}
+
 export interface CafeOrderItem {
   menuItemId: string;
 
@@ -42,6 +63,8 @@ export interface Session {
   tableId: number;
 
   sessionType: SessionType;
+
+  tableChargeLines?: TableChargeLine[];
 
   player1: string;
   player1CustomerId?: string;

@@ -14,6 +14,10 @@ import {
   calculateDoubleGamePayerBreakdown,
   getTeamPlayers,
 } from "@/features/sessions/utils/doubleGameBilling";
+import {
+  findPayerBreakdownForPlayer,
+  getPlayerCafeItems,
+} from "@/features/billing/utils/playerBillIdentity";
 import { useTableHistoryStore } from "@/features/table-history/store/tableHistoryStore";
 
 import type {
@@ -21,6 +25,8 @@ import type {
   PaymentMethod,
   Session,
   SessionType,
+  TableChargeLine,
+  TableChargeLineType,
 } from "@/types/session";
 
 import type { Table } from "@/types/table";
@@ -103,24 +109,21 @@ function buildPlayerBreakdown(
   tableAmount: number
 ) {
   const players = getSessionPlayers(session);
-  const payerBreakdown =
+  const payerBreakdown: Array<{
+    line?: TableChargeLine;
+    playerName: string;
+    tableAmountShare: number;
+    note?: string;
+  }> =
     calculateDoubleGamePayerBreakdown({
       session,
       tableAmount,
     });
-  const itemPlayerName = (
-    item: CafeOrderItem
-  ) =>
-    item.playerName ??
-    item.customerName ??
-    "";
-
   return players.map((playerName) => {
     const cafeItems =
-      session.cafeOrders.filter(
-        (item) =>
-          itemPlayerName(item) ===
-          playerName
+      getPlayerCafeItems(
+        session,
+        playerName
       );
     const cafeAmount =
       cafeItems.reduce(
@@ -129,9 +132,9 @@ function buildPlayerBreakdown(
         0
       );
     const tableAmountShare =
-      payerBreakdown.find(
-        (payer) =>
-          payer.playerName === playerName
+      findPayerBreakdownForPlayer(
+        payerBreakdown,
+        playerName
       )?.tableAmountShare ?? 0;
 
     return {
@@ -143,6 +146,152 @@ function buildPlayerBreakdown(
       cafeItems,
     };
   });
+}
+
+function getChargeLineAmount({
+  type,
+  tableType,
+  startedAt,
+  endedAt,
+}: {
+  type: TableChargeLineType;
+  tableType: Table["type"];
+  startedAt: Date;
+  endedAt: Date;
+}) {
+  if (type === "singleGame") return 300;
+  if (type === "doubleGame") return 600;
+
+  const rate =
+    tableType === "private-room" ? 25 : 20;
+  const minutes = Math.max(
+    1,
+    Math.ceil(
+      (endedAt.getTime() - startedAt.getTime()) /
+        60000
+    )
+  );
+
+  return minutes * rate;
+}
+
+function getChargeLineLabel(
+  type: TableChargeLineType,
+  tableType: Table["type"]
+) {
+  if (type === "singleGame") return "Single Game";
+  if (type === "doubleGame") return "Double Game";
+  return tableType === "private-room"
+    ? "Private Room"
+    : "Table Booking";
+}
+
+function sessionTypeToChargeLineType(
+  sessionType: SessionType
+): TableChargeLineType {
+  if (sessionType === "double") return "doubleGame";
+  if (
+    sessionType === "time" ||
+    sessionType === "private"
+  ) {
+    return "tableBooking";
+  }
+
+  return "singleGame";
+}
+
+function createInitialChargeLine(
+  sessionId: string,
+  sessionType: SessionType,
+  tableType: Table["type"],
+  startedAt: Date
+): TableChargeLine {
+  const type =
+    sessionTypeToChargeLineType(sessionType);
+  const endedAt =
+    type === "tableBooking" ? undefined : startedAt;
+
+  return {
+    id: `TCL-${sessionId}-${Date.now()}`,
+    sessionId,
+    type,
+    label: getChargeLineLabel(type, tableType),
+    startedAt: startedAt.toISOString(),
+    endedAt: endedAt?.toISOString(),
+    durationMinutes:
+      type === "tableBooking" ? undefined : 0,
+    amount:
+      type === "tableBooking"
+        ? 0
+        : getChargeLineAmount({
+            type,
+            tableType,
+            startedAt,
+            endedAt: endedAt!,
+          }),
+  };
+}
+
+function finalizeChargeLine(
+  line: TableChargeLine,
+  tableType: Table["type"],
+  endedAt: Date
+): TableChargeLine {
+  if (line.endedAt && line.type !== "tableBooking") {
+    return line;
+  }
+
+  const startedAt = new Date(line.startedAt);
+  const durationMinutes = Math.max(
+    0,
+    Math.ceil(
+      (endedAt.getTime() - startedAt.getTime()) /
+        60000
+    )
+  );
+
+  return {
+    ...line,
+    endedAt: endedAt.toISOString(),
+    durationMinutes,
+    amount:
+      line.type === "tableBooking"
+        ? getChargeLineAmount({
+            type: line.type,
+            tableType,
+            startedAt,
+            endedAt,
+          })
+        : line.amount,
+  };
+}
+
+function getFinalTableChargeLines(
+  table: Table,
+  session: Session,
+  endedAt: Date
+) {
+  const existingLines =
+    session.tableChargeLines ?? [];
+
+  if (existingLines.length > 0) {
+    return existingLines.map((line) =>
+      finalizeChargeLine(line, table.type, endedAt)
+    );
+  }
+
+  return [
+    finalizeChargeLine(
+      createInitialChargeLine(
+        session.id,
+        session.sessionType,
+        table.type,
+        new Date(session.startTime)
+      ),
+      table.type,
+      endedAt
+    ),
+  ];
 }
 
 function createTableHistoryRecord(
@@ -164,8 +313,19 @@ function createTableHistoryRecord(
     startTime: startedAt,
     endTime: endedAt,
   });
+  const tableChargeLines =
+    getFinalTableChargeLines(
+      table,
+      session,
+      endedAt
+    );
+  const tableAmount =
+    tableChargeLines.reduce(
+      (total, line) => total + line.amount,
+      0
+    );
   const bill = calculateBill({
-    gameAmount: pricing.gameAmount,
+    gameAmount: tableAmount,
     cafeAmount: session.cafeAmount,
     discount: session.discount,
   });
@@ -212,7 +372,7 @@ function createTableHistoryRecord(
           session,
           tableAmount: pricing.gameAmount,
         }),
-      tableAmount: pricing.gameAmount,
+      tableAmount,
       cafeAmount: session.cafeAmount,
       discount: session.discount,
       grandTotal: bill.total,
@@ -228,7 +388,7 @@ function createTableHistoryRecord(
       ),
       playerBreakdown: buildPlayerBreakdown(
         session,
-        pricing.gameAmount
+        tableAmount
       ),
     });
 }
@@ -251,13 +411,70 @@ function addSessionGameChargesToCustomers(
     startTime: startedAt,
     endTime: endedAt,
   });
-  const payerBreakdown =
-    calculateDoubleGamePayerBreakdown({
+  const tableChargeLines =
+    getFinalTableChargeLines(
+      table,
       session,
-      tableAmount: pricing.gameAmount,
-    });
+      endedAt
+    );
+  const payerBreakdown: Array<{
+    line?: TableChargeLine;
+    playerName: string;
+    tableAmountShare: number;
+    note?: string;
+  }> =
+    tableChargeLines.length > 0
+      ? tableChargeLines.map((line) => ({
+          line,
+          playerName:
+            line.payerName ??
+            line.loserName ??
+            session.payerName ??
+            session.player1,
+          tableAmountShare: line.amount,
+          note: line.label,
+        }))
+      : calculateDoubleGamePayerBreakdown({
+          session,
+          tableAmount: pricing.gameAmount,
+        });
   const customerStore =
     useCustomerAccountStore.getState();
+  let sessionWalkInCustomerId:
+    | string
+    | undefined;
+  const getCustomerIdForPayer = (
+    playerName: string
+  ) => {
+    const existingId =
+      playerName === session.player1
+        ? session.player1CustomerId
+        : playerName === session.player2
+          ? session.player2CustomerId
+          : playerName === session.player3
+            ? session.player3CustomerId
+            : playerName === session.player4
+              ? session.player4CustomerId
+              : undefined;
+
+    if (existingId) return existingId;
+
+    if (!isWalkInName(playerName)) {
+      return undefined;
+    }
+
+    if (sessionWalkInCustomerId) {
+      return sessionWalkInCustomerId;
+    }
+
+    const account =
+      customerStore.createCustomerAccount({
+        customerName: playerName,
+      });
+    sessionWalkInCustomerId = account.id;
+
+    return account.id;
+  };
 
   payerBreakdown
     .filter((payer) => payer.tableAmountShare > 0)
@@ -274,23 +491,32 @@ function addSessionGameChargesToCustomers(
         customerName: payer.playerName,
         customerId:
           session.payerCustomerId ??
-          (payer.playerName === session.player1
-            ? session.player1CustomerId
-            : payer.playerName === session.player2
-              ? session.player2CustomerId
-              : payer.playerName === session.player3
-                ? session.player3CustomerId
-                : payer.playerName === session.player4
-                  ? session.player4CustomerId
-                  : undefined),
-        sessionId: session.id,
+          getCustomerIdForPayer(
+            payer.playerName
+          ),
+        sessionId: payer.line
+          ? `${session.id}-${payer.line.id}`
+          : session.id,
         tableId: table.id,
         tableName: table.name,
         tableType: table.type,
-        sessionType: session.sessionType,
-        startedAt: startedAt.toISOString(),
-        endedAt: endedAt.toISOString(),
+        sessionType: payer.line
+          ? payer.line.type === "doubleGame"
+            ? "double"
+            : payer.line.type === "tableBooking"
+              ? table.type === "private-room"
+                ? "private"
+                : "time"
+              : "single"
+          : session.sessionType,
+        startedAt:
+          payer.line?.startedAt ??
+          startedAt.toISOString(),
+        endedAt:
+          payer.line?.endedAt ??
+          endedAt.toISOString(),
         durationMinutes:
+          payer.line?.durationMinutes ??
           pricing.duration.totalMinutes,
         winnerName: session.winnerName,
         loserName: session.loserName,
@@ -356,6 +582,15 @@ interface UpdateSessionCafeData {
   cafeOrders: CafeOrderItem[];
 }
 
+interface AddTableChargeLineData {
+  tableId: number;
+  type: TableChargeLineType;
+  payerName?: string;
+  payerCustomerId?: string;
+  loserName?: string;
+  winnerName?: string;
+}
+
 interface EndSessionData {
   tableId: number;
   winnerName?: string;
@@ -392,6 +627,10 @@ interface TableStore {
     data: UpdateSessionCafeData
   ) => void;
 
+  addTableChargeLine: (
+    data: AddTableChargeLineData
+  ) => void;
+
   receivePayment: (
     data: ReceivePaymentData
   ) => void;
@@ -419,10 +658,19 @@ export const useTableStore =
             .getState()
             .clearTableOrders(table.id);
 
+          const sessionId = `SA-${Date.now()}`;
           const session: Session = {
-            id: `SA-${Date.now()}`,
+            id: sessionId,
             tableId: table.id,
             sessionType: data.sessionType,
+            tableChargeLines: [
+              createInitialChargeLine(
+                sessionId,
+                data.sessionType,
+                table.type,
+                data.startTime
+              ),
+            ],
             player1,
             player1CustomerId:
               data.player1CustomerId,
@@ -643,11 +891,19 @@ export const useTableStore =
               ).getTime();
           }
 
+          const endTime = new Date();
+          const tableChargeLines =
+            getFinalTableChargeLines(
+              table,
+              table.session,
+              endTime
+            );
           const endedSession: Session = {
             ...table.session,
             pausedAt: undefined,
             totalPausedMilliseconds,
-            endTime: new Date(),
+            endTime,
+            tableChargeLines,
             winnerName,
             loserName,
             payerName,
@@ -696,6 +952,78 @@ export const useTableStore =
             ...table,
             status: "available",
             session: undefined,
+          };
+        }),
+      })),
+
+    addTableChargeLine: ({
+      tableId,
+      type,
+      payerName,
+      payerCustomerId,
+      loserName,
+      winnerName,
+    }) =>
+      set((state) => ({
+        tables: state.tables.map((table) => {
+          if (table.id !== tableId || !table.session) {
+            return table;
+          }
+
+          const now = new Date();
+          const existingLines =
+            table.session.tableChargeLines ?? [];
+          const finalizedLines = existingLines.map(
+            (line) =>
+              line.type === "tableBooking" &&
+              !line.endedAt
+                ? finalizeChargeLine(
+                    line,
+                    table.type,
+                    now
+                  )
+                : line
+          );
+          const endedAt =
+            type === "tableBooking" ? undefined : now;
+          const nextLine: TableChargeLine = {
+            id: `TCL-${table.session.id}-${Date.now()}`,
+            sessionId: table.session.id,
+            type,
+            label: getChargeLineLabel(
+              type,
+              table.type
+            ),
+            startedAt: now.toISOString(),
+            endedAt: endedAt?.toISOString(),
+            durationMinutes:
+              type === "tableBooking"
+                ? undefined
+                : 0,
+            amount:
+              type === "tableBooking"
+                ? 0
+                : getChargeLineAmount({
+                    type,
+                    tableType: table.type,
+                    startedAt: now,
+                    endedAt: endedAt!,
+                  }),
+            payerName,
+            payerCustomerId,
+            loserName,
+            winnerName,
+          };
+
+          return {
+            ...table,
+            session: {
+              ...table.session,
+              tableChargeLines: [
+                ...finalizedLines,
+                nextLine,
+              ],
+            },
           };
         }),
       })),

@@ -23,6 +23,9 @@ export interface Expense {
   createdAt: string;
   activeBusinessDayId?: string;
   paymentMethod?: PaymentMethod;
+  status?: "active" | "cancelled";
+  cancelledAt?: string;
+  cancellationReason?: string;
   createdByRole?: string;
   createdByName?: string;
 }

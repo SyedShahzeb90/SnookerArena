@@ -9,11 +9,15 @@ import { Card } from "@/components/ui/card";
 
 import type { Expense } from "../types/expense";
 import {
+  formatCurrency,
+  isActiveExpense,
+} from "../utils/expenseHelpers";
+import {
+  getExpensesByDateRange,
   getExpensesTotal,
   getHighestExpenseCategory,
   getMonthRange,
   getTodayRange,
-  getExpensesByDateRange,
 } from "../utils/expenseReports";
 
 interface Props {
@@ -25,10 +29,13 @@ function ExpenseSummaryCards({
 }: Props) {
   const todayRange = getTodayRange();
   const monthRange = getMonthRange();
+  const activeExpenses = expenses.filter(
+    isActiveExpense
+  );
 
   const todayTotal = getExpensesTotal(
     getExpensesByDateRange(
-      expenses,
+      activeExpenses,
       todayRange.start,
       todayRange.end
     )
@@ -36,33 +43,33 @@ function ExpenseSummaryCards({
 
   const monthTotal = getExpensesTotal(
     getExpensesByDateRange(
-      expenses,
+      activeExpenses,
       monthRange.start,
       monthRange.end
     )
   );
 
   const highest =
-    getHighestExpenseCategory(expenses);
+    getHighestExpenseCategory(activeExpenses);
 
   const cards = [
     {
       label: "Today's Expenses",
-      value: `Rs. ${todayTotal}`,
+      value: formatCurrency(todayTotal),
       icon: Wallet,
       tone: "text-red-700",
       bg: "bg-red-50",
     },
     {
       label: "This Month's Expenses",
-      value: `Rs. ${monthTotal}`,
+      value: formatCurrency(monthTotal),
       icon: CalendarDays,
       tone: "text-amber-700",
       bg: "bg-amber-50",
     },
     {
       label: "Total Expenses Count",
-      value: String(expenses.length),
+      value: String(activeExpenses.length),
       icon: ListChecks,
       tone: "text-slate-700",
       bg: "bg-slate-100",
@@ -72,7 +79,11 @@ function ExpenseSummaryCards({
       value:
         highest.category === "None"
           ? "None"
-          : `${highest.category} · Rs. ${highest.amount}`,
+          : highest.category,
+      secondary:
+        highest.category === "None"
+          ? ""
+          : formatCurrency(highest.amount),
       icon: TrendingDown,
       tone: "text-indigo-700",
       bg: "bg-indigo-50",
@@ -100,6 +111,12 @@ function ExpenseSummaryCards({
             <p className="mt-2 text-xl font-bold text-slate-950">
               {card.value}
             </p>
+            {"secondary" in card &&
+              card.secondary && (
+                <p className="mt-1 text-sm font-semibold text-slate-500">
+                  {card.secondary}
+                </p>
+              )}
           </Card>
         );
       })}

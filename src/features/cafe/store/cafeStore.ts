@@ -9,6 +9,10 @@ import type {
   OrderItem,
   WaitingCustomer,
 } from "../types/menu";
+import {
+  getPlayerIdentityKey,
+  isSamePlayerIdentity,
+} from "../utils/playerIdentity";
 
 export interface PlayerOrder {
   tableId: number;
@@ -16,6 +20,10 @@ export interface PlayerOrder {
   sessionId: string;
 
   playerName: string;
+
+  playerId?: string;
+
+  playerKey?: string;
 
   orderItems: OrderItem[];
 
@@ -100,12 +108,14 @@ interface CafeStore {
   addPlayerOrder: (
     tableId: number,
     sessionId: string,
-    playerName: string
+    playerName: string,
+    playerId?: string
   ) => void;
 
   getPlayerOrder: (
     tableId: number,
-    playerName: string
+    playerName: string,
+    playerId?: string
   ) => PlayerOrder | undefined;
 
   getWaitingCustomerOrder: (
@@ -123,26 +133,30 @@ interface CafeStore {
   getSavedOrderForTable: (
     tableId: number,
     sessionId?: string,
-    customerName?: string
+    customerName?: string,
+    customerAccountId?: string
   ) => SavedCafeOrder | undefined;
 
   addItemToPlayer: (
     tableId: number,
     sessionId: string,
     playerName: string,
-    item: MenuItem
+    item: MenuItem,
+    playerId?: string
   ) => void;
 
   increasePlayerItem: (
     tableId: number,
     playerName: string,
-    menuItemId: string
+    menuItemId: string,
+    playerId?: string
   ) => void;
 
   decreasePlayerItem: (
     tableId: number,
     playerName: string,
-    menuItemId: string
+    menuItemId: string,
+    playerId?: string
   ) => void;
 
   addItemToWaitingCustomer: (
@@ -384,15 +398,25 @@ export const useCafeStore =
     addPlayerOrder: (
       tableId,
       sessionId,
-      playerName
+      playerName,
+      playerId
     ) =>
       set((state) => {
+        const playerKey =
+          getPlayerIdentityKey({
+            customerId: playerId,
+            playerName,
+          });
         const exists =
           state.playerOrders.find(
             (p) =>
               p.tableId === tableId &&
-              p.playerName ===
-                playerName
+              p.sessionId === sessionId &&
+              isSamePlayerIdentity(p, {
+                playerId,
+                playerKey,
+                playerName,
+              })
           );
 
         if (exists) return state;
@@ -404,6 +428,8 @@ export const useCafeStore =
               tableId,
               sessionId,
               playerName,
+              playerId,
+              playerKey,
               orderItems: [],
               totalAmount: 0,
             },
@@ -413,13 +439,16 @@ export const useCafeStore =
 
     getPlayerOrder: (
       tableId,
-      playerName
+      playerName,
+      playerId
     ) =>
       get().playerOrders.find(
         (p) =>
           p.tableId === tableId &&
-          p.playerName ===
-            playerName
+          isSamePlayerIdentity(p, {
+            playerId,
+            playerName,
+          })
       ),
 
     getWaitingCustomerOrder: (
@@ -455,12 +484,30 @@ export const useCafeStore =
     getSavedOrderForTable: (
       tableId,
       sessionId,
-      customerName
+      customerName,
+      customerAccountId
     ) =>
       get().savedOrders.find((order) => {
         if (
+          customerAccountId &&
+          order.customerAccountId &&
+          order.customerAccountId !== customerAccountId
+        ) {
+          return false;
+        }
+
+        if (
           customerName &&
-          order.customerName !== customerName
+          !isSamePlayerIdentity(
+            {
+              customerId: order.customerAccountId,
+              playerName: order.customerName,
+            },
+            {
+              customerId: customerAccountId,
+              playerName: customerName,
+            }
+          )
         ) {
           return false;
         }
@@ -479,14 +526,25 @@ addItemToPlayer: (
   tableId,
   sessionId,
   playerName,
-  item
+  item,
+  playerId
 ) =>
   set((state) => {
+    const playerKey =
+      getPlayerIdentityKey({
+        customerId: playerId,
+        playerName,
+      });
     const exists =
       state.playerOrders.some(
         (player) =>
           player.tableId === tableId &&
-          player.playerName === playerName
+          player.sessionId === sessionId &&
+          isSamePlayerIdentity(player, {
+            playerId,
+            playerKey,
+            playerName,
+          })
       );
 
     const playerOrders = exists
@@ -497,6 +555,8 @@ addItemToPlayer: (
             tableId,
             sessionId,
             playerName,
+            playerId,
+            playerKey,
             orderItems: [],
             totalAmount: 0,
           },
@@ -507,7 +567,12 @@ addItemToPlayer: (
         (player) => {
           if (
             player.tableId !== tableId ||
-            player.playerName !== playerName
+            player.sessionId !== sessionId ||
+            !isSamePlayerIdentity(player, {
+              playerId,
+              playerKey,
+              playerName,
+            })
           ) {
             return player;
           }
@@ -521,7 +586,7 @@ addItemToPlayer: (
                 sessionId,
                 customerName: playerName,
                 playerName,
-                playerId: playerName,
+                playerId,
               }
             );
 
@@ -539,7 +604,8 @@ addItemToPlayer: (
 increasePlayerItem: (
   tableId,
   playerName,
-  menuItemId
+  menuItemId,
+  playerId
 ) =>
   set((state) => ({
     playerOrders:
@@ -548,8 +614,10 @@ increasePlayerItem: (
           if (
             player.tableId !==
               tableId ||
-            player.playerName !==
-              playerName
+            !isSamePlayerIdentity(player, {
+              playerId,
+              playerName,
+            })
           )
             return player;
 
@@ -572,7 +640,8 @@ increasePlayerItem: (
 decreasePlayerItem: (
   tableId,
   playerName,
-  menuItemId
+  menuItemId,
+  playerId
 ) =>
   set((state) => ({
     playerOrders:
@@ -581,8 +650,10 @@ decreasePlayerItem: (
           if (
             player.tableId !==
               tableId ||
-            player.playerName !==
-              playerName
+            !isSamePlayerIdentity(player, {
+              playerId,
+              playerName,
+            })
           )
             return player;
 
@@ -769,8 +840,17 @@ saveOrder: (input) => {
       if (
         input.sessionId &&
         order.sessionId === input.sessionId &&
-        order.customerName ===
-          input.customerName
+        isSamePlayerIdentity(
+          {
+            customerId: order.customerAccountId,
+            playerName: order.customerName,
+          },
+          {
+            customerId:
+              input.customerAccountId,
+            playerName: input.customerName,
+          }
+        )
       ) {
         return true;
       }
@@ -778,8 +858,17 @@ saveOrder: (input) => {
       return (
         input.tableId !== undefined &&
         order.tableId === input.tableId &&
-        order.customerName ===
-          input.customerName &&
+        isSamePlayerIdentity(
+          {
+            customerId: order.customerAccountId,
+            playerName: order.customerName,
+          },
+          {
+            customerId:
+              input.customerAccountId,
+            playerName: input.customerName,
+          }
+        ) &&
         order.status === "saved"
       );
     });
@@ -836,8 +925,12 @@ saveOrder: (input) => {
         (order) =>
           order.tableId === input.tableId &&
           order.sessionId === input.sessionId &&
-          order.playerName ===
-            input.customerName
+          isSamePlayerIdentity(order, {
+            playerId:
+              input.customerAccountId,
+            playerName:
+              input.customerName,
+          })
       );
 
     const playerOrders =
@@ -848,10 +941,25 @@ saveOrder: (input) => {
                 input.tableId &&
               order.sessionId ===
                 input.sessionId &&
-              order.playerName ===
-                input.customerName
+              isSamePlayerIdentity(order, {
+                playerId:
+                  input.customerAccountId,
+                playerName:
+                  input.customerName,
+              })
                 ? {
                     ...order,
+                    playerId:
+                      input.customerAccountId ??
+                      order.playerId,
+                    playerKey:
+                      getPlayerIdentityKey({
+                        customerId:
+                          input.customerAccountId ??
+                          order.playerId,
+                        playerName:
+                          input.customerName,
+                      }),
                     orderItems:
                       savedOrder.orderItems,
                     totalAmount:
@@ -867,6 +975,15 @@ saveOrder: (input) => {
                   input.sessionId!,
                 playerName:
                   input.customerName,
+                playerId:
+                  input.customerAccountId,
+                playerKey:
+                  getPlayerIdentityKey({
+                    customerId:
+                      input.customerAccountId,
+                    playerName:
+                      input.customerName,
+                  }),
                 orderItems:
                   savedOrder.orderItems,
                 totalAmount:

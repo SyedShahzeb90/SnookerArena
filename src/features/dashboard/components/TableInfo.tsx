@@ -13,6 +13,7 @@ import { calculateGamePrice } from "@/features/pricing/utils/calculateGamePrice"
 import { getSessionPlayers } from "@/features/sessions/utils/sessionPlayers";
 import { useCustomerAccountStore } from "@/features/customers/store/customerAccountStore";
 import type { CustomerAccount } from "@/features/customers/types/customerAccount";
+import { getRunningBillTotals } from "@/features/dashboard/utils/runningBillTotals";
 
 interface Props {
   session: Session;
@@ -56,7 +57,15 @@ function TableInfo({
   );
   const accountBelongsToSession = (
     account: CustomerAccount
-  ) => sessionCustomerIds.includes(account.id);
+  ) =>
+    sessionCustomerIds.includes(account.id) ||
+    [
+      ...account.gameCharges,
+      ...account.cafeCharges,
+      ...(account.accessoryCharges ?? []),
+    ].some(
+      (charge) => charge.sessionId === session.id
+    );
   const activeSessionAccounts =
     customerAccounts.filter(
       (account) =>
@@ -116,9 +125,6 @@ function TableInfo({
       (total, item) => total + item.subtotal,
       0
     );
-  const accessoriesTotal =
-    billedAccessoriesTotal ||
-    sessionAccessoriesTotal;
   const sessionCafeTotal = session.cafeOrders
     .filter(
       (item) => !isAccessoryOrder(item)
@@ -127,8 +133,32 @@ function TableInfo({
       (total, item) => total + item.subtotal,
       0
     );
-  const cafeTotal =
-    billedCafeTotal || sessionCafeTotal;
+  const cafeBillOwners = new Set(
+    session.cafeOrders
+      .filter((item) => !isAccessoryOrder(item))
+      .map(
+        (item) =>
+          item.playerId ??
+          item.playerName ??
+          item.customerName
+      )
+      .filter(Boolean)
+  );
+  const hasSeparatePlayerBills =
+    sessionPlayers.length > 1 &&
+    (activeSessionAccounts.length > 1 ||
+      cafeBillOwners.size > 1);
+  const billTotals = getRunningBillTotals({
+    tableBill: 0,
+    billedCafeTotal,
+    sessionCafeTotal,
+    billedAccessoriesTotal,
+    sessionAccessoriesTotal,
+    separatePlayerBills: hasSeparatePlayerBills,
+  });
+  const accessoriesTotal =
+    billTotals.accessoriesTotal;
+  const cafeTotal = billTotals.cafeTotal;
   const currentEndTime = session.pausedAt
     ? new Date(session.pausedAt)
     : session.endTime
@@ -140,21 +170,52 @@ function TableInfo({
     startTime: new Date(session.startTime),
     endTime: currentEndTime,
   });
+  const tableChargeLines =
+    session.tableChargeLines ?? [];
+  const tableChargeTotal =
+    tableChargeLines.length > 0
+      ? tableChargeLines.reduce(
+          (total, line) => {
+            if (
+              line.type === "tableBooking" &&
+              !line.endedAt
+            ) {
+              const rate =
+                tableType === "private-room"
+                  ? 25
+                  : 20;
+              const startedAt = new Date(
+                line.startedAt
+              );
+              const minutes = Math.max(
+                1,
+                Math.ceil(
+                  (currentEndTime.getTime() -
+                    startedAt.getTime()) /
+                    60000
+                )
+              );
+              return total + minutes * rate;
+            }
+
+            return total + line.amount;
+          },
+          0
+        )
+      : pricing.gameAmount;
   const tableBill = calculateBill({
-    gameAmount: pricing.gameAmount,
+    gameAmount: tableChargeTotal,
     cafeAmount: 0,
     discount: session.discount,
   }).total;
-  const existingOpenBillTotal =
-    activeSessionAccounts.reduce(
-      (total, account) =>
-        total + account.grandTotal,
-      0
-    );
-  const currentBill =
-    existingOpenBillTotal > 0
-      ? existingOpenBillTotal + tableBill
-      : tableBill + cafeTotal + accessoriesTotal;
+  const currentBill = getRunningBillTotals({
+    tableBill,
+    billedCafeTotal,
+    sessionCafeTotal,
+    billedAccessoriesTotal,
+    sessionAccessoriesTotal,
+    separatePlayerBills: hasSeparatePlayerBills,
+  }).currentBill;
 
   return (
     <div className="grid grid-cols-2 gap-3">
@@ -196,7 +257,9 @@ function TableInfo({
         </p>
 
         <p className="text-sm capitalize text-slate-500">
-          {session.sessionType}
+          {tableChargeLines.length > 1
+            ? `${tableChargeLines.length} charges`
+            : session.sessionType}
         </p>
       </div>
 
@@ -245,7 +308,9 @@ function TableInfo({
             </div>
 
             <p className="text-xs font-medium text-blue-600">
-              Open bill + current table
+              {hasSeparatePlayerBills
+                ? "Table bill only; cafe bills separate"
+                : "Open bill + current table"}
             </p>
           </div>
 

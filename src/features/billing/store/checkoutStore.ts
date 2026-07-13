@@ -20,6 +20,7 @@ import {
   getWalkInBillPrefix,
   isWalkInName,
 } from "@/features/sessions/utils/walkInLabel";
+import { hasPlayerName } from "../utils/playerBillIdentity";
 
 export interface PendingBill {
   id: string;
@@ -403,7 +404,8 @@ export const useCheckoutStore =
           ];
 
           if (
-            paidPlayerNames.includes(
+            hasPlayerName(
+              paidPlayerNames,
               playerName
             )
           ) {
@@ -461,7 +463,8 @@ export const useCheckoutStore =
           ];
           const allBillsReceived =
             allPlayerNames.every((name) =>
-              nextPaidPlayerNames.includes(
+              hasPlayerName(
+                nextPaidPlayerNames,
                 name
               )
             );

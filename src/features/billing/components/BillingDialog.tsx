@@ -34,6 +34,11 @@ import { Input } from "@/components/ui/input";
 import { calculateGamePrice } from "@/features/pricing/utils/calculateGamePrice";
 import { calculateDoubleGamePayerBreakdown } from "@/features/sessions/utils/doubleGameBilling";
 import { getWalkInDisplayName } from "@/features/sessions/utils/walkInLabel";
+import {
+  findPayerBreakdownForPlayer,
+  getPlayerCafeItems,
+  hasPlayerName,
+} from "../utils/playerBillIdentity";
 
 const emptyPaidPlayerNames: string[] = [];
 
@@ -153,20 +158,12 @@ function BillingDialog({
       })
     : undefined;
 
-  const getItemPlayerName = (
-    item: CafeOrderItem
-  ) =>
-    item.playerName ??
-    item.customerName ??
-    "";
-
   const playerBills = players.map(
     (playerName) => {
       const cafeItems =
-        adjustedSession.cafeOrders.filter(
-          (item) =>
-            getItemPlayerName(item) ===
-            playerName
+        getPlayerCafeItems(
+          adjustedSession,
+          playerName
         );
       const cafeAmount =
         cafeItems.reduce(
@@ -176,18 +173,17 @@ function BillingDialog({
         );
       const tableAmount =
         pricing
-          ? calculateDoubleGamePayerBreakdown({
-              session: {
-                ...adjustedSession,
-                payerName:
-                  payerName || defaultPayer,
-              },
-              tableAmount:
-                pricing.gameAmount,
-            }).find(
-              (payer) =>
-                payer.playerName ===
-                playerName
+          ? findPayerBreakdownForPlayer(
+              calculateDoubleGamePayerBreakdown({
+                session: {
+                  ...adjustedSession,
+                  payerName:
+                    payerName || defaultPayer,
+                },
+                tableAmount:
+                  pricing.gameAmount,
+              }),
+              playerName
             )?.tableAmountShare ?? 0
           : 0;
 
@@ -302,7 +298,7 @@ function BillingDialog({
 
     const playerName = bill.playerName;
     const nextPaidPlayers =
-      paidPlayers.includes(playerName)
+      hasPlayerName(paidPlayers, playerName)
         ? paidPlayers
         : [...paidPlayers, playerName];
 
@@ -491,7 +487,8 @@ function BillingDialog({
           <div className="grid gap-3">
             {visiblePlayerBills.map((bill) => {
               const paid =
-                paidPlayers.includes(
+                hasPlayerName(
+                  paidPlayers,
                   bill.playerName
                 );
 

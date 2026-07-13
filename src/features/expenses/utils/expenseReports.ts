@@ -2,6 +2,7 @@ import type {
   Expense,
   ExpenseCategory,
 } from "../types/expense";
+import { isActiveExpense } from "./expenseHelpers";
 
 function startOfDay(date: Date) {
   const value = new Date(date);
@@ -46,6 +47,8 @@ export function getExpensesByDateRange(
   const endTime = end.getTime();
 
   return expenses.filter((expense) => {
+    if (!isActiveExpense(expense)) return false;
+
     const expenseTime = new Date(
       expense.expenseDate
     ).getTime();
@@ -62,7 +65,9 @@ export function getExpensesTotal(
 ) {
   return expenses.reduce(
     (total, expense) =>
-      total + expense.amount,
+      isActiveExpense(expense)
+        ? total + expense.amount
+        : total,
     0
   );
 }
@@ -73,6 +78,7 @@ export function getExpensesByCategory(
 ) {
   return expenses.filter(
     (expense) =>
+      isActiveExpense(expense) &&
       expense.category === category
   );
 }
@@ -83,6 +89,10 @@ export function getHighestExpenseCategory(
   const totals = expenses.reduce<
     Partial<Record<ExpenseCategory, number>>
   >((summary, expense) => {
+    if (!isActiveExpense(expense)) {
+      return summary;
+    }
+
     summary[expense.category] =
       (summary[expense.category] ?? 0) +
       expense.amount;

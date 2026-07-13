@@ -1,5 +1,6 @@
 import type { Expense } from "@/features/expenses/types/expense";
 import { expenseCategories } from "@/features/expenses/types/expense";
+import { isActiveExpense } from "@/features/expenses/utils/expenseHelpers";
 import type { Sale } from "@/features/sales/types/sale";
 import type { PaymentMethod } from "@/types/session";
 
@@ -123,6 +124,7 @@ export function calculateProfitLoss(
     isWithinRange(sale.createdAt, range)
   );
   const filteredExpenses = expenses.filter((expense) =>
+    isActiveExpense(expense) &&
     isWithinRange(expense.expenseDate, range)
   );
 
