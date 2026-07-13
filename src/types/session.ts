@@ -44,8 +44,36 @@ export interface Session {
   sessionType: SessionType;
 
   player1: string;
+  player1CustomerId?: string;
 
   player2?: string;
+  player2CustomerId?: string;
+
+  player3?: string;
+  player3CustomerId?: string;
+
+  player4?: string;
+  player4CustomerId?: string;
+
+  extraPlayers?: string[];
+
+  teamAPlayers?: string[];
+
+  teamBPlayers?: string[];
+
+  teamAOneNameEnough?: boolean;
+
+  teamBOneNameEnough?: boolean;
+
+  winningTeam?: "A" | "B";
+
+  losingTeam?: "A" | "B";
+
+  payerBreakdown?: {
+    playerName: string;
+    tableAmountShare: number;
+    note?: string;
+  }[];
 
   startTime: Date;
 
@@ -66,6 +94,7 @@ export interface Session {
   loserName?: string;
 
   payerName?: string;
+  payerCustomerId?: string;
 
   paymentMethod?: PaymentMethod;
 

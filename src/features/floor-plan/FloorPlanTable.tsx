@@ -15,6 +15,7 @@ import { Card } from "@/components/ui/card";
 import { calculateBill } from "@/features/pricing/utils/calculateBill";
 import { calculateGamePrice } from "@/features/pricing/utils/calculateGamePrice";
 import type { Table } from "@/types/table";
+import { getSessionPlayers } from "@/features/sessions/utils/sessionPlayers";
 
 import type { FloorPlanPosition } from "./useFloorPlanStore";
 
@@ -124,6 +125,28 @@ function FloorPlanTable({
         table.session.totalPausedMilliseconds
     );
   }, [table.session, now]);
+  const elapsedMilliseconds = useMemo(() => {
+    if (!table.session) return 0;
+
+    const currentTime =
+      table.session.pausedAt
+        ? new Date(
+            table.session.pausedAt
+          ).getTime()
+        : table.session.endTime
+          ? new Date(
+              table.session.endTime
+            ).getTime()
+          : now.getTime();
+
+    return (
+      currentTime -
+      new Date(
+        table.session.startTime
+      ).getTime() -
+      table.session.totalPausedMilliseconds
+    );
+  }, [table.session, now]);
 
   const currentBill = useMemo(() => {
     if (!table.session) return 0;
@@ -148,7 +171,25 @@ function FloorPlanTable({
   }, [table, cafeAmount, now]);
 
   const status = statusStyles[table.status];
-  const player2 = table.session?.player2;
+  const elapsedMinutes =
+    elapsedMilliseconds / 60000;
+  const timeWarningStyle =
+    table.status === "running" &&
+    elapsedMinutes >= 30
+      ? {
+          border: "border-red-300",
+          card: "bg-red-50",
+        }
+      : table.status === "running" &&
+          elapsedMinutes >= 25
+        ? {
+            border: "border-amber-300",
+            card: "bg-amber-50",
+          }
+        : status;
+  const players = table.session
+    ? getSessionPlayers(table.session)
+    : [];
 
   return (
     <Card
@@ -156,7 +197,7 @@ function FloorPlanTable({
       onPointerDown={
         editMode ? onPointerDown : undefined
       }
-      className={`absolute w-[clamp(135px,14vw,185px)] cursor-pointer select-none rounded-lg p-3 shadow-sm transition-all duration-200 hover:scale-[1.02] hover:shadow-xl ${status.border} ${status.card} ${
+      className={`absolute w-[clamp(135px,14vw,185px)] cursor-pointer select-none rounded-lg p-3 shadow-sm transition-all duration-200 hover:scale-[1.02] hover:shadow-xl ${timeWarningStyle.border} ${timeWarningStyle.card} ${
         editMode ? "cursor-grab active:cursor-grabbing" : ""
       }`}
       style={{
@@ -192,19 +233,22 @@ function FloorPlanTable({
         <div className="flex items-center gap-2 text-slate-700">
           <User className="h-3.5 w-3.5 text-slate-400" />
           <span className="truncate font-medium">
-            {table.session?.player1 ??
+            {players[0] ??
               "No active player"}
           </span>
         </div>
 
-        {player2 && (
-          <div className="flex items-center gap-2 text-slate-700">
+        {players.slice(1).map((player) => (
+          <div
+            key={player}
+            className="flex items-center gap-2 text-slate-700"
+          >
             <User className="h-3.5 w-3.5 text-slate-400" />
             <span className="truncate font-medium">
-              {player2}
+              {player}
             </span>
           </div>
-        )}
+        ))}
 
         <div className="grid grid-cols-3 gap-1.5 pt-1.5">
           <div className="rounded-md bg-white/80 p-1.5">

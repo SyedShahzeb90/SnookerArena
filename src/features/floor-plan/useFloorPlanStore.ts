@@ -17,6 +17,7 @@ interface FloorPlanStore {
     position: FloorPlanPosition
   ) => void;
   resetPositions: () => void;
+  resetFloorPlanStoreToDefault: () => void;
 }
 
 const TABLE_STORAGE_KEY =
@@ -128,6 +129,23 @@ export const useFloorPlanStore =
       }),
 
     resetPositions: () =>
+      set(() => {
+        persistRecord(
+          TABLE_STORAGE_KEY,
+          defaultPositions
+        );
+        persistRecord(
+          ZONE_STORAGE_KEY,
+          defaultZones
+        );
+
+        return {
+          positions: defaultPositions,
+          zones: defaultZones,
+        };
+      }),
+
+    resetFloorPlanStoreToDefault: () =>
       set(() => {
         persistRecord(
           TABLE_STORAGE_KEY,

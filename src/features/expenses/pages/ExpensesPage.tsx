@@ -10,6 +10,7 @@ import {
   useState,
 } from "react";
 import { useNavigate } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -25,6 +26,7 @@ import {
 import ExpenseDialog from "../components/ExpenseDialog";
 import ExpenseSummaryCards from "../components/ExpenseSummaryCards";
 import { useExpensesStore } from "../store/expensesStore";
+import { useBusinessDayStore } from "@/features/business-day/store/businessDayStore";
 import type {
   Expense,
   ExpenseCategory,
@@ -44,6 +46,11 @@ function formatDate(value: string) {
 
 function ExpensesPage() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const dashboardPath =
+    location.pathname.startsWith("/admin")
+      ? "/admin"
+      : "/operator";
   const expenses = useExpensesStore(
     (state) => state.expenses
   );
@@ -56,6 +63,10 @@ function ExpensesPage() {
   const deleteExpense = useExpensesStore(
     (state) => state.deleteExpense
   );
+  const activeBusinessDay =
+    useBusinessDayStore((state) =>
+      state.getActiveBusinessDay()
+    );
 
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] =
@@ -113,6 +124,13 @@ function ExpensesPage() {
   ]);
 
   const handleAddClick = () => {
+    if (!activeBusinessDay) {
+      setMessage(
+        "Please start the day before adding expense."
+      );
+      return;
+    }
+
     setEditingExpense(null);
     setDialogOpen(true);
     setMessage("");
@@ -130,7 +148,11 @@ function ExpensesPage() {
         "Expense updated successfully."
       );
     } else {
-      addExpense(input);
+      addExpense({
+        ...input,
+        activeBusinessDayId:
+          activeBusinessDay?.id,
+      });
       setMessage(
         "Expense saved successfully."
       );
@@ -162,7 +184,9 @@ function ExpensesPage() {
             <Button
               variant="ghost"
               className="mb-3 gap-2"
-              onClick={() => navigate("/")}
+              onClick={() =>
+                navigate(dashboardPath)
+              }
             >
               <ArrowLeft className="h-4 w-4" />
               Dashboard
@@ -277,6 +301,9 @@ function ExpensesPage() {
                   <th className="px-4 py-3">
                     Amount
                   </th>
+                  <th className="px-4 py-3">
+                    Payment
+                  </th>
                   <th className="px-4 py-3 text-right">
                     Actions
                   </th>
@@ -303,6 +330,10 @@ function ExpensesPage() {
                       </td>
                       <td className="px-4 py-3 font-bold text-red-700">
                         Rs. {expense.amount}
+                      </td>
+                      <td className="px-4 py-3 capitalize">
+                        {expense.paymentMethod ??
+                          "cash"}
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex justify-end gap-2">
@@ -343,7 +374,7 @@ function ExpensesPage() {
                   0 && (
                   <tr>
                     <td
-                      colSpan={5}
+                      colSpan={6}
                       className="px-4 py-10 text-center text-slate-500"
                     >
                       No expenses found.

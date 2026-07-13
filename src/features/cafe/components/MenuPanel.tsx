@@ -7,33 +7,56 @@ import { useCafeStore } from "../store/cafeStore";
 
 type SelectedTarget =
   | {
-      type: "player";
+      type: "runningTable";
       tableId: number;
       sessionId: string;
       playerName: string;
     }
   | {
-      type: "waiting";
+      type: "waitingCustomer";
       customerId: string;
+    }
+  | {
+      type: "openBill";
+      customerAccountId: string;
     }
   | null;
 
 interface Props {
   disabled?: boolean;
   selectedTarget: SelectedTarget;
+  onAddItem?: (menuItemId: string) => void;
 }
 
 const categories = [
   "All",
-  "Fast Food",
   "Snacks",
+  "Fast Food",
   "Drinks",
+  "Tea / Coffee",
   "Desserts",
+  "Other",
 ];
+
+function getMenuIcon(
+  item: {
+    emoji?: string;
+    category: string;
+  }
+) {
+  if (item.emoji?.trim()) return item.emoji;
+  if (item.category === "Fast Food") return "🍔";
+  if (item.category === "Snacks") return "🍟";
+  if (item.category === "Drinks") return "🥤";
+  if (item.category === "Tea / Coffee") return "☕";
+  if (item.category === "Desserts") return "🍰";
+  return "🍽";
+}
 
 function MenuPanel({
   disabled = false,
   selectedTarget,
+  onAddItem,
 }: Props) {
   const {
     menu,
@@ -58,7 +81,8 @@ function MenuPanel({
         item.category === category;
 
       return (
-        item.available &&
+        (item.isAvailable ??
+          item.available) &&
         matchesSearch &&
         matchesCategory
       );
@@ -146,12 +170,7 @@ function MenuPanel({
 
             <div className="mb-4 flex h-24 items-center justify-center rounded-lg bg-slate-100 text-5xl">
 
-              {{
-                "Fast Food": "🍔",
-                Snacks: "🍟",
-                Drinks: "🥤",
-                Desserts: "🍰",
-              }[item.category]}
+              {getMenuIcon(item)}
 
             </div>
 
@@ -172,8 +191,15 @@ function MenuPanel({
               onClick={() => {
 
                 if (
+                  onAddItem
+                ) {
+                  onAddItem(item.id);
+                  return;
+                }
+
+                if (
                   selectedTarget.type ===
-                  "player"
+                  "runningTable"
                 ) {
                   addItemToPlayer(
                     selectedTarget.tableId,
@@ -183,7 +209,10 @@ function MenuPanel({
                   );
                 } else {
                   addItemToWaitingCustomer(
-                    selectedTarget.customerId,
+                    selectedTarget.type ===
+                      "waitingCustomer"
+                      ? selectedTarget.customerId
+                      : selectedTarget.customerAccountId,
                     item
                   );
                 }
@@ -204,3 +233,4 @@ function MenuPanel({
 }
 
 export default MenuPanel;
+

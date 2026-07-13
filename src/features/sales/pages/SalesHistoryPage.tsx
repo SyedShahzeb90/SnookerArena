@@ -1,6 +1,7 @@
 import {
   ArrowLeft,
   Search,
+  Trash2,
 } from "lucide-react";
 import {
   useMemo,
@@ -11,6 +12,8 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { useBusinessDayStore } from "@/features/business-day/store/businessDayStore";
+import { getWalkInDisplayName } from "@/features/sessions/utils/walkInLabel";
 
 import { useSalesStore } from "../store/salesStore";
 import {
@@ -18,6 +21,34 @@ import {
   calculateSalesTotals,
   filterSalesByRange,
 } from "../utils/salesReports";
+import type { PaymentMethod } from "@/types/session";
+
+const paymentLabels: Record<
+  PaymentMethod,
+  string
+> = {
+  cash: "Cash",
+  card: "Card",
+  jazzcash: "JazzCash",
+  easypaisa: "Easypaisa",
+};
+
+function getPaymentLabel(
+  sale: ReturnType<
+    typeof useSalesStore.getState
+  >["sales"][number]
+) {
+  if (!sale.paymentSplits?.length) {
+    return paymentLabels[sale.paymentMethod];
+  }
+
+  return sale.paymentSplits
+    .map(
+      (split) =>
+        `${paymentLabels[split.method]} Rs. ${split.amount}`
+    )
+    .join(" + ");
+}
 
 type SortOrder = "newest" | "oldest";
 
@@ -28,15 +59,86 @@ function formatDate(value: string) {
   });
 }
 
+type SalesHistorySale = ReturnType<
+  typeof useSalesStore.getState
+>["sales"][number];
+
+function getSaleDisplayName(
+  sale: SalesHistorySale,
+  name?: string | null
+) {
+  return getWalkInDisplayName({
+    name,
+    tableId: sale.tableId,
+    tableName: sale.tableName,
+    time: sale.startedAt,
+  });
+}
+
+function getSalePlayersLabel(sale: SalesHistorySale) {
+  return sale.players
+    .map((player) =>
+      getSaleDisplayName(sale, player.name)
+    )
+    .join(", ");
+}
+
 function SalesHistoryPage() {
   const navigate = useNavigate();
   const sales = useSalesStore(
     (state) => state.sales
   );
+  const deleteSale = useSalesStore(
+    (state) => state.deleteSale
+  );
+  const businessDays =
+    useBusinessDayStore(
+      (state) => state.days
+    );
 
   const [search, setSearch] = useState("");
   const [sortOrder, setSortOrder] =
     useState<SortOrder>("newest");
+
+  const handleDeleteSale = (
+    sale: (typeof sales)[number]
+  ) => {
+    const confirmed = window.confirm(
+      `Delete sale ${sale.invoiceNumber}? This is for removing mistaken test bills.`
+    );
+
+    if (!confirmed) return;
+
+    deleteSale(sale.id);
+  };
+
+  const businessDayById = useMemo(
+    () =>
+      new Map(
+        businessDays.map((day) => [
+          day.id,
+          day,
+        ])
+      ),
+    [businessDays]
+  );
+
+  const getBusinessDayLabel = (
+    businessDayId?: string
+  ) => {
+    if (!businessDayId) {
+      return "No Business Day";
+    }
+
+    const day =
+      businessDayById.get(businessDayId);
+
+    if (!day) {
+      return "No Business Day";
+    }
+
+    return `${day.dayName} - ${day.openedBy}`;
+  };
 
   const filteredSales = useMemo(() => {
     const query = search
@@ -46,6 +148,11 @@ function SalesHistoryPage() {
     return sales
       .filter((sale) => {
         if (!query) return true;
+
+        const businessDayLabel =
+          getBusinessDayLabel(
+            sale.activeBusinessDayId
+          ).toLowerCase();
 
         return (
           sale.invoiceNumber
@@ -59,6 +166,9 @@ function SalesHistoryPage() {
               .toLowerCase()
               .includes(query)
           ) ||
+          getSalePlayersLabel(sale)
+            .toLowerCase()
+            .includes(query) ||
           (sale.winnerName ?? "")
             .toLowerCase()
             .includes(query) ||
@@ -68,9 +178,16 @@ function SalesHistoryPage() {
           (sale.payerName ?? "")
             .toLowerCase()
             .includes(query) ||
-          sale.paymentMethod
+          getSaleDisplayName(
+            sale,
+            sale.payerName
+          )
             .toLowerCase()
-            .includes(query)
+            .includes(query) ||
+          getPaymentLabel(sale)
+            .toLowerCase()
+            .includes(query) ||
+          businessDayLabel.includes(query)
         );
       })
       .sort((a, b) => {
@@ -85,7 +202,12 @@ function SalesHistoryPage() {
           ? second - first
           : first - second;
       });
-  }, [sales, search, sortOrder]);
+  }, [
+    sales,
+    search,
+    sortOrder,
+    businessDayById,
+  ]);
 
   const todayTotals = calculateSalesTotals(
     filterSalesByRange(sales, "today")
@@ -107,7 +229,7 @@ function SalesHistoryPage() {
             <Button
               variant="ghost"
               className="mb-3 gap-2"
-              onClick={() => navigate("/")}
+              onClick={() => navigate("/admin")}
             >
               <ArrowLeft className="h-4 w-4" />
               Dashboard
@@ -206,7 +328,7 @@ function SalesHistoryPage() {
           <div className="flex items-center gap-3 border-b p-4">
             <Search className="h-4 w-4 text-slate-400" />
             <Input
-              placeholder="Search invoice, table, player, winner, payer, payment method..."
+              placeholder="Search invoice, table, player, payer, payment method, business day..."
               value={search}
               onChange={(event) =>
                 setSearch(
@@ -227,7 +349,13 @@ function SalesHistoryPage() {
                     Date
                   </th>
                   <th className="px-4 py-3">
+                    Business Day
+                  </th>
+                  <th className="px-4 py-3">
                     Table
+                  </th>
+                  <th className="px-4 py-3">
+                    Type
                   </th>
                   <th className="px-4 py-3">
                     Players
@@ -262,6 +390,9 @@ function SalesHistoryPage() {
                   <th className="px-4 py-3">
                     Payment
                   </th>
+                  <th className="px-4 py-3 text-right">
+                    Action
+                  </th>
                 </tr>
               </thead>
 
@@ -280,24 +411,53 @@ function SalesHistoryPage() {
                       )}
                     </td>
                     <td className="px-4 py-3">
+                      {getBusinessDayLabel(
+                        sale.activeBusinessDayId
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
                       {sale.tableName}
                     </td>
                     <td className="px-4 py-3">
-                      {sale.players
-                        .map(
-                          (player) =>
-                            player.name
-                        )
-                        .join(", ")}
+                      {sale.saleType ===
+                        "cafe-only" ||
+                      sale.saleType ===
+                        "cafe_only"
+                        ? "Cafe Only"
+                        : sale.saleType ===
+                            "customer_bill"
+                          ? "Customer Bill"
+                          : sale.saleType ===
+                              "accessories"
+                            ? "Accessories"
+                          : "Table"}
                     </td>
                     <td className="px-4 py-3">
-                      {sale.winnerName ?? "-"}
+                      {getSalePlayersLabel(sale)}
                     </td>
                     <td className="px-4 py-3">
-                      {sale.loserName ?? "-"}
+                      {sale.winnerName
+                        ? getSaleDisplayName(
+                            sale,
+                            sale.winnerName
+                          )
+                        : "-"}
                     </td>
                     <td className="px-4 py-3">
-                      {sale.payerName ?? "-"}
+                      {sale.loserName
+                        ? getSaleDisplayName(
+                            sale,
+                            sale.loserName
+                          )
+                        : "-"}
+                    </td>
+                    <td className="px-4 py-3">
+                      {sale.payerName
+                        ? getSaleDisplayName(
+                            sale,
+                            sale.payerName
+                          )
+                        : "-"}
                     </td>
                     <td className="px-4 py-3">
                       {sale.playerBreakdown ? (
@@ -312,7 +472,10 @@ function SalesHistoryPage() {
                               >
                                 <span className="font-semibold">
                                   {
-                                    player.playerName
+                                    getSaleDisplayName(
+                                      sale,
+                                      player.playerName
+                                    )
                                   }
                                 </span>
                                 {": "}Rs.{" "}
@@ -342,8 +505,22 @@ function SalesHistoryPage() {
                     <td className="px-4 py-3 font-bold">
                       Rs. {sale.grandTotal}
                     </td>
-                    <td className="px-4 py-3 capitalize">
-                      {sale.paymentMethod}
+                    <td className="px-4 py-3">
+                      {getPaymentLabel(sale)}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="gap-1 border-red-200 text-red-700 hover:bg-red-50"
+                        onClick={() =>
+                          handleDeleteSale(sale)
+                        }
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Delete
+                      </Button>
                     </td>
                   </tr>
                 ))}
@@ -351,7 +528,7 @@ function SalesHistoryPage() {
                 {filteredSales.length === 0 && (
                   <tr>
                     <td
-                      colSpan={14}
+                      colSpan={17}
                       className="px-4 py-10 text-center text-slate-500"
                     >
                       No sales found.

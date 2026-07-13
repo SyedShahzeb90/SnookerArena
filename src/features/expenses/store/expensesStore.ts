@@ -34,6 +34,7 @@ interface ExpensesStore {
   getExpensesByCategory: (
     category: ExpenseCategory
   ) => Expense[];
+  resetExpensesStore: () => void;
 }
 
 export const useExpensesStore =
@@ -127,6 +128,11 @@ export const useExpensesStore =
             get().expenses,
             category
           ),
+
+        resetExpensesStore: () =>
+          set({
+            expenses: [],
+          }),
       }),
       {
         name: "snooker-arena-expenses",

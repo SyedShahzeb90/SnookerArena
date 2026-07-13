@@ -1,21 +1,37 @@
 import { calculateBill } from "@/features/pricing/utils/calculateBill";
 import { calculateGamePrice } from "@/features/pricing/utils/calculateGamePrice";
 import { calculateDuration } from "@/features/pricing/utils/calculateDuration";
-import type { PaymentMethod } from "@/types/session";
+import type {
+  CafeOrderItem,
+  PaymentMethod,
+} from "@/types/session";
 import type { Table } from "@/types/table";
+import { getSessionPlayers } from "@/features/sessions/utils/sessionPlayers";
+import { calculateDoubleGamePayerBreakdown } from "@/features/sessions/utils/doubleGameBilling";
 
 import type { Sale } from "../types/sale";
+import type { PaymentSplit } from "../types/sale";
 
 interface CreateSaleInput {
   table: Table;
   paymentMethod: PaymentMethod;
+  paymentSplits?: PaymentSplit[];
   invoiceNumber: string;
+  playerBill?: {
+    playerName: string;
+    tableAmount: number;
+    cafeAmount: number;
+    cafeItems: CafeOrderItem[];
+    discount?: number;
+  };
 }
 
 export function createSaleFromTable({
   table,
   paymentMethod,
+  paymentSplits,
   invoiceNumber,
+  playerBill,
 }: CreateSaleInput): Sale | null {
   if (!table.session || !table.session.endTime) {
     return null;
@@ -49,10 +65,7 @@ export function createSaleFromTable({
     cafeAmount: session.cafeAmount,
     discount: session.discount,
   });
-  const players = [
-    session.player1,
-    session.player2,
-  ].filter(Boolean) as string[];
+  const players = getSessionPlayers(session);
 
   const itemPlayerName = (
     item: (typeof session.cafeOrders)[number]
@@ -60,6 +73,12 @@ export function createSaleFromTable({
     item.playerName ??
     item.customerName ??
     "";
+
+  const payerBreakdown =
+    calculateDoubleGamePayerBreakdown({
+      session,
+      tableAmount: pricing.gameAmount,
+    });
 
   const playerBreakdown = players.map(
     (playerName) => {
@@ -76,10 +95,11 @@ export function createSaleFromTable({
           0
         );
       const tableAmountShare =
-        session.payerName ===
-        playerName
-          ? pricing.gameAmount
-          : 0;
+        payerBreakdown.find(
+          (payer) =>
+            payer.playerName ===
+            playerName
+        )?.tableAmountShare ?? 0;
 
       return {
         playerName,
@@ -93,40 +113,84 @@ export function createSaleFromTable({
     }
   );
 
+  const salePlayers = playerBill
+    ? [{ name: playerBill.playerName }]
+    : [
+        ...players.map((name) => ({
+          name,
+        })),
+      ];
+  const saleTableAmount =
+    playerBill?.tableAmount ??
+    pricing.gameAmount;
+  const saleCafeAmount =
+    playerBill?.cafeAmount ??
+    session.cafeAmount;
+  const saleSubtotal =
+    saleTableAmount + saleCafeAmount;
+  const saleDiscount = playerBill
+    ? playerBill.discount ?? 0
+    : session.discount;
+  const saleGrandTotal =
+    saleSubtotal - saleDiscount;
+  const saleItems =
+    playerBill?.cafeItems ??
+    session.cafeOrders;
+
   return {
-    id: `SALE-${Date.now()}-${table.id}`,
+    id: `SALE-${invoiceNumber}-${table.id}`,
     invoiceNumber,
     tableId: table.id,
     tableName: table.name,
     sessionId: session.id,
-    players: [
-      { name: session.player1 },
-      ...(session.player2
-        ? [
-            {
-              name: session.player2,
-            },
-          ]
-        : []),
-    ],
+    players: salePlayers,
     sessionType: session.sessionType,
     winnerName: session.winnerName,
     loserName: session.loserName,
     payerName: session.payerName,
+    teamAPlayers: session.teamAPlayers,
+    teamBPlayers: session.teamBPlayers,
+    teamAOneNameEnough:
+      session.teamAOneNameEnough,
+    teamBOneNameEnough:
+      session.teamBOneNameEnough,
+    extraPlayers: session.extraPlayers,
+    winningTeam: session.winningTeam,
+    losingTeam: session.losingTeam,
+    payerBreakdown,
     startedAt: startedAt.toISOString(),
     endedAt: endedAt.toISOString(),
     durationMinutes:
       duration.totalMinutes,
     createdAt: new Date().toISOString(),
-    tableAmount: pricing.gameAmount,
-    cafeAmount: session.cafeAmount,
-    subtotal: bill.subtotal,
-    discount: session.discount,
-    grandTotal: bill.total,
+    tableAmount: saleTableAmount,
+    cafeAmount: saleCafeAmount,
+    subtotal: playerBill
+      ? saleSubtotal
+      : bill.subtotal,
+    discount: saleDiscount,
+    grandTotal: playerBill
+      ? saleGrandTotal
+      : bill.total,
     paymentMethod,
+    paymentSplits,
     paymentStatus: "paid",
-    orderedItems:
-      session.cafeOrders,
-    playerBreakdown,
+    orderedItems: saleItems,
+    playerBreakdown: playerBill
+      ? [
+          {
+            playerName:
+              playerBill.playerName,
+            tableAmountShare:
+              playerBill.tableAmount,
+            cafeAmount:
+              playerBill.cafeAmount,
+            totalAmount:
+              saleGrandTotal,
+            cafeItems:
+              playerBill.cafeItems,
+          },
+        ]
+      : playerBreakdown,
   };
 }

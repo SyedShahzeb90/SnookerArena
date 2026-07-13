@@ -17,6 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import type { PaymentMethod } from "@/types/session";
 
 import type {
   Expense,
@@ -54,6 +55,8 @@ function ExpenseDialog({
   const [note, setNote] = useState("");
   const [expenseDate, setExpenseDate] =
     useState("");
+  const [paymentMethod, setPaymentMethod] =
+    useState<PaymentMethod>("cash");
   const [message, setMessage] =
     useState("");
 
@@ -73,6 +76,9 @@ function ExpenseDialog({
         : toDateTimeInputValue(
             new Date().toISOString()
           )
+    );
+    setPaymentMethod(
+      expense?.paymentMethod ?? "cash"
     );
     setMessage("");
   }, [open, expense]);
@@ -113,6 +119,7 @@ function ExpenseDialog({
       note: note.trim(),
       expenseDate:
         new Date(expenseDate).toISOString(),
+      paymentMethod,
     });
 
     onOpenChange(false);
@@ -187,6 +194,36 @@ function ExpenseDialog({
                 )
               }
             />
+          </div>
+
+          <div className="space-y-2">
+            <Label>Payment Method</Label>
+            <Select
+              value={paymentMethod}
+              onValueChange={(value) =>
+                setPaymentMethod(
+                  value as PaymentMethod
+                )
+              }
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="cash">
+                  Cash
+                </SelectItem>
+                <SelectItem value="card">
+                  Card
+                </SelectItem>
+                <SelectItem value="jazzcash">
+                  JazzCash
+                </SelectItem>
+                <SelectItem value="easypaisa">
+                  Easypaisa
+                </SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="space-y-2">

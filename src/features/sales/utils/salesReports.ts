@@ -147,12 +147,26 @@ export function calculatePaymentTotals(
   return sales.reduce<
     Record<PaymentMethod, number>
   >(
-    (totals, sale) => ({
-      ...totals,
-      [sale.paymentMethod]:
-        totals[sale.paymentMethod] +
-        sale.grandTotal,
-    }),
+    (totals, sale) => {
+      if (sale.paymentSplits?.length) {
+        return sale.paymentSplits.reduce(
+          (splitTotals, split) => ({
+            ...splitTotals,
+            [split.method]:
+              splitTotals[split.method] +
+              split.amount,
+          }),
+          totals
+        );
+      }
+
+      return {
+        ...totals,
+        [sale.paymentMethod]:
+          totals[sale.paymentMethod] +
+          sale.grandTotal,
+      };
+    },
     {
       cash: 0,
       card: 0,

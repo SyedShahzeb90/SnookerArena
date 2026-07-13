@@ -1,7 +1,9 @@
 import { useState } from "react";
+import { History } from "lucide-react";
 
 import type { Table } from "@/types/table";
 
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
 import useCurrentTime from "@/features/dashboard/hooks/useCurrentTime";
@@ -17,6 +19,9 @@ import EndSessionDialog from "./EndSessionDialog";
 type Props = {
   table: Table;
   onClick: () => void;
+  onHistoryClick?: () => void;
+  onCafeBillClick?: () => void;
+  onAccessoriesClick?: () => void;
 };
 
 function formatDuration(ms: number) {
@@ -40,9 +45,33 @@ function formatDuration(ms: number) {
   )}`;
 }
 
+function getElapsedMilliseconds(
+  table: Table,
+  now: Date
+) {
+  if (!table.session) return 0;
+
+  return (
+    (
+      table.session.pausedAt
+        ? new Date(
+            table.session.pausedAt
+          ).getTime()
+        : now.getTime()
+    ) -
+    new Date(
+      table.session.startTime
+    ).getTime() -
+    table.session.totalPausedMilliseconds
+  );
+}
+
 function TableCard({
   table,
   onClick,
+  onHistoryClick,
+  onCafeBillClick,
+  onAccessoriesClick,
 }: Props) {
   const now = useCurrentTime();
 
@@ -62,37 +91,66 @@ function TableCard({
   const resumeSession = useTableStore(
     (state) => state.resumeSession
   );
+  const cancelSession = useTableStore(
+    (state) => state.cancelSession
+  );
 
+  const elapsedMilliseconds =
+    getElapsedMilliseconds(table, now);
   const elapsed = table.session
-    ? formatDuration(
-        (
-          table.session.pausedAt
-            ? new Date(
-                table.session.pausedAt
-              ).getTime()
-            : now.getTime()
-        ) -
-          new Date(
-            table.session.startTime
-          ).getTime() -
-          table.session
-            .totalPausedMilliseconds
-      )
+    ? formatDuration(elapsedMilliseconds)
     : "00:00:00";
+  const elapsedMinutes =
+    elapsedMilliseconds / 60000;
+  const runningTimeWarningClass =
+    table.status === "running" &&
+    elapsedMinutes >= 30
+      ? "border-red-300 bg-red-50 shadow-red-100 hover:shadow-red-200"
+      : table.status === "running" &&
+          elapsedMinutes >= 25
+        ? "border-amber-300 bg-amber-50 shadow-amber-100 hover:shadow-amber-200"
+        : "border-slate-200 bg-white";
 
   return (
     <>
       <Card
         onClick={onClick}
-        className="min-h-[230px] cursor-pointer rounded-lg border-slate-200 bg-white p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
+        className={`min-h-[230px] cursor-pointer rounded-lg p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ${runningTimeWarningClass}`}
       >
-        <TableHeader table={table} />
+        <div className="flex items-start justify-between gap-3">
+          <TableHeader table={table} />
+
+          {onHistoryClick && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1 px-2 text-xs"
+              onClick={(event) => {
+                event.stopPropagation();
+                onHistoryClick();
+              }}
+            >
+              <History className="h-3.5 w-3.5" />
+              History
+            </Button>
+          )}
+        </div>
 
         <div className="mt-5 space-y-4">
           {table.session && (
             <>
               <TableInfo
                 session={table.session}
+                tableId={table.id}
+                tableType={table.type}
+                now={now}
+                onCafeBillClick={
+                  onCafeBillClick
+                }
+                onAccessoriesClick={
+                  onAccessoriesClick
+                }
               />
 
               {(table.status ===
@@ -122,6 +180,16 @@ function TableCard({
                   onEdit={() =>
                     setEditOpen(true)
                   }
+                  onCancelSession={() => {
+                    const confirmed =
+                      window.confirm(
+                        `Cancel the running session on ${table.name}? This will remove the mistaken start and no bill will be created.`
+                      );
+
+                    if (confirmed) {
+                      cancelSession(table.id);
+                    }
+                  }}
                   onEndSession={() =>
                     setEndOpen(true)
                   }

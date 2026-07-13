@@ -7,6 +7,7 @@ interface Props {
   customerName: string;
   customerMeta?: string;
   items: OrderItem[];
+  savedItems?: OrderItem[];
   onIncrease: (menuItemId: string) => void;
   onDecrease: (menuItemId: string) => void;
   onSave: () => void;
@@ -18,6 +19,7 @@ function OrderCart({
   customerName,
   customerMeta,
   items,
+  savedItems = [],
   onIncrease,
   onDecrease,
   onSave,
@@ -50,7 +52,8 @@ function OrderCart({
       </div>
 
       <div className="mt-5 min-h-0 flex-1 space-y-4 overflow-y-auto">
-        {items.length === 0 && (
+        {items.length === 0 &&
+          savedItems.length === 0 && (
           <div className="flex h-full items-center justify-center">
             <div className="text-center">
               <div className="text-5xl font-bold text-gray-300">
@@ -63,6 +66,44 @@ function OrderCart({
             </div>
           </div>
         )}
+
+        {savedItems.length > 0 && (
+          <div className="space-y-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Saved Bill Items
+            </p>
+
+            {savedItems.map((item) => (
+              <div
+                key={`${item.menuItemId}-${item.orderedAt ?? item.name}`}
+                className="rounded-xl border bg-slate-50 p-4"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="font-semibold">
+                      {item.name}
+                    </h3>
+
+                    <p className="text-sm text-gray-500">
+                      Rs. {item.price} x {item.quantity}
+                    </p>
+                  </div>
+
+                  <div className="shrink-0 font-bold text-emerald-600">
+                    Rs. {item.subtotal}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {items.length > 0 &&
+          savedItems.length > 0 && (
+            <p className="pt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              New Items
+            </p>
+          )}
 
         {items.map((item) => (
           <div
@@ -141,6 +182,11 @@ function OrderCart({
         >
           {saveLabel}
         </Button>
+        {!items.length && (
+          <p className="mt-2 text-center text-sm text-slate-500">
+            No new items to save
+          </p>
+        )}
       </div>
     </Card>
   );

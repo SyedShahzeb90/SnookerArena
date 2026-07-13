@@ -1,3 +1,5 @@
+import type { PaymentMethod } from "@/types/session";
+
 export const expenseCategories = [
   "Staff Salary",
   "Electricity",
@@ -19,6 +21,10 @@ export interface Expense {
   note: string;
   expenseDate: string;
   createdAt: string;
+  activeBusinessDayId?: string;
+  paymentMethod?: PaymentMethod;
+  createdByRole?: string;
+  createdByName?: string;
 }
 
 export interface ExpenseInput {
@@ -26,4 +32,8 @@ export interface ExpenseInput {
   amount: number;
   note: string;
   expenseDate: string;
+  paymentMethod: PaymentMethod;
+  activeBusinessDayId?: string;
+  createdByRole?: string;
+  createdByName?: string;
 }

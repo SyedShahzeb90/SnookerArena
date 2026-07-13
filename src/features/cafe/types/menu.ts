@@ -9,9 +9,19 @@ export interface MenuItem {
     | "Snacks"
     | "Fast Food"
     | "Drinks"
-    | "Desserts";
+    | "Tea / Coffee"
+    | "Desserts"
+    | "Other";
 
   available: boolean;
+
+  emoji?: string;
+
+  isAvailable?: boolean;
+
+  createdAt?: string;
+
+  updatedAt?: string;
 }
 
 export interface OrderItem {

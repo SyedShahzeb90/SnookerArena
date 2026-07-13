@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 
 import { useCafeStore } from "../store/cafeStore";
 import { useTableStore } from "@/store/tableStore";
+import { getSessionPlayers } from "@/features/sessions/utils/sessionPlayers";
 
 import WaitingCustomerDialog from "./WaitingCustomerDialog";
 import MenuGrid from "./MenuGrid";
@@ -250,56 +251,22 @@ function CafeDialog({
                   </h2>
 
                   <div className="grid grid-cols-2 gap-4">
-                    <Button
-                      onClick={() => {
-                        addPlayerOrder(
-                          table.id,
-                          table
-                            .session!
-                            .id,
-                          table
-                            .session!
-                            .player1
-                        );
-
-                        setSelectedPlayer(
-                          table
-                            .session!
-                            .player1
-                        );
-
-                        setSelectedWaitingCustomer("");
-
-                        setStep(
-                          "menu"
-                        );
-                      }}
-                    >
-                      {
-                        table
-                          .session
-                          .player1
-                      }
-                    </Button>
-
-                    {table.session
-                      .player2 && (
+                    {getSessionPlayers(
+                      table.session
+                    ).map((player) => (
                       <Button
+                        key={player}
                         onClick={() => {
                           addPlayerOrder(
                             table.id,
                             table
                               .session!
                               .id,
-                            table
-                              .session!
-                              .player2!
+                            player
                           );
 
                           setSelectedPlayer(
-                            table
-                              .session!
-                              .player2!
+                            player
                           );
 
                           setSelectedWaitingCustomer("");
@@ -309,13 +276,9 @@ function CafeDialog({
                           );
                         }}
                       >
-                        {
-                          table
-                            .session
-                            .player2
-                        }
+                        {player}
                       </Button>
-                    )}
+                    ))}
                   </div>
                 </div>
               );

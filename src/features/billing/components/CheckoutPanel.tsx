@@ -10,19 +10,42 @@ import {
   useCheckoutStore,
   type PendingBill,
 } from "../store/checkoutStore";
+import { getSessionPlayers } from "@/features/sessions/utils/sessionPlayers";
+import { getWalkInDisplayName } from "@/features/sessions/utils/walkInLabel";
 
 function CheckoutPanel() {
   const pendingBills = useCheckoutStore(
-    (state) => state.pendingBills
+    (state) =>
+      state.pendingBills.filter(
+        (bill) =>
+          bill.status !== "cancelled"
+      )
   );
   const receivePendingBillPayment =
     useCheckoutStore(
       (state) =>
         state.receivePendingBillPayment
     );
+  const receivePendingPlayerBillPayment =
+    useCheckoutStore(
+      (state) =>
+        state.receivePendingPlayerBillPayment
+    );
 
   const [selectedBill, setSelectedBill] =
     useState<PendingBill | null>(null);
+
+  const getBillDisplayName = (
+    bill: PendingBill,
+    name?: string
+  ) =>
+    getWalkInDisplayName({
+      name,
+      tableId: bill.tableId,
+      tableName: bill.tableName,
+      tableType: bill.tableType,
+      time: bill.session.startTime,
+    });
 
   const handleReceivePayment = (
     paymentMethod: PaymentMethod,
@@ -39,6 +62,49 @@ function CheckoutPanel() {
     setSelectedBill(null);
   };
 
+  const handleReceivePlayerBill = (input: {
+    paymentMethod: PaymentMethod;
+    payerName?: string;
+    playerName: string;
+    tableAmount: number;
+    cafeAmount: number;
+    cafeItems: PendingBill["session"]["cafeOrders"];
+    allPlayerNames: string[];
+  }) => {
+    if (!selectedBill) return;
+
+    receivePendingPlayerBillPayment({
+      billId: selectedBill.id,
+      ...input,
+    });
+
+    const paidPlayerNames =
+      selectedBill.paidPlayerNames ?? [];
+    const nextPaidPlayerNames =
+      paidPlayerNames.includes(
+        input.playerName
+      )
+        ? paidPlayerNames
+        : [
+            ...paidPlayerNames,
+            input.playerName,
+          ];
+    const allBillsReceived =
+      input.allPlayerNames.every((name) =>
+        nextPaidPlayerNames.includes(name)
+      );
+
+    if (allBillsReceived) {
+      setSelectedBill(null);
+    } else {
+      setSelectedBill({
+        ...selectedBill,
+        paidPlayerNames:
+          nextPaidPlayerNames,
+      });
+    }
+  };
+
   return (
     <section className="mt-6">
       <div className="mb-3 flex items-center gap-3">
@@ -47,7 +113,7 @@ function CheckoutPanel() {
         </div>
         <div>
           <h2 className="text-xl font-bold text-slate-950">
-            Billing / Checkout
+            Customer Bills / Checkout
           </h2>
           <p className="text-sm text-slate-500">
             Ended game bills waiting for payment.
@@ -72,10 +138,16 @@ function CheckoutPanel() {
                     {bill.tableName}
                   </h3>
                   <p className="text-sm text-slate-500">
-                    {bill.session.player1}
-                    {bill.session.player2
-                      ? ` vs ${bill.session.player2}`
-                      : ""}
+                    {getSessionPlayers(
+                      bill.session
+                    )
+                      .map((player) =>
+                        getBillDisplayName(
+                          bill,
+                          player
+                        )
+                      )
+                      .join(" vs ")}
                   </p>
                 </div>
 
@@ -95,8 +167,13 @@ function CheckoutPanel() {
                 <div className="flex justify-between">
                   <span>Payer</span>
                   <span className="font-semibold">
-                    {bill.session.payerName ??
-                      "-"}
+                    {bill.session.payerName
+                      ? getBillDisplayName(
+                          bill,
+                          bill.session
+                            .payerName
+                        )
+                      : "-"}
                   </span>
                 </div>
                 <div className="flex justify-between">
@@ -124,9 +201,17 @@ function CheckoutPanel() {
         <BillingDialog
           open={!!selectedBill}
           session={selectedBill.session}
+          tableType={selectedBill.tableType}
+          tableName={selectedBill.tableName}
+          paidPlayerNames={
+            selectedBill.paidPlayerNames
+          }
           onClose={() => setSelectedBill(null)}
           onReceivePayment={
             handleReceivePayment
+          }
+          onReceivePlayerBill={
+            handleReceivePlayerBill
           }
         />
       )}

@@ -320,6 +320,8 @@ function FloorPlanView() {
         <BillingDialog
           open={activeDialog === "billing"}
           session={selectedTable.session}
+          tableType={selectedTable.type}
+          tableName={selectedTable.name}
           onClose={closeDialog}
           onReceivePayment={handleReceivePayment}
         />

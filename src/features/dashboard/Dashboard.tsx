@@ -1,6 +1,8 @@
 import {
   Coffee,
+  History,
   LayoutDashboard,
+  Package,
   ReceiptText,
   WalletCards,
 } from "lucide-react";
@@ -14,15 +16,10 @@ import type { DashboardView } from "./components/DashboardHeader";
 import DashboardStats from "./components/DashboardStats";
 import TableGrid from "./components/TableGrid";
 import FloorPlanView from "@/features/floor-plan/FloorPlanView";
-import BusinessSummaryCards from "@/features/sales/components/BusinessSummaryCards";
-import { useCheckoutStore } from "@/features/billing/store/checkoutStore";
+import BusinessDayCard from "@/features/business-day/components/BusinessDayCard";
 
-function Dashboard() {
+function OperatorDashboard() {
   const navigate = useNavigate();
-  const pendingBillsCount =
-    useCheckoutStore(
-      (state) => state.pendingBills.length
-    );
   const [activeView, setActiveView] =
     useState<DashboardView>("grid");
 
@@ -51,23 +48,16 @@ function Dashboard() {
           </div>
 
           <div className="flex items-center gap-2">
-            <div className="rounded-lg border bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-sm">
-              Pending Bills:{" "}
-              <span className="font-bold text-slate-950">
-                {pendingBillsCount}
-              </span>
-            </div>
-
             <Button
               variant="outline"
               className="gap-2"
               size="lg"
               onClick={() =>
-                navigate("/checkout")
+                navigate("/operator/table-history")
               }
             >
-              <ReceiptText className="h-4 w-4" />
-              Billing / Checkout
+              <History className="h-4 w-4" />
+              Table History
             </Button>
 
             <Button
@@ -75,11 +65,11 @@ function Dashboard() {
               className="gap-2"
               size="lg"
               onClick={() =>
-                navigate("/sales")
+                navigate("/operator/billing")
               }
             >
               <ReceiptText className="h-4 w-4" />
-              Sales History
+              Customer Bills / Checkout
             </Button>
 
             <Button
@@ -87,7 +77,7 @@ function Dashboard() {
               className="gap-2"
               size="lg"
               onClick={() =>
-                navigate("/expenses")
+                navigate("/operator/expenses")
               }
             >
               <WalletCards className="h-4 w-4" />
@@ -97,16 +87,37 @@ function Dashboard() {
             <Button
               className="gap-2 bg-emerald-950 hover:bg-emerald-900"
               size="lg"
-              onClick={() => navigate("/cafe")}
+              onClick={() => navigate("/operator/cafe")}
             >
               <Coffee className="h-4 w-4" />
               Cafe POS
             </Button>
+
+            <Button
+              className="gap-2 bg-slate-950 hover:bg-slate-900"
+              size="lg"
+              onClick={() =>
+                navigate("/operator/accessories")
+              }
+            >
+              <Package className="h-4 w-4" />
+              Accessories POS
+            </Button>
+
+            <Button
+              variant="outline"
+              className="gap-2"
+              size="lg"
+              onClick={() => navigate("/admin")}
+            >
+              Admin
+            </Button>
           </div>
         </div>
 
+        <BusinessDayCard />
+
         <DashboardStats />
-        <BusinessSummaryCards />
 
         <div className="mt-6">
           {activeView === "grid" ? (
@@ -122,4 +133,4 @@ function Dashboard() {
   );
 }
 
-export default Dashboard;
+export default OperatorDashboard;

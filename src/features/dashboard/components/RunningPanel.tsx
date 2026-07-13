@@ -2,6 +2,7 @@ import {
   Pencil,
   Play,
   Pause,
+  Trash2,
   Square,
 } from "lucide-react";
 
@@ -12,6 +13,7 @@ interface Props {
   isPaused?: boolean;
   onPause?: () => void;
   onEdit?: () => void;
+  onCancelSession?: () => void;
   onEndSession: () => void;
 }
 
@@ -20,6 +22,7 @@ function RunningPanel({
   isPaused = false,
   onPause,
   onEdit,
+  onCancelSession,
   onEndSession,
 }: Props) {
   return (
@@ -34,10 +37,10 @@ function RunningPanel({
         </p>
       </div>
 
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-4 gap-2">
         <Button
           variant="outline"
-          className="gap-2"
+          className="gap-1 px-2"
           onClick={onPause}
         >
           {isPaused ? (
@@ -50,7 +53,7 @@ function RunningPanel({
 
         <Button
           variant="outline"
-          className="gap-2"
+          className="gap-1 px-2"
           onClick={onEdit}
         >
           <Pencil className="h-4 w-4" />
@@ -58,8 +61,17 @@ function RunningPanel({
         </Button>
 
         <Button
+          variant="outline"
+          className="gap-1 border-amber-200 bg-amber-50 px-2 text-amber-800 hover:bg-amber-100"
+          onClick={onCancelSession}
+        >
+          <Trash2 className="h-4 w-4" />
+          Cancel
+        </Button>
+
+        <Button
           variant="destructive"
-          className="gap-2"
+          className="gap-1 px-2"
           onClick={onEndSession}
         >
           <Square className="h-4 w-4" />

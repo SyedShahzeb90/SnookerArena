@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import TableCard from "./TableCard";
 import StartSessionDialog from "./StartSessionDialog";
@@ -11,6 +12,7 @@ import type { PaymentMethod } from "@/types/session";
 import type { Table } from "@/types/table";
 
 function TableGrid() {
+  const navigate = useNavigate();
   const tables = useTableStore((state) => state.tables);
 
   const receivePayment = useTableStore(
@@ -68,6 +70,25 @@ function TableGrid() {
             key={table.id}
             table={table}
             onClick={() => handleTableClick(table)}
+            onHistoryClick={() =>
+              navigate(
+                `/operator/table-history?tableId=${table.id}`
+              )
+            }
+            onCafeBillClick={() => {
+              if (!table.session) return;
+
+              navigate(
+                `/operator/cafe?tableId=${table.id}&sessionId=${table.session.id}`
+              );
+            }}
+            onAccessoriesClick={() => {
+              if (!table.session) return;
+
+              navigate(
+                `/operator/accessories?tableId=${table.id}&sessionId=${table.session.id}`
+              );
+            }}
           />
         ))}
       </div>
@@ -86,6 +107,8 @@ function TableGrid() {
         <BillingDialog
           open={activeDialog === "billing"}
           session={selectedTable.session}
+          tableType={selectedTable.type}
+          tableName={selectedTable.name}
           onClose={closeDialog}
           onReceivePayment={handleReceivePayment}
         />

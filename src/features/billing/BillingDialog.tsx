@@ -50,6 +50,7 @@ function BillingDialog({
 
         <BillingSummary
           session={session}
+          tableType="table"
         />
 
         {session.cafeOrders.length > 0 && (

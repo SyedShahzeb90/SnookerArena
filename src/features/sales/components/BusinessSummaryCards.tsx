@@ -2,12 +2,14 @@ import {
   Banknote,
   Coffee,
   ReceiptText,
+  TrendingDown,
   TrendingUp,
 } from "lucide-react";
 
 import { Card } from "@/components/ui/card";
 
 import { useSalesStore } from "../store/salesStore";
+import { useExpensesStore } from "@/features/expenses/store/expensesStore";
 import {
   calculateSalesTotals,
   filterSalesByRange,
@@ -17,10 +19,17 @@ function BusinessSummaryCards() {
   const sales = useSalesStore(
     (state) => state.sales
   );
+  const todayExpenses =
+    useExpensesStore(
+      (state) =>
+        state.getTodayExpensesTotal()
+    );
 
   const totals = calculateSalesTotals(
     filterSalesByRange(sales, "today")
   );
+  const todayProfit =
+    totals.revenue - todayExpenses;
 
   const cards = [
     {
@@ -52,16 +61,35 @@ function BusinessSummaryCards() {
       bg: "bg-blue-50",
     },
     {
-      label: "Average Bill",
-      value: `Rs. ${totals.averageSale}`,
-      icon: ReceiptText,
-      tone: "text-indigo-700",
-      bg: "bg-indigo-50",
+      label: "Today's Expenses",
+      value: `Rs. ${todayExpenses}`,
+      icon: TrendingDown,
+      tone: "text-red-700",
+      bg: "bg-red-50",
+    },
+    {
+      label:
+        todayProfit < 0
+          ? "Today's Loss"
+          : "Today's Profit",
+      value: `Rs. ${Math.abs(todayProfit)}`,
+      icon:
+        todayProfit < 0
+          ? TrendingDown
+          : ReceiptText,
+      tone:
+        todayProfit < 0
+          ? "text-red-700"
+          : "text-emerald-700",
+      bg:
+        todayProfit < 0
+          ? "bg-red-50"
+          : "bg-emerald-50",
     },
   ];
 
   return (
-    <section className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-5">
+    <section className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3 xl:grid-cols-6">
       {cards.map((card) => {
         const Icon = card.icon;
 
