@@ -22,7 +22,6 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useBusinessDayStore } from "@/features/business-day/store/businessDayStore";
 import { useSalesStore } from "@/features/sales/store/salesStore";
-import { getSessionPlayers } from "@/features/sessions/utils/sessionPlayers";
 import { useTableStore } from "@/store/tableStore";
 import { useCustomerAccountStore } from "../store/customerAccountStore";
 import type { CustomerAccount } from "../types/customerAccount";

@@ -51,6 +51,20 @@ function getPendingBillTableAmount(
   }).gameAmount;
 }
 
+function getPendingBillCafeAmount(
+  bill: PendingBill
+) {
+  return bill.session.cafeOrders
+    .filter(
+      (item) =>
+        !item.name.startsWith("[Accessory]")
+    )
+    .reduce(
+      (total, item) => total + item.subtotal,
+      0
+    );
+}
+
 export interface PendingBill {
   id: string;
   tableId: number;
@@ -294,7 +308,10 @@ export const useCheckoutStore =
                             Math.max(0, discount),
                             getPendingBillTableAmount(
                               bill
-                            ) + bill.cafeAmount
+                            ) +
+                              getPendingBillCafeAmount(
+                                bill
+                              )
                           );
 
                         return {

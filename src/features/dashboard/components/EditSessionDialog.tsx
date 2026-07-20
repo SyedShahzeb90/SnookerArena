@@ -151,6 +151,8 @@ function EditSessionDialog({
     return null;
   }
 
+  const session = table.session;
+
   return (
     <Dialog
       open={open}
@@ -166,12 +168,12 @@ function EditSessionDialog({
         <SessionForm
           tableId={table.id}
           tableType={table.type}
-          session={table.session}
+          session={session}
           submitLabel="Save Changes"
           onUndoLastFrame={handleUndoLastFrame}
           canUndoLastFrame={
-            (table.session.sessionType === "single" ||
-              table.session.sessionType === "double") &&
+            (session.sessionType === "single" ||
+              session.sessionType === "double") &&
             frameCount > 1
           }
           undoLastFrameBusy={undoBusy}
@@ -232,7 +234,7 @@ function EditSessionDialog({
               sessionType: data.sessionType,
               startTime: data.startTime,
               tableChargeLines:
-                table.session.tableChargeLines?.map((line, index, lines) =>
+                session.tableChargeLines?.map((line, index, lines) =>
                   index === lines.length - 1 &&
                   (line.type === "singleGame" || line.type === "doubleGame")
                     ? {
