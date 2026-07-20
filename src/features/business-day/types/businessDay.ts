@@ -16,6 +16,14 @@ export interface BusinessDaySummary {
   totalExpenses: number;
   cashExpenses: number;
   expenseCount: number;
+  outsidePurchasesPaidFromDrawer?: number;
+  outsidePurchaseCashRestored?: number;
+  cashCustomerReimbursements?: number;
+  cardCustomerReimbursements?: number;
+  jazzCashCustomerReimbursements?: number;
+  easypaisaCustomerReimbursements?: number;
+  digitalCustomerReimbursements?: number;
+  outstandingCustomerReimbursements?: number;
   pendingBillsCount: number;
   pendingBillsAmount: number;
   expectedCash: number;

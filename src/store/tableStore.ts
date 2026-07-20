@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 
 import { initialTables } from "@/data/initialTables";
 import { useCheckoutStore } from "@/features/billing/store/checkoutStore";
@@ -12,13 +13,17 @@ import { createSaleFromTable } from "@/features/sales/utils/createSale";
 import { getSessionPlayers } from "@/features/sessions/utils/sessionPlayers";
 import {
   calculateDoubleGamePayerBreakdown,
+  calculateTableChargeLinePayerBreakdown,
   getTeamPlayers,
 } from "@/features/sessions/utils/doubleGameBilling";
 import {
   findPayerBreakdownForPlayer,
   getPlayerCafeItems,
 } from "@/features/billing/utils/playerBillIdentity";
+import { normalizePlayerName } from "@/features/cafe/utils/playerIdentity";
 import { useTableHistoryStore } from "@/features/table-history/store/tableHistoryStore";
+import { useAdvanceGamesStore } from "@/features/advance-games/store/advanceGamesStore";
+import { calculateFinalSettlement } from "@/features/advance-games/utils/finalSettlement";
 
 import type {
   CafeOrderItem,
@@ -106,20 +111,33 @@ function normalizeWalkInPlayerName(
 
 function buildPlayerBreakdown(
   session: Session,
-  tableAmount: number
+  tableAmount: number,
+  tableChargeLines: TableChargeLine[] = []
 ) {
-  const players = getSessionPlayers(session);
-  const payerBreakdown: Array<{
-    line?: TableChargeLine;
-    playerName: string;
-    tableAmountShare: number;
-    note?: string;
-  }> =
-    calculateDoubleGamePayerBreakdown({
-      session,
-      tableAmount,
-    });
-  return players.map((playerName) => {
+  const players = [
+    {
+      playerName: session.player1,
+      customerId: session.player1CustomerId,
+    },
+    {
+      playerName: session.player2,
+      customerId: session.player2CustomerId,
+    },
+    {
+      playerName: session.player3,
+      customerId: session.player3CustomerId,
+    },
+    {
+      playerName: session.player4,
+      customerId: session.player4CustomerId,
+    },
+  ].filter(
+    (player): player is {
+      playerName: string;
+      customerId: string | undefined;
+    } => Boolean(player.playerName?.trim())
+  );
+  return players.map(({ playerName, customerId }) => {
     const cafeItems =
       getPlayerCafeItems(
         session,
@@ -131,14 +149,39 @@ function buildPlayerBreakdown(
           total + item.subtotal,
         0
       );
-    const tableAmountShare =
-      findPayerBreakdownForPlayer(
-        payerBreakdown,
-        playerName
-      )?.tableAmountShare ?? 0;
+    const linePayerBreakdown = tableChargeLines.length
+      ? tableChargeLines.flatMap((line) =>
+          calculateTableChargeLinePayerBreakdown({
+            session,
+            line,
+          })
+        )
+      : [];
+    const tableAmountShare = tableChargeLines.length
+      ? linePayerBreakdown
+          .filter(
+            (payer) =>
+              normalizePlayerName(
+                payer.playerName
+              ) ===
+              normalizePlayerName(playerName)
+          )
+          .reduce(
+            (total, payer) =>
+              total + payer.tableAmountShare,
+            0
+          )
+      : findPayerBreakdownForPlayer(
+          calculateDoubleGamePayerBreakdown({
+            session,
+            tableAmount,
+          }),
+          playerName
+        )?.tableAmountShare ?? 0;
 
     return {
       playerName,
+      customerId,
       tableAmountShare,
       cafeAmount,
       totalAmount:
@@ -204,7 +247,8 @@ function createInitialChargeLine(
   sessionId: string,
   sessionType: SessionType,
   tableType: Table["type"],
-  startedAt: Date
+  startedAt: Date,
+  final?: { isFinal?: boolean; finalGames?: number }
 ): TableChargeLine {
   const type =
     sessionTypeToChargeLineType(sessionType);
@@ -229,6 +273,8 @@ function createInitialChargeLine(
             startedAt,
             endedAt: endedAt!,
           }),
+    isFinal: Boolean(final?.isFinal),
+    finalGames: final?.isFinal ? final.finalGames : undefined,
   };
 }
 
@@ -324,12 +370,48 @@ function createTableHistoryRecord(
       (total, line) => total + line.amount,
       0
     );
+  const gameSettlement =
+    table.id >= 1 && table.id <= 7 &&
+    (session.sessionType === "single" || session.sessionType === "double")
+      ? calculateFinalSettlement(session, tableChargeLines)
+      : undefined;
+  const settledTableAmount = gameSettlement
+    ? gameSettlement.owners.reduce((total, owner) => total + owner.payableGames * 300, 0)
+    : tableAmount;
   const bill = calculateBill({
-    gameAmount: tableAmount,
+    gameAmount: settledTableAmount,
     cafeAmount: session.cafeAmount,
     discount: session.discount,
   });
   const players = getSessionPlayers(session);
+  const getPlayerCustomerId = (name?: string) => {
+    if (!name) return undefined;
+
+    const slots = [
+      {
+        name: session.player1,
+        customerId: session.player1CustomerId,
+      },
+      {
+        name: session.player2,
+        customerId: session.player2CustomerId,
+      },
+      {
+        name: session.player3,
+        customerId: session.player3CustomerId,
+      },
+      {
+        name: session.player4,
+        customerId: session.player4CustomerId,
+      },
+    ];
+
+    return slots.find(
+      (slot) =>
+        slot.name === name ||
+        slot.customerId === name
+    )?.customerId;
+  };
   const now = new Date().toISOString();
 
   useTableHistoryStore
@@ -347,17 +429,32 @@ function createTableHistoryRecord(
       player1Name:
         session.player1 ||
         "Walk-in Customer",
+      player1CustomerId:
+        session.player1CustomerId,
       player2Name: session.player2,
+      player2CustomerId:
+        session.player2CustomerId,
       player3Name: session.player3,
+      player3CustomerId:
+        session.player3CustomerId,
       player4Name: session.player4,
+      player4CustomerId:
+        session.player4CustomerId,
       sessionType: session.sessionType,
       startedAt: startedAt.toISOString(),
       endedAt: endedAt.toISOString(),
       durationMinutes:
         pricing.duration.totalMinutes,
       winnerName: session.winnerName,
+      winnerCustomerId:
+        getPlayerCustomerId(session.winnerName),
       loserName: session.loserName,
+      loserCustomerId:
+        getPlayerCustomerId(session.loserName),
       payerName: session.payerName,
+      payerCustomerId:
+        session.payerCustomerId ??
+        getPlayerCustomerId(session.payerName),
       teamAPlayers: session.teamAPlayers,
       teamBPlayers: session.teamBPlayers,
       teamAOneNameEnough:
@@ -368,11 +465,24 @@ function createTableHistoryRecord(
       winningTeam: session.winningTeam,
       losingTeam: session.losingTeam,
       payerBreakdown:
-        calculateDoubleGamePayerBreakdown({
-          session,
-          tableAmount: pricing.gameAmount,
-        }),
-      tableAmount,
+        tableChargeLines.map((line) => ({
+          playerName:
+            line.payerName ??
+            line.loserName ??
+            session.payerName ??
+            session.player1,
+          customerId:
+            line.payerCustomerId ??
+            session.payerCustomerId,
+          tableAmountShare: line.amount,
+          note: line.label,
+        })),
+      tableChargeLines,
+      tableAmount: settledTableAmount,
+      originalGameCount: gameSettlement?.originalGameCount,
+      originalTableAmount: gameSettlement?.originalTableAmount,
+      advanceGamesEarned: gameSettlement?.owners.reduce((total, owner) => total + owner.advanceGames, 0),
+      tableAmountAfterAdvance: settledTableAmount,
       cafeAmount: session.cafeAmount,
       discount: session.discount,
       grandTotal: bill.total,
@@ -388,7 +498,8 @@ function createTableHistoryRecord(
       ),
       playerBreakdown: buildPlayerBreakdown(
         session,
-        tableAmount
+        settledTableAmount,
+        tableChargeLines
       ),
     });
 }
@@ -417,6 +528,83 @@ function addSessionGameChargesToCustomers(
       session,
       endedAt
     );
+  const usesGameSettlement =
+    table.id >= 1 &&
+    table.id <= 7 &&
+    table.type === "table" &&
+    (session.sessionType === "single" || session.sessionType === "double");
+
+  if (usesGameSettlement) {
+    const settlement = calculateFinalSettlement(session, tableChargeLines);
+    const customerStore = useCustomerAccountStore.getState();
+    const resolvedCustomerIds = new Map<string, string>();
+
+    settlement.owners.forEach((owner) => {
+      let customerId = owner.customerId;
+      if (!customerId) {
+        customerId = customerStore.getOrCreateActiveCustomerByIdOrName({
+          customerName: owner.customerName,
+        }).id;
+      }
+      if (customerId) {
+        resolvedCustomerIds.set(owner.key, customerId);
+        resolvedCustomerIds.set(owner.customerId ?? owner.key, customerId);
+      }
+
+      if (owner.payableGames > 0) {
+        customerStore.addGameChargeToCustomer({
+          customerName: owner.customerName,
+          customerId,
+          sessionId: session.id,
+          tableId: table.id,
+          tableName: table.name,
+          tableType: table.type,
+          sessionType: session.sessionType,
+          startedAt: startedAt.toISOString(),
+          endedAt: endedAt.toISOString(),
+          durationMinutes: pricing.duration.totalMinutes,
+          winnerName: session.winnerName,
+          loserName: session.loserName,
+          winningTeam: session.winningTeam,
+          losingTeam: session.losingTeam,
+          payerName: owner.customerName,
+          amount: owner.payableGames * 300,
+          shareType: settlement.owners.filter((item) => item.payableGames > 0).length > 1 ? "split" : "full",
+          gameCount: owner.payableGames,
+          originalAmount: owner.payableGames * 300,
+          sourceFrameIds: owner.sourceFrameIds,
+        });
+      }
+
+    });
+
+    settlement.lines.forEach((line) => {
+      (line.settlement ?? []).forEach((effect, index) => {
+        if (effect.advanceGamesDelta === 0 || isWalkInName(effect.customerName)) return;
+        const customerId = resolvedCustomerIds.get(effect.customerId);
+        if (!customerId) return;
+        const input = {
+          transactionId: `ADV-${effect.advanceGamesDelta > 0 ? "EARN" : "OFFSET"}-${session.id}-${line.id}-${index}`,
+          customerId,
+          customerName: effect.customerName,
+          games: Math.abs(effect.advanceGamesDelta),
+          tableId: table.id,
+          tableName: table.name,
+          sessionId: session.id,
+          frameId: line.id,
+          finalGames: line.finalGames ?? 0,
+          opponent: effect.role === "winner" ? line.loserName : line.winnerName,
+        };
+        if (effect.advanceGamesDelta > 0) {
+          useAdvanceGamesStore.getState().earn(input);
+        } else {
+          useAdvanceGamesStore.getState().recordSessionOffset(input);
+        }
+      });
+    });
+
+    return;
+  }
   const payerBreakdown: Array<{
     line?: TableChargeLine;
     playerName: string;
@@ -424,16 +612,12 @@ function addSessionGameChargesToCustomers(
     note?: string;
   }> =
     tableChargeLines.length > 0
-      ? tableChargeLines.map((line) => ({
-          line,
-          playerName:
-            line.payerName ??
-            line.loserName ??
-            session.payerName ??
-            session.player1,
-          tableAmountShare: line.amount,
-          note: line.label,
-        }))
+      ? tableChargeLines.flatMap((line) =>
+          calculateTableChargeLinePayerBreakdown({
+            session,
+            line,
+          })
+        )
       : calculateDoubleGamePayerBreakdown({
           session,
           tableAmount: pricing.gameAmount,
@@ -446,14 +630,15 @@ function addSessionGameChargesToCustomers(
   const getCustomerIdForPayer = (
     playerName: string
   ) => {
+    const payerKey = normalizePlayerName(playerName);
     const existingId =
-      playerName === session.player1
+      payerKey === normalizePlayerName(session.player1)
         ? session.player1CustomerId
-        : playerName === session.player2
+        : payerKey === normalizePlayerName(session.player2)
           ? session.player2CustomerId
-          : playerName === session.player3
+          : payerKey === normalizePlayerName(session.player3)
             ? session.player3CustomerId
-            : playerName === session.player4
+            : payerKey === normalizePlayerName(session.player4)
               ? session.player4CustomerId
               : undefined;
 
@@ -490,10 +675,11 @@ function addSessionGameChargesToCustomers(
       customerStore.addGameChargeToCustomer({
         customerName: payer.playerName,
         customerId:
-          session.payerCustomerId ??
+          payer.line?.payerCustomerId ??
           getCustomerIdForPayer(
             payer.playerName
-          ),
+          ) ??
+          session.payerCustomerId,
         sessionId: payer.line
           ? `${session.id}-${payer.line.id}`
           : session.id,
@@ -519,7 +705,9 @@ function addSessionGameChargesToCustomers(
           payer.line?.durationMinutes ??
           pricing.duration.totalMinutes,
         winnerName: session.winnerName,
-        loserName: session.loserName,
+        loserName:
+          payer.line?.loserName ??
+          session.loserName,
         winningTeam: session.winningTeam,
         losingTeam: session.losingTeam,
         payerName: payer.playerName,
@@ -550,8 +738,19 @@ interface StartSessionData {
   extraPlayers?: string[];
   teamAOneNameEnough?: boolean;
   teamBOneNameEnough?: boolean;
+  teamABillOwnerCustomerId?: string;
+  teamABillOwnerName?: string;
+  teamBBillOwnerCustomerId?: string;
+  teamBBillOwnerName?: string;
   startTime: Date;
   endTime?: Date;
+  winnerName?: string;
+  loserName?: string;
+  payerName?: string;
+  winningTeam?: "A" | "B";
+  losingTeam?: "A" | "B";
+  isFinal?: boolean;
+  finalGames?: number;
 }
 
 interface UpdateSessionData {
@@ -567,8 +766,13 @@ interface UpdateSessionData {
   extraPlayers?: string[];
   teamAOneNameEnough?: boolean;
   teamBOneNameEnough?: boolean;
+  teamABillOwnerCustomerId?: string;
+  teamABillOwnerName?: string;
+  teamBBillOwnerCustomerId?: string;
+  teamBBillOwnerName?: string;
   sessionType: SessionType;
   startTime: Date;
+  tableChargeLines?: TableChargeLine[];
 }
 
 interface ReceivePaymentData {
@@ -585,20 +789,28 @@ interface UpdateSessionCafeData {
 interface AddTableChargeLineData {
   tableId: number;
   type: TableChargeLineType;
+  startedAt?: Date;
   payerName?: string;
   payerCustomerId?: string;
   loserName?: string;
   winnerName?: string;
+  winningTeam?: "A" | "B";
+  losingTeam?: "A" | "B";
+  isFinal?: boolean;
+  finalGames?: number;
 }
 
 interface EndSessionData {
   tableId: number;
+  endTime?: Date;
   winnerName?: string;
   loserName?: string;
   payerName?: string;
   payerCustomerId?: string;
   winningTeam?: "A" | "B";
   losingTeam?: "A" | "B";
+  isFinal?: boolean;
+  finalGames?: number;
 }
 
 interface TableStore {
@@ -637,9 +849,50 @@ interface TableStore {
   resetTableStoreToDefault: () => void;
 }
 
+function restorePersistedTables(
+  persistedTables: Table[] | undefined
+) {
+  if (!persistedTables) return initialTables;
+
+  return initialTables.map((initialTable) => {
+    const persistedTable = persistedTables.find(
+      (table) => table.id === initialTable.id
+    );
+
+    if (!persistedTable) return initialTable;
+
+    const session = persistedTable.session;
+
+    return {
+      ...initialTable,
+      status: persistedTable.status,
+      session: session
+        ? {
+            ...session,
+            startTime: new Date(session.startTime),
+            endTime: session.endTime
+              ? new Date(session.endTime)
+              : undefined,
+            pausedAt: session.pausedAt
+              ? new Date(session.pausedAt)
+              : undefined,
+            cafeOrders: (session.cafeOrders ?? []).map(
+              (item) => ({
+                ...item,
+                timeAdded: new Date(item.timeAdded),
+              })
+            ),
+          }
+        : undefined,
+    };
+  });
+}
+
 export const useTableStore =
-  create<TableStore>((set) => ({
-    tables: initialTables,
+  create<TableStore>()(
+    persist(
+      (set) => ({
+        tables: initialTables,
 
     startSession: (data) =>
       set((state) => ({
@@ -659,18 +912,33 @@ export const useTableStore =
             .clearTableOrders(table.id);
 
           const sessionId = `SA-${Date.now()}`;
-          const session: Session = {
+          let session: Session = {
             id: sessionId,
             tableId: table.id,
             sessionType: data.sessionType,
             tableChargeLines: [
-              createInitialChargeLine(
+              {
+                ...createInitialChargeLine(
                 sessionId,
                 data.sessionType,
                 table.type,
-                data.startTime
-              ),
+                data.startTime,
+                { isFinal: data.isFinal, finalGames: data.finalGames }
+                ),
+                ...(data.endTime
+                  ? {
+                      loserName: data.loserName,
+                      winnerName: data.winnerName,
+                      payerName: data.payerName,
+                      winningTeam: data.winningTeam,
+                      losingTeam: data.losingTeam,
+                    }
+                  : {}),
+              },
             ],
+            frameTimerStartedAt:
+              data.startTime.toISOString(),
+            frameTimerPausedMilliseconds: 0,
             player1,
             player1CustomerId:
               data.player1CustomerId,
@@ -697,8 +965,17 @@ export const useTableStore =
               data.teamAOneNameEnough,
             teamBOneNameEnough:
               data.teamBOneNameEnough,
+            teamABillOwnerCustomerId: data.teamABillOwnerCustomerId,
+            teamABillOwnerName: data.teamABillOwnerName,
+            teamBBillOwnerCustomerId: data.teamBBillOwnerCustomerId,
+            teamBBillOwnerName: data.teamBBillOwnerName,
             startTime: data.startTime,
             endTime: data.endTime,
+            winnerName: data.winnerName,
+            loserName: data.loserName,
+            payerName: data.payerName,
+            winningTeam: data.winningTeam,
+            losingTeam: data.losingTeam,
 
             pausedAt: undefined,
             totalPausedMilliseconds: 0,
@@ -711,6 +988,20 @@ export const useTableStore =
           };
 
           if (data.endTime) {
+            if (table.id >= 1 && table.id <= 7 && (session.sessionType === "single" || session.sessionType === "double")) {
+              const settlement = calculateFinalSettlement(session);
+              const settledAt = new Date().toISOString();
+              session = {
+                ...session,
+                tableChargeLines: settlement.lines.map((line) => ({ ...line, settlementProcessedAt: settledAt })),
+                settlementProcessedAt: settledAt,
+                settlementId: `SETTLEMENT-${session.id}`,
+                originalGameCount: settlement.originalGameCount,
+                originalTableAmount: settlement.originalTableAmount,
+                settledTableAmount: settlement.owners.reduce((total, owner) => total + owner.payableGames * 300, 0),
+                advanceGamesEarned: settlement.owners.reduce((total, owner) => total + owner.advanceGames, 0),
+              };
+            }
             const pendingTable: Table = {
               ...table,
               status: "payment-pending",
@@ -800,10 +1091,29 @@ export const useTableStore =
                 data.teamAOneNameEnough,
               teamBOneNameEnough:
                 data.teamBOneNameEnough,
+              teamABillOwnerCustomerId: data.teamABillOwnerCustomerId,
+              teamABillOwnerName: data.teamABillOwnerName,
+              teamBBillOwnerCustomerId: data.teamBBillOwnerCustomerId,
+              teamBBillOwnerName: data.teamBBillOwnerName,
               sessionType:
                 data.sessionType,
               startTime:
                 data.startTime,
+              tableChargeLines:
+                data.tableChargeLines ??
+                existingSession.tableChargeLines,
+              frameTimerStartedAt:
+                data.tableChargeLines
+                  ? data.tableChargeLines.at(-1)
+                      ?.startedAt ??
+                    existingSession.frameTimerStartedAt
+                  : existingSession.frameTimerStartedAt,
+              frameTimerPausedMilliseconds:
+                data.tableChargeLines
+                  ? existingSession
+                      .totalPausedMilliseconds
+                  : existingSession
+                      .frameTimerPausedMilliseconds,
             },
           };
         }),
@@ -864,12 +1174,15 @@ export const useTableStore =
 
     endSession: ({
       tableId,
+      endTime: requestedEndTime,
       winnerName,
       loserName,
       payerName,
       payerCustomerId,
       winningTeam,
       losingTeam,
+      isFinal,
+      finalGames,
     }) =>
       set((state) => ({
         tables: state.tables.map((table) => {
@@ -883,27 +1196,76 @@ export const useTableStore =
             table.session
               .totalPausedMilliseconds;
 
+          const endTime = requestedEndTime
+            ? new Date(requestedEndTime)
+            : new Date();
+
           if (table.session.pausedAt) {
             totalPausedMilliseconds +=
-              Date.now() -
-              new Date(
-                table.session.pausedAt
-              ).getTime();
+              Math.max(
+                0,
+                endTime.getTime() -
+                  new Date(
+                    table.session.pausedAt
+                  ).getTime()
+              );
           }
 
-          const endTime = new Date();
           const tableChargeLines =
             getFinalTableChargeLines(
               table,
               table.session,
               endTime
-            );
+            ).map((line, index, lines) => {
+              const isLastLine =
+                index === lines.length - 1;
+
+              if (
+                line.type === "tableBooking" ||
+                line.loserName
+              ) {
+                return line;
+              }
+
+              return {
+                ...line,
+                payerName,
+                payerCustomerId,
+                loserName,
+                winnerName,
+                winningTeam,
+                losingTeam,
+                isFinal:
+                  isLastLine && isFinal
+                    ? true
+                    : line.isFinal,
+                finalGames:
+                  isLastLine && isFinal
+                    ? finalGames
+                    : line.finalGames,
+              };
+            });
+          const settlement =
+            table.id >= 1 &&
+            table.id <= 7 &&
+            (table.session.sessionType === "single" || table.session.sessionType === "double")
+              ? calculateFinalSettlement(table.session, tableChargeLines)
+              : undefined;
+          const settledAt = new Date().toISOString();
           const endedSession: Session = {
             ...table.session,
             pausedAt: undefined,
             totalPausedMilliseconds,
             endTime,
-            tableChargeLines,
+            tableChargeLines: settlement
+              ? settlement.lines.map((line) => ({ ...line, settlementProcessedAt: settledAt }))
+              : tableChargeLines,
+            settlementProcessedAt: settlement ? settledAt : undefined,
+            settlementId: settlement ? `SETTLEMENT-${table.session.id}` : undefined,
+            originalGameCount: settlement?.originalGameCount,
+            originalTableAmount: settlement?.originalTableAmount,
+            settledTableAmount: settlement?.owners.reduce((total, owner) => total + owner.payableGames * 300, 0),
+            advanceGamesEarned: settlement?.owners.reduce((total, owner) => total + owner.advanceGames, 0),
             winnerName,
             loserName,
             payerName,
@@ -959,10 +1321,15 @@ export const useTableStore =
     addTableChargeLine: ({
       tableId,
       type,
+      startedAt,
       payerName,
       payerCustomerId,
       loserName,
       winnerName,
+      winningTeam,
+      losingTeam,
+      isFinal,
+      finalGames,
     }) =>
       set((state) => ({
         tables: state.tables.map((table) => {
@@ -970,20 +1337,26 @@ export const useTableStore =
             return table;
           }
 
-          const now = new Date();
+          const now = startedAt
+            ? new Date(startedAt)
+            : new Date();
           const existingLines =
             table.session.tableChargeLines ?? [];
-          const finalizedLines = existingLines.map(
-            (line) =>
-              line.type === "tableBooking" &&
-              !line.endedAt
-                ? finalizeChargeLine(
-                    line,
-                    table.type,
-                    now
-                  )
-                : line
-          );
+          const finalizedLines = existingLines.map((line, index) => {
+            if (index !== existingLines.length - 1) return line;
+            const finalized = finalizeChargeLine(line, table.type, now);
+            return line.type === "tableBooking"
+              ? finalized
+              : {
+                  ...finalized,
+                  payerName,
+                  payerCustomerId,
+                  loserName,
+                  winnerName,
+                  winningTeam,
+                  losingTeam,
+                };
+          });
           const endedAt =
             type === "tableBooking" ? undefined : now;
           const nextLine: TableChargeLine = {
@@ -1009,10 +1382,8 @@ export const useTableStore =
                     startedAt: now,
                     endedAt: endedAt!,
                   }),
-            payerName,
-            payerCustomerId,
-            loserName,
-            winnerName,
+            isFinal: Boolean(isFinal),
+            finalGames: isFinal ? finalGames : undefined,
           };
 
           return {
@@ -1023,6 +1394,10 @@ export const useTableStore =
                 ...finalizedLines,
                 nextLine,
               ],
+              frameTimerStartedAt:
+                now.toISOString(),
+              frameTimerPausedMilliseconds:
+                table.session.totalPausedMilliseconds,
             },
           };
         }),
@@ -1169,4 +1544,18 @@ export const useTableStore =
           session: undefined,
         })),
       }),
-  }));
+      }),
+      {
+        name: "snooker-arena-tables",
+        partialize: (state) => ({
+          tables: state.tables,
+        }),
+        merge: (persistedState, currentState) => ({
+          ...currentState,
+          tables: restorePersistedTables(
+            (persistedState as Partial<TableStore>).tables
+          ),
+        }),
+      }
+    )
+  );

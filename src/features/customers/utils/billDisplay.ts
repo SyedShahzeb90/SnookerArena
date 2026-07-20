@@ -24,6 +24,47 @@ function getChargeTableNames(account: CustomerAccount) {
   );
 }
 
+function getAccountTableNumber(
+  account: CustomerAccount
+) {
+  const fromChargeTableId =
+    account.gameCharges[0]?.tableId ??
+    account.cafeCharges[0]?.tableId ??
+    account.accessoryCharges?.[0]?.tableId;
+
+  if (fromChargeTableId !== undefined) {
+    return String(fromChargeTableId);
+  }
+
+  const fromTableName =
+    account.lastTableName?.match(/\d+/)?.[0];
+
+  return fromTableName;
+}
+
+function getAccountSequence(account: CustomerAccount) {
+  return (
+    account.customerToken.match(/\d+/)?.[0] ??
+    account.staffBillNumber?.match(/\d+/)?.[0]
+  );
+}
+
+export function formatCustomerDisplayLabel(
+  account: CustomerAccount
+) {
+  const tableNumber = getAccountTableNumber(account);
+  const sequence = getAccountSequence(account);
+
+  if (!tableNumber || !sequence) {
+    return getBillCustomerLabel(account);
+  }
+
+  return `${getBillCustomerLabel(account)} — T${tableNumber}-${sequence.padStart(
+    3,
+    "0"
+  )}`;
+}
+
 export function formatBillTime(account: CustomerAccount) {
   const value = account.openedAt || account.lastActivityAt;
   if (!value) return "";
@@ -39,12 +80,8 @@ export function getBillTableLabel(account: CustomerAccount) {
 }
 
 export function getBillPrimaryLabel(account: CustomerAccount) {
-  if (account.staffBillNumber) {
-    return account.staffBillNumber;
-  }
-
   if (!isWalkInName(account.customerName)) {
-    return account.customerToken;
+    return formatCustomerDisplayLabel(account);
   }
 
   return getWalkInDisplayName({
@@ -78,7 +115,7 @@ export function getBillCustomerLabel(account: CustomerAccount) {
 
 export function getBillDetailLabel(account: CustomerAccount) {
   const parts = [
-    getBillCustomerLabel(account),
+    getBillPrimaryLabel(account),
     getBillTableLabel(account),
   ].filter(Boolean);
 

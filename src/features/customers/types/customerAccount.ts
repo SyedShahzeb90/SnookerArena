@@ -32,6 +32,11 @@ export interface CustomerGameCharge {
   shareType: "full" | "split";
   teamName?: string;
   teamPlayers?: string[];
+  gameCount?: number;
+  originalAmount?: number;
+  isFinal?: boolean;
+  finalGames?: number;
+  sourceFrameIds?: string[];
 }
 
 export interface CustomerCafeCharge {
@@ -79,6 +84,9 @@ export interface CustomerAccount {
   paidAt?: string;
   activeBusinessDayId?: string;
   saleId?: string;
+  advanceGamesApplied?: number;
+  advanceReduction?: number;
+  advanceApplicationId?: string;
   lastTableName?: string;
   lastActivityAt?: string;
 }

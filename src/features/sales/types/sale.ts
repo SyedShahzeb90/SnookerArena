@@ -67,6 +67,11 @@ export interface Sale {
   subtotal: number;
   discount: number;
   grandTotal: number;
+  originalTableAmount?: number;
+  originalGameCount?: number;
+  advanceGamesApplied?: number;
+  advanceReduction?: number;
+  settlementLabel?: string;
   paymentMethod: PaymentMethod;
   paymentSplits?: PaymentSplit[];
   paymentStatus: PaymentStatus;
@@ -79,6 +84,7 @@ export interface Sale {
   customerNote?: string;
   gameCharges?: CustomerGameCharge[];
   cafeCharges?: CustomerCafeCharge[];
+  tableChargeLines?: import("@/types/session").TableChargeLine[];
 }
 
 export type ReportRange =

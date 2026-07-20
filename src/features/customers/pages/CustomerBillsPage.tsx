@@ -4,6 +4,8 @@ import {
   Package,
   ReceiptText,
   Search,
+  Trash2,
+  X,
 } from "lucide-react";
 import {
   useEffect,
@@ -27,6 +29,11 @@ import type { CustomerAccount } from "../types/customerAccount";
 import type { PaymentMethod } from "@/types/session";
 import type { PaymentSplit } from "@/features/sales/types/sale";
 import PaymentMethodSelector from "@/features/billing/components/PaymentMethodSelector";
+import { useCheckoutStore } from "@/features/billing/store/checkoutStore";
+import { useCreditLedgerStore } from "@/features/credit-ledger/store/creditLedgerStore";
+import { useAdvanceGamesStore } from "@/features/advance-games/store/advanceGamesStore";
+import { useCafeStore } from "@/features/cafe/store/cafeStore";
+import { isWalkInName } from "@/features/sessions/utils/walkInLabel";
 import {
   getBillPrimaryLabel,
   getBillTableLabel,
@@ -41,6 +48,44 @@ const paymentMethods: {
   { value: "jazzcash", label: "JazzCash" },
   { value: "easypaisa", label: "Easypaisa" },
 ];
+
+type DateFilter =
+  | "all"
+  | "today"
+  | "yesterday"
+  | "this-month";
+type BillTypeFilter =
+  | "all"
+  | "table"
+  | "cafe"
+  | "accessories";
+type BillStatusFilter =
+  | "unpaid"
+  | "paid"
+  | "all";
+type TableFilter = "all" | string;
+
+function getDateRange(filter: DateFilter) {
+  if (filter === "all") return undefined;
+
+  const now = new Date();
+  const start = new Date(now);
+  const end = new Date(now);
+
+  start.setHours(0, 0, 0, 0);
+  end.setHours(23, 59, 59, 999);
+
+  if (filter === "yesterday") {
+    start.setDate(start.getDate() - 1);
+    end.setDate(end.getDate() - 1);
+  }
+
+  if (filter === "this-month") {
+    start.setDate(1);
+  }
+
+  return { start, end };
+}
 
 function formatShortDate(value?: string) {
   if (!value) return "—";
@@ -141,24 +186,6 @@ function formatAmountOrDash(amount: number) {
   return amount > 0 ? formatCurrency(amount) : "—";
 }
 
-function formatCustomerDisplayName(value?: string) {
-  const name = value?.trim();
-
-  if (!name || name.toLowerCase() === "walk-in customer") {
-    return "Walk-in Customer";
-  }
-
-  if (/^(ID|VIP|CEO|CFO|CTO)$/i.test(name)) {
-    return name.toUpperCase();
-  }
-
-  return name.replace(/\b[\w']+\b/g, (word) =>
-    word.length <= 1
-      ? word.toUpperCase()
-      : word[0].toUpperCase() + word.slice(1).toLowerCase()
-  );
-}
-
 function getBillTimestamp(account: CustomerAccount) {
   return (
     account.gameCharges
@@ -220,11 +247,7 @@ function getChargeTypeLabel(
 }
 
 function getDisplayCustomerLabel(account: CustomerAccount) {
-  if (account.customerNote?.trim()) {
-    return formatCustomerDisplayName(account.customerNote);
-  }
-
-  return formatCustomerDisplayName(account.customerName);
+  return getBillPrimaryLabel(account);
 }
 
 function getSessionSummary(
@@ -342,7 +365,10 @@ function getBillTotals(account: CustomerAccount) {
     account.totalGameAmount +
       cafeTotal +
       accessoryTotal -
-      account.discount
+      Math.min(
+        account.discount,
+        account.totalGameAmount + cafeTotal
+      )
   );
 
   return {
@@ -350,6 +376,48 @@ function getBillTotals(account: CustomerAccount) {
     accessoryTotal,
     grandTotal,
   };
+}
+
+function hasMeaningfulCreditCustomerName(
+  account: CustomerAccount
+) {
+  const name = account.customerName.trim();
+
+  return (
+    name.length > 1 &&
+    !isWalkInName(name) &&
+    !/^c(?:ust(?:omer)?)?[-\s]*\d+$/i.test(name)
+  );
+}
+
+function getOpenAccountDisplayKey(
+  account: CustomerAccount
+) {
+  const totals = getBillTotals(account);
+
+  return [
+    getBillPrimaryLabel(account),
+    getBillTableLabel(account),
+    account.customerName.trim().toLowerCase(),
+    totals.grandTotal,
+  ].join("|");
+}
+
+function dedupeOpenAccounts(
+  accounts: CustomerAccount[]
+) {
+  const seen = new Set<string>();
+
+  return accounts.filter((account) => {
+    const key = getOpenAccountDisplayKey(account);
+
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
 }
 
 function getAccountSessionIds(
@@ -380,17 +448,7 @@ function accountMatchesSession(
     session.player3CustomerId,
     session.player4CustomerId,
   ].filter(Boolean);
-  const accountName =
-    account.customerName.trim().toLowerCase();
-
-  return (
-    customerIds.includes(account.id) ||
-    getSessionPlayers(session).some(
-      (player) =>
-        player.trim().toLowerCase() ===
-        accountName
-    )
-  );
+  return customerIds.includes(account.id);
 }
 
 function CustomerBillsPage() {
@@ -414,6 +472,14 @@ function CustomerBillsPage() {
     useCustomerAccountStore(
       (state) => state.markCustomerBillPaid
     );
+  const updatePaidBillPaymentMethod =
+    useCustomerAccountStore(
+      (state) => state.updatePaidBillPaymentMethod
+    );
+  const markCustomerBillCredited =
+    useCustomerAccountStore(
+      (state) => state.markCustomerBillCredited
+    );
   const splitGenericWalkInBills =
     useCustomerAccountStore(
       (state) => state.splitGenericWalkInBills
@@ -424,12 +490,51 @@ function CustomerBillsPage() {
         state.mergeDuplicateWalkInSessionBills
     );
   const salesStore = useSalesStore();
+  const addCreditFromCustomerBill =
+    useCreditLedgerStore(
+      (state) => state.addCreditFromCustomerBill
+    );
+  const advanceTransactions = useAdvanceGamesStore(
+    (state) => state.transactions
+  );
+  const safeAdvanceTransactions = Array.isArray(advanceTransactions)
+    ? advanceTransactions
+    : [];
+  const applyAdvanceTransaction = useAdvanceGamesStore(
+    (state) => state.applyToBill
+  );
+  const undoAdvanceTransaction = useAdvanceGamesStore(
+    (state) => state.undoApplication
+  );
+  const applyAdvanceGamesToBill = useCustomerAccountStore(
+    (state) => state.applyAdvanceGamesToBill
+  );
+  const undoAdvanceGamesFromBill = useCustomerAccountStore(
+    (state) => state.undoAdvanceGamesFromBill
+  );
+  const removePendingBill = useCheckoutStore(
+    (state) => state.removePendingBill
+  );
+  const deleteCustomerAccount = useCustomerAccountStore(
+    (state) => state.deleteCustomerAccount
+  );
+  const deleteSavedOrdersForCustomerAccount = useCafeStore(
+    (state) => state.deleteSavedOrdersForCustomerAccount
+  );
   const activeBusinessDay =
     useBusinessDayStore((state) =>
       state.getActiveBusinessDay()
     );
 
   const [search, setSearch] = useState("");
+  const [dateFilter, setDateFilter] =
+    useState<DateFilter>("all");
+  const [billTypeFilter, setBillTypeFilter] =
+    useState<BillTypeFilter>("all");
+  const [billStatusFilter, setBillStatusFilter] =
+    useState<BillStatusFilter>("unpaid");
+  const [tableFilter, setTableFilter] =
+    useState<TableFilter>("all");
   const [selectedId, setSelectedId] =
     useState<string | null>(null);
   const [discountText, setDiscountText] =
@@ -438,6 +543,10 @@ function CustomerBillsPage() {
     useState<PaymentMethod>("cash");
   const [paymentSplits, setPaymentSplits] =
     useState<PaymentSplit[]>([]);
+  const [isEditingPaidPayment, setIsEditingPaidPayment] =
+    useState(false);
+  const [correctedPaymentMethod, setCorrectedPaymentMethod] =
+    useState<PaymentMethod>("cash");
   const [editName, setEditName] =
     useState("");
   const [editNote, setEditNote] =
@@ -449,6 +558,14 @@ function CustomerBillsPage() {
   const [message, setMessage] =
     useState("");
   const [error, setError] = useState("");
+  const [payingCustomerId, setPayingCustomerId] =
+    useState<string | null>(null);
+  const [isCreditDialogOpen, setIsCreditDialogOpen] =
+    useState(false);
+  const [creditNote, setCreditNote] =
+    useState("");
+  const [advanceGamesText, setAdvanceGamesText] =
+    useState("1");
 
   useEffect(() => {
     splitGenericWalkInBills();
@@ -458,17 +575,115 @@ function CustomerBillsPage() {
     mergeDuplicateWalkInSessionBills,
   ]);
 
+  const baseOpenAccounts = useMemo(
+    () =>
+      dedupeOpenAccounts(
+        accounts.filter((account) => {
+          const isUnpaidBill =
+            account.status === "active" &&
+            account.paymentStatus === "unpaid";
+          const isPaidBill =
+            account.paymentStatus === "paid";
+          const hasBillCharges =
+            account.gameCharges.length > 0 ||
+            account.cafeCharges.length > 0 ||
+            (account.accessoryCharges ?? []).length > 0;
+          const matchesStatus =
+            billStatusFilter === "all"
+              ? isUnpaidBill || isPaidBill
+              : billStatusFilter === "paid"
+                ? isPaidBill
+                : isUnpaidBill;
+
+          if (
+            !matchesStatus ||
+            !hasBillCharges ||
+            (isUnpaidBill &&
+              getBillTotals(account).grandTotal <= 0)
+          ) {
+            return false;
+          }
+
+          if (isPaidBill) return true;
+
+          const sessionIds =
+            getAccountSessionIds(account);
+          const hasRunningSession =
+            tables.some(
+              (table) =>
+                table.session &&
+                (table.status === "running" ||
+                  table.status === "paused") &&
+                (sessionIds.has(
+                  table.session.id
+                ) ||
+                  accountMatchesSession(
+                    account,
+                    table.session
+                  ))
+            );
+
+          return !hasRunningSession;
+        })
+      ),
+    [accounts, billStatusFilter, tables]
+  );
+
+  const tableOptions = useMemo(() => {
+    const options = new Set<string>();
+
+    baseOpenAccounts.forEach((account) => {
+      const label = getBillTableLabel(account);
+
+      if (label) {
+        options.add(label);
+      }
+    });
+
+    return Array.from(options).sort((a, b) =>
+      a.localeCompare(b)
+    );
+  }, [baseOpenAccounts]);
+
   const openAccounts = useMemo(() => {
     const query =
       search.trim().toLowerCase();
+    const range = getDateRange(dateFilter);
 
-    return accounts
-      .filter(
-        (account) =>
-          account.status === "active" &&
-          account.paymentStatus === "unpaid" &&
-          getBillTotals(account).grandTotal > 0
-      )
+    return baseOpenAccounts
+      .filter((account) => {
+        if (!range) return true;
+
+        const timestamp = new Date(
+          getBillTimestamp(account) ?? ""
+        ).getTime();
+
+        return (
+          Number.isFinite(timestamp) &&
+          timestamp >= range.start.getTime() &&
+          timestamp <= range.end.getTime()
+        );
+      })
+      .filter((account) => {
+        if (billTypeFilter === "all") return true;
+
+        const totals = getBillTotals(account);
+
+        if (billTypeFilter === "table") {
+          return account.totalGameAmount > 0;
+        }
+
+        if (billTypeFilter === "cafe") {
+          return totals.cafeTotal > 0;
+        }
+
+        return totals.accessoryTotal > 0;
+      })
+      .filter((account) => {
+        if (tableFilter === "all") return true;
+
+        return getBillTableLabel(account) === tableFilter;
+      })
       .filter((account) => {
         if (!query) return true;
 
@@ -500,8 +715,14 @@ function CustomerBillsPage() {
           new Date(
             a.lastActivityAt ?? a.updatedAt
           ).getTime()
-      );
-  }, [accounts, search]);
+      )
+  }, [
+    baseOpenAccounts,
+    billTypeFilter,
+    dateFilter,
+    search,
+    tableFilter,
+  ]);
 
   useEffect(() => {
     const customerBillId = searchParams.get(
@@ -520,9 +741,11 @@ function CustomerBillsPage() {
   }, [searchParams, openAccounts]);
 
   const selectedAccount =
-    openAccounts.find(
-      (account) => account.id === selectedId
-    ) ?? openAccounts[0];
+    selectedId
+      ? openAccounts.find(
+          (account) => account.id === selectedId
+        )
+      : undefined;
   const selectedTotals = selectedAccount
     ? getBillTotals(selectedAccount)
     : undefined;
@@ -577,6 +800,30 @@ function CustomerBillsPage() {
   const selectedRunningTable = selectedAccount
     ? getRunningTableForAccount(selectedAccount)
     : undefined;
+  const selectedAdvanceBalance = selectedAccount
+    ? safeAdvanceTransactions
+        .filter((item) => item.customerId === selectedAccount.id)
+        .reduce((total, item) => total + item.balanceDelta, 0)
+    : 0;
+  const selectedEligibleGames = selectedAccount
+    ? Math.floor(
+        selectedAccount.gameCharges.reduce(
+          (total, charge) => total + (charge.originalAmount ?? charge.amount),
+          0
+        ) / 300
+      )
+    : 0;
+  const selectedMaximumAdvanceGames = Math.min(
+    selectedAdvanceBalance,
+    selectedEligibleGames
+  );
+  const isSelectedBillStillRunning =
+    !!selectedRunningTable &&
+    (selectedRunningTable.status === "running" ||
+      selectedRunningTable.status === "paused");
+  const isReceivingSelectedPayment =
+    !!selectedAccount &&
+    payingCustomerId === selectedAccount.id;
 
   const openBill = (
     account: CustomerAccount
@@ -587,12 +834,16 @@ function CustomerBillsPage() {
     );
     setPaymentMethod("cash");
     setPaymentSplits([]);
+    setIsEditingPaidPayment(false);
+    setCorrectedPaymentMethod(account.paymentMethod ?? "cash");
     setMessage("");
     setError("");
     setEditName(account.customerName);
     setEditNote(account.customerNote ?? "");
     setEditPhone(account.phone ?? "");
     setIsEditingCustomer(false);
+    setIsCreditDialogOpen(false);
+    setCreditNote("");
   };
 
   const handleSaveCustomer = () => {
@@ -618,6 +869,86 @@ function CustomerBillsPage() {
     setError("");
   };
 
+  const handleCorrectPaymentMethod = () => {
+    if (!selectedAccount || selectedAccount.paymentStatus !== "paid") {
+      return;
+    }
+
+    const linkedSale = selectedAccount.saleId
+      ? salesStore.sales.find(
+          (sale) => sale.id === selectedAccount.saleId
+        )
+      : salesStore.sales.find(
+          (sale) =>
+            sale.customerAccountId === selectedAccount.id ||
+            sale.sessionId === selectedAccount.id
+        );
+
+    if (!linkedSale) {
+      setError("The linked sale could not be found, so the payment method was not changed.");
+      setMessage("");
+      return;
+    }
+
+    updatePaidBillPaymentMethod(
+      selectedAccount.id,
+      correctedPaymentMethod
+    );
+
+    salesStore.updateSalePaymentMethod(
+      linkedSale.id,
+      correctedPaymentMethod
+    );
+
+    setIsEditingPaidPayment(false);
+    setMessage(
+      `Payment method changed to ${paymentLabel(correctedPaymentMethod)}.`
+    );
+    setError("");
+  };
+
+  const handleDeleteSelectedBill = () => {
+    if (!selectedAccount) return;
+
+    if (
+      selectedAccount.paymentStatus !== "unpaid" ||
+      isSelectedBillStillRunning
+    ) {
+      setError(
+        isSelectedBillStillRunning
+          ? "End the active table session before deleting this bill."
+          : "Only unpaid bills can be deleted."
+      );
+      setMessage("");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Delete the bill for ${getBillPrimaryLabel(selectedAccount)}? This cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    const sessionIds = new Set(
+      [
+        ...selectedAccount.gameCharges,
+        ...selectedAccount.cafeCharges,
+        ...(selectedAccount.accessoryCharges ?? []),
+      ]
+        .map((charge) => charge.sessionId)
+        .filter((sessionId): sessionId is string => Boolean(sessionId))
+    );
+
+    sessionIds.forEach((sessionId) => {
+      removePendingBill(`BILL-${sessionId}`);
+    });
+    deleteSavedOrdersForCustomerAccount(selectedAccount.id);
+    deleteCustomerAccount(selectedAccount.id);
+    setSelectedId(null);
+    setIsEditingCustomer(false);
+    setError("");
+    setMessage("Bill deleted.");
+  };
+
   const handleApplyDiscount = () => {
     if (!selectedAccount) return;
 
@@ -631,11 +962,95 @@ function CustomerBillsPage() {
     setError("");
   };
 
+  const handleApplyAdvanceGames = () => {
+    if (!selectedAccount || selectedAccount.advanceApplicationId) return;
+    const games = Number(advanceGamesText);
+    if (!Number.isInteger(games) || games < 1 || games > selectedMaximumAdvanceGames) {
+      setError(`Enter a whole number from 1 to ${selectedMaximumAdvanceGames}.`);
+      setMessage("");
+      return;
+    }
+    const applicationId = `ADV-APPLY-${selectedAccount.id}-${Date.now()}`;
+    if (!applyAdvanceTransaction({
+      transactionId: applicationId,
+      customerId: selectedAccount.id,
+      customerName: selectedAccount.customerName,
+      games,
+      billId: selectedAccount.id,
+    })) {
+      setError("Advance games could not be applied.");
+      return;
+    }
+    if (!applyAdvanceGamesToBill(selectedAccount.id, games, applicationId)) {
+      undoAdvanceTransaction({
+        transactionId: `${applicationId}-ROLLBACK`,
+        applicationId,
+        customerId: selectedAccount.id,
+        customerName: selectedAccount.customerName,
+        games,
+        billId: selectedAccount.id,
+      });
+      setError("Advance games could not be applied to this bill.");
+      return;
+    }
+    setError("");
+    setMessage(`${games} advance game${games === 1 ? "" : "s"} applied.`);
+  };
+
+  const handleUndoAdvanceGames = () => {
+    if (!selectedAccount?.advanceApplicationId || !selectedAccount.advanceGamesApplied) return;
+    const applicationId = selectedAccount.advanceApplicationId;
+    const games = selectedAccount.advanceGamesApplied;
+    const undoId = `ADV-UNDO-${applicationId}`;
+    if (!undoAdvanceTransaction({
+      transactionId: undoId,
+      applicationId,
+      customerId: selectedAccount.id,
+      customerName: selectedAccount.customerName,
+      games,
+      billId: selectedAccount.id,
+    })) {
+      setError("Advance games have already been undone.");
+      return;
+    }
+    if (!undoAdvanceGamesFromBill(selectedAccount.id, applicationId)) {
+      setError("This bill can no longer be changed.");
+      return;
+    }
+    setError("");
+    setMessage("Advance games restored to the customer balance.");
+  };
+
   const handleReceivePayment = () => {
     setMessage("");
     setError("");
 
     if (!selectedAccount) return;
+    if (payingCustomerId) return;
+
+    setPayingCustomerId(selectedAccount.id);
+
+    const currentAccount =
+      useCustomerAccountStore
+        .getState()
+        .getCustomerById(selectedAccount.id);
+    const alreadyPaid =
+      currentAccount?.paymentStatus === "paid" ||
+      useSalesStore
+        .getState()
+        .sales.some(
+          (sale) =>
+            sale.paymentStatus === "paid" &&
+            (sale.customerAccountId ===
+              selectedAccount.id ||
+              sale.sessionId === selectedAccount.id)
+        );
+
+    if (alreadyPaid) {
+      setError("This bill has already been paid.");
+      setPayingCustomerId(null);
+      return;
+    }
 
     if (
       selectedRunningTable &&
@@ -645,6 +1060,7 @@ function CustomerBillsPage() {
       setError(
         `${selectedAccount.customerName} is still playing on ${selectedRunningTable.name}. End the table before receiving this bill.`
       );
+      setPayingCustomerId(null);
       return;
     }
 
@@ -652,6 +1068,7 @@ function CustomerBillsPage() {
       setError(
         "Please start the day before receiving payment."
       );
+      setPayingCustomerId(null);
       return;
     }
 
@@ -674,6 +1091,7 @@ function CustomerBillsPage() {
       setError(
         `Split payment total must be Rs. ${selectedTotals?.grandTotal}.`
       );
+      setPayingCustomerId(null);
       return;
     }
 
@@ -715,6 +1133,19 @@ function CustomerBillsPage() {
       discount: selectedAccount.discount,
       grandTotal:
         selectedTotals?.grandTotal ?? 0,
+      originalTableAmount:
+        selectedAccount.gameCharges.reduce(
+          (total, charge) => total + (charge.originalAmount ?? charge.amount),
+          0
+        ),
+      originalGameCount: selectedEligibleGames,
+      advanceGamesApplied: selectedAccount.advanceGamesApplied ?? 0,
+      advanceReduction: selectedAccount.advanceReduction ?? 0,
+      settlementLabel:
+        (selectedTotals?.grandTotal ?? 0) === 0 &&
+        (selectedAccount.advanceGamesApplied ?? 0) > 0
+          ? "Settled by Advance Games"
+          : undefined,
       paymentMethod,
       paymentSplits:
         cleanedSplits.length > 0
@@ -802,12 +1233,137 @@ function CustomerBillsPage() {
       saleId,
     });
 
+    const paidSessionIds = new Set(
+      [
+        ...selectedAccount.gameCharges,
+        ...selectedAccount.cafeCharges,
+        ...(selectedAccount.accessoryCharges ?? []),
+      ]
+        .map((charge) => charge.sessionId)
+        .filter((sessionId): sessionId is string =>
+          Boolean(sessionId)
+        )
+    );
+
+    paidSessionIds.forEach((sessionId) => {
+      removePendingBill(`BILL-${sessionId}`);
+    });
+
     setMessage(
       `Payment received for ${selectedAccount.customerName}.`
     );
     setSelectedId(null);
     setPaymentMethod("cash");
     setPaymentSplits([]);
+    setPayingCustomerId(null);
+  };
+
+  const handleOpenCreditDialog = () => {
+    setMessage("");
+    setError("");
+
+    if (!selectedAccount) return;
+
+    if (isSelectedBillStillRunning) {
+      setError(
+        `${selectedAccount.customerName} is still playing on ${selectedRunningTable?.name}. End the table before moving this bill to credit.`
+      );
+      return;
+    }
+
+    if (
+      !hasMeaningfulCreditCustomerName(selectedAccount)
+    ) {
+      setError(
+        "Edit the customer name from the Customer Bills row before moving this bill to credit."
+      );
+      return;
+    }
+
+    const existingCredit =
+      useCreditLedgerStore
+        .getState()
+        .entries.some(
+          (entry) =>
+            entry.sourceCustomerAccountId ===
+              selectedAccount.id &&
+            entry.status !== "cancelled"
+        );
+
+    if (existingCredit) {
+      setError(
+        "This bill is already in the Credit Ledger."
+      );
+      return;
+    }
+
+    setCreditNote("");
+    setIsCreditDialogOpen(true);
+  };
+
+  const handleMoveToCredit = () => {
+    setMessage("");
+    setError("");
+
+    if (!selectedAccount || !selectedTotals) return;
+
+    if (
+      !hasMeaningfulCreditCustomerName(selectedAccount)
+    ) {
+      setError(
+        "Enter a proper customer name before moving this bill to credit."
+      );
+      setIsCreditDialogOpen(false);
+      return;
+    }
+
+    const entry = addCreditFromCustomerBill({
+      account: selectedAccount,
+      originalBillNumber:
+        getBillPrimaryLabel(selectedAccount),
+      tableName: getBillTableLabel(selectedAccount),
+      cafeTotal: selectedTotals.cafeTotal,
+      accessoryTotal:
+        selectedTotals.accessoryTotal,
+      finalAmount: selectedTotals.grandTotal,
+      creditNote,
+      businessDayId: activeBusinessDay?.id,
+    });
+
+    if (!entry) {
+      setError(
+        "This bill is already in the Credit Ledger."
+      );
+      setIsCreditDialogOpen(false);
+      return;
+    }
+
+    markCustomerBillCredited(selectedAccount.id);
+
+    const creditedSessionIds = new Set(
+      [
+        ...selectedAccount.gameCharges,
+        ...selectedAccount.cafeCharges,
+        ...(selectedAccount.accessoryCharges ?? []),
+      ]
+        .map((charge) => charge.sessionId)
+        .filter((sessionId): sessionId is string =>
+          Boolean(sessionId)
+        )
+    );
+
+    creditedSessionIds.forEach((sessionId) => {
+      removePendingBill(`BILL-${sessionId}`);
+    });
+
+    setMessage(
+      `${entry.customerName} moved to Credit Ledger.`
+    );
+    setSelectedId(null);
+    setPaymentMethod("cash");
+    setPaymentSplits([]);
+    setCreditNote("");
+    setIsCreditDialogOpen(false);
   };
 
   return (
@@ -828,14 +1384,22 @@ function CustomerBillsPage() {
               Customer Bills
             </h1>
             <p className="text-sm text-slate-500">
-              Open unpaid customer bills for games and cafe orders.
+              {billStatusFilter === "paid"
+                ? "Review paid customer bills and payment details."
+                : billStatusFilter === "all"
+                  ? "Review unpaid and paid customer bills."
+                  : "Open unpaid customer bills for games and cafe orders."}
             </p>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
             <Card className="p-4">
               <p className="text-sm text-slate-500">
-                Open Bills
+                {billStatusFilter === "paid"
+                  ? "Paid Bills"
+                  : billStatusFilter === "all"
+                    ? "All Bills"
+                    : "Open Bills"}
               </p>
               <p className="mt-1 text-2xl font-bold text-slate-950">
                 {totals.count.toLocaleString()} bills
@@ -843,7 +1407,11 @@ function CustomerBillsPage() {
             </Card>
             <Card className="p-4">
               <p className="text-sm text-slate-500">
-                Outstanding Amount
+                {billStatusFilter === "paid"
+                  ? "Paid Amount"
+                  : billStatusFilter === "all"
+                    ? "Total Amount"
+                    : "Outstanding Amount"}
               </p>
               <p className="mt-1 text-2xl font-bold text-amber-700">
                 {formatCurrency(totals.amount)}
@@ -858,54 +1426,176 @@ function CustomerBillsPage() {
           </p>
         )}
 
-        {error && (
-          <p className="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm font-medium text-red-700 ring-1 ring-red-200">
-            {error}
-          </p>
-        )}
-
-        <div className="grid gap-5 lg:grid-cols-[1.15fr_0.85fr]">
+        <div
+          className={`grid gap-5 ${
+            selectedAccount
+              ? "lg:grid-cols-[minmax(0,1fr)_minmax(580px,0.78fr)]"
+              : "lg:grid-cols-1"
+          }`}
+        >
           <Card className="overflow-hidden">
-            <div className="flex items-center gap-3 border-b p-4">
-              <Search className="h-4 w-4 text-slate-400" />
-              <Input
-                placeholder="Search bill no, customer, player, table..."
-                value={search}
-                onChange={(event) =>
-                  setSearch(event.target.value)
-                }
-              />
+            <div className="space-y-3 border-b p-4">
+              <div className="grid gap-1.5">
+                <label
+                  htmlFor="customer-bills-search"
+                  className="text-xs font-semibold uppercase text-slate-500"
+                >
+                  Search
+                </label>
+                <div className="flex items-center gap-3">
+                  <Search className="h-4 w-4 text-slate-400" />
+                  <Input
+                    id="customer-bills-search"
+                    name="customerBillsSearch"
+                    placeholder="Search bill no, customer, player, table..."
+                    value={search}
+                    onChange={(event) =>
+                      setSearch(event.target.value)
+                    }
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-end gap-3">
+                <label className="grid min-w-32 gap-1.5 text-xs font-semibold uppercase text-slate-500">
+                  Date
+                <select
+                  id="customer-bills-date-filter"
+                  name="customerBillsDateFilter"
+                  className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm font-normal normal-case text-slate-900"
+                  value={dateFilter}
+                  onChange={(event) =>
+                    setDateFilter(
+                      event.target.value as DateFilter
+                    )
+                  }
+                >
+                  <option value="all">All Dates</option>
+                  <option value="today">Today</option>
+                  <option value="yesterday">Yesterday</option>
+                  <option value="this-month">This Month</option>
+                </select>
+                </label>
+
+                <label className="grid min-w-32 gap-1.5 text-xs font-semibold uppercase text-slate-500">
+                  Bill Type
+                <select
+                  id="customer-bills-type-filter"
+                  name="customerBillsTypeFilter"
+                  className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm font-normal normal-case text-slate-900"
+                  value={billTypeFilter}
+                  onChange={(event) =>
+                    setBillTypeFilter(
+                      event.target.value as BillTypeFilter
+                    )
+                  }
+                >
+                  <option value="all">All Types</option>
+                  <option value="table">Table Bills</option>
+                  <option value="cafe">Cafe Bills</option>
+                  <option value="accessories">
+                    Accessories
+                  </option>
+                </select>
+                </label>
+
+                <label className="grid min-w-32 gap-1.5 text-xs font-semibold uppercase text-slate-500">
+                  Table
+                <select
+                  id="customer-bills-table-filter"
+                  name="customerBillsTableFilter"
+                  className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm font-normal normal-case text-slate-900"
+                  value={tableFilter}
+                  onChange={(event) =>
+                    setTableFilter(event.target.value)
+                  }
+                >
+                  <option value="all">All Tables</option>
+                  {tableOptions.map((table) => (
+                    <option key={table} value={table}>
+                      {table}
+                    </option>
+                  ))}
+                </select>
+                </label>
+
+                <label className="grid min-w-32 gap-1.5 text-xs font-semibold uppercase text-slate-500">
+                  Payment Status
+                <select
+                  id="customer-bills-status-filter"
+                  name="customerBillsStatusFilter"
+                  className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm font-normal normal-case text-slate-900"
+                  value={billStatusFilter}
+                  onChange={(event) => {
+                    setBillStatusFilter(
+                      event.target.value as BillStatusFilter
+                    );
+                    setSelectedId(null);
+                  }}
+                >
+                  <option value="unpaid">Unpaid</option>
+                  <option value="paid">Paid</option>
+                  <option value="all">All Statuses</option>
+                </select>
+                </label>
+
+                {(search ||
+                  dateFilter !== "all" ||
+                  billTypeFilter !== "all" ||
+                  tableFilter !== "all" ||
+                  billStatusFilter !== "unpaid") && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-9"
+                    onClick={() => {
+                      setSearch("");
+                      setDateFilter("all");
+                      setBillTypeFilter("all");
+                      setTableFilter("all");
+                      setBillStatusFilter("unpaid");
+                      setSelectedId(null);
+                    }}
+                  >
+                    Clear Filters
+                  </Button>
+                )}
+              </div>
             </div>
 
             <div className="w-full overflow-x-auto">
-              <table className="w-full min-w-[1040px] table-fixed text-sm">
+              <table className="w-full min-w-[1120px] table-fixed text-sm">
                 <thead className="sticky top-0 z-10 bg-slate-50 text-left text-xs uppercase text-slate-500 shadow-sm">
                   <tr>
-                    <th className="w-32 min-w-32 whitespace-nowrap px-4 py-3">
+                    <th className="w-36 whitespace-nowrap px-3 py-3">
                       Bill No
                     </th>
-                    <th className="min-w-48 px-4 py-3">
+                    <th className="w-44 px-3 py-3">
                       Customer / Table
                     </th>
-                    <th className="w-36 min-w-36 whitespace-nowrap px-4 py-3">
+                    <th className="w-28 whitespace-nowrap px-3 py-3">
                       Ended At
                     </th>
-                    <th className="w-36 min-w-36 whitespace-nowrap px-4 py-3">
+                    <th className="w-28 whitespace-nowrap px-3 py-3">
                       Type
                     </th>
-                    <th className="w-28 min-w-28 whitespace-nowrap px-4 py-3 text-right">
+                    <th className="w-24 whitespace-nowrap px-3 py-3 text-right">
                       Table Bill
                     </th>
-                    <th className="w-28 min-w-28 whitespace-nowrap px-4 py-3 text-right">
+                    <th className="w-24 whitespace-nowrap px-3 py-3 text-right">
                       Cafe Bill
                     </th>
-                    <th className="w-28 min-w-28 whitespace-nowrap px-4 py-3 text-right">
+                    <th className="w-24 whitespace-nowrap px-3 py-3 text-right">
                       Accessories
                     </th>
-                    <th className="w-28 min-w-28 whitespace-nowrap px-4 py-3 text-right">
+                    <th className="w-24 whitespace-nowrap px-3 py-3 text-right">
                       Total
                     </th>
-                    <th className="w-24 min-w-24 whitespace-nowrap px-4 py-3 text-right">
+                    <th className="w-20 whitespace-nowrap px-3 py-3 text-center">
+                      Status
+                    </th>
+                    <th className="sticky right-0 z-20 w-36 whitespace-nowrap bg-slate-50 px-3 py-3 text-right shadow-[-8px_0_12px_-12px_rgba(15,23,42,0.45)]">
                       Action
                     </th>
                   </tr>
@@ -936,18 +1626,18 @@ function CustomerBillsPage() {
                               openBill(account);
                             }
                           }}
-                          className={`cursor-pointer border-l-4 transition focus:outline-none focus:ring-2 focus:ring-inset focus:ring-amber-300 ${
+                          className={`group cursor-pointer border-l-4 transition focus:outline-none focus:ring-2 focus:ring-inset focus:ring-amber-300 ${
                             selected
                               ? "border-l-amber-500 bg-amber-50/80 shadow-[inset_0_0_0_1px_rgba(245,158,11,0.22)]"
                               : "border-l-transparent bg-white hover:bg-amber-50/40"
                           }`}
                         >
-                          <td className="whitespace-nowrap px-4 py-3 align-middle font-mono text-sm font-semibold text-slate-950">
+                          <td className="whitespace-nowrap px-3 py-3 align-middle font-mono text-sm font-semibold text-slate-950">
                               {getBillPrimaryLabel(
                                 account
                               )}
                           </td>
-                          <td className="px-4 py-3 align-middle">
+                          <td className="px-3 py-3 align-middle">
                             <p className="font-semibold text-slate-950">
                               {getDisplayCustomerLabel(account)}
                             </p>
@@ -960,7 +1650,7 @@ function CustomerBillsPage() {
                               </p>
                             )}
                           </td>
-                          <td className="px-4 py-3 align-middle">
+                          <td className="px-3 py-3 align-middle">
                             <span className="block whitespace-nowrap font-medium text-slate-700">
                               {formatShortDate(timestamp)}
                             </span>
@@ -968,33 +1658,66 @@ function CustomerBillsPage() {
                               {formatTime(timestamp)}
                             </span>
                           </td>
-                          <td className="whitespace-nowrap px-4 py-3 align-middle">
+                          <td className="whitespace-nowrap px-3 py-3 align-middle">
                             {getBillTypeLabel(account)}
                           </td>
-                          <td className="px-4 py-3 text-right align-middle tabular-nums">
+                          <td className="px-3 py-3 text-right align-middle tabular-nums">
                             {formatAmountOrDash(account.totalGameAmount)}
                           </td>
-                          <td className="px-4 py-3 text-right align-middle tabular-nums">
+                          <td className="px-3 py-3 text-right align-middle tabular-nums">
                             {formatAmountOrDash(totals.cafeTotal)}
                           </td>
-                          <td className="px-4 py-3 text-right align-middle tabular-nums">
+                          <td className="px-3 py-3 text-right align-middle tabular-nums">
                             {formatAmountOrDash(totals.accessoryTotal)}
                           </td>
-                          <td className="px-4 py-3 text-right align-middle font-bold tabular-nums text-slate-950">
+                          <td className="px-3 py-3 text-right align-middle font-bold tabular-nums text-slate-950">
                             {formatCurrency(totals.grandTotal)}
                           </td>
-                          <td className="px-4 py-3 text-right align-middle">
-                            <Button
-                              size="sm"
-                              variant={selected ? "outline" : "default"}
-                              className="min-w-20"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                openBill(account);
-                              }}
+                          <td className="px-3 py-3 text-center align-middle">
+                            <span
+                              className={`inline-flex rounded-full px-2 py-1 text-xs font-bold ${
+                                account.paymentStatus === "paid"
+                                  ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                                  : "bg-amber-50 text-amber-700 ring-1 ring-amber-200"
+                              }`}
                             >
-                              {selected ? "Selected" : "View"}
-                            </Button>
+                              {account.paymentStatus === "paid"
+                                ? "Paid"
+                                : "Unpaid"}
+                            </span>
+                          </td>
+                          <td
+                            className={`sticky right-0 z-[1] px-3 py-3 text-right align-middle shadow-[-8px_0_12px_-12px_rgba(15,23,42,0.45)] ${
+                              selected
+                                ? "bg-amber-50"
+                                : "bg-white group-hover:bg-amber-50"
+                            }`}
+                          >
+                            <div className="flex justify-end gap-2">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-8 px-2"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  openBill(account);
+                                  setIsEditingCustomer(true);
+                                }}
+                              >
+                                Edit
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant={selected ? "outline" : "default"}
+                                className="h-8 min-w-16 px-2"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  openBill(account);
+                                }}
+                              >
+                                {selected ? "Selected" : "View"}
+                              </Button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -1004,22 +1727,22 @@ function CustomerBillsPage() {
                   {openAccounts.length === 0 && (
                     <tr>
                       <td
-                        colSpan={9}
+                        colSpan={10}
                         className="px-4 py-10 text-center text-slate-500"
                       >
-                        No open customer bills.
+                        No {billStatusFilter === "paid" ? "paid" : billStatusFilter === "all" ? "customer" : "open customer"} bills.
                       </td>
-                      </tr>
+                    </tr>
                   )}
                 </tbody>
               </table>
             </div>
           </Card>
 
-          <Card className="p-5 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto">
-            {selectedAccount ? (
-              <div>
-                <div className="mb-4 flex items-start justify-between gap-4">
+          {selectedAccount && (
+            <Card className="flex flex-col overflow-hidden p-0 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:min-h-[calc(100vh-2rem)]">
+              <div className="border-b bg-white px-5 pb-3 pt-5">
+                <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-slate-500">
                       Open Bill
@@ -1027,6 +1750,8 @@ function CustomerBillsPage() {
                     {isEditingCustomer ? (
                       <div className="mt-2 grid gap-2">
                         <Input
+                          id="customer-bill-edit-name"
+                          name="customerBillEditName"
                           value={editName}
                           onChange={(event) =>
                             setEditName(
@@ -1036,6 +1761,8 @@ function CustomerBillsPage() {
                           placeholder="Customer name"
                         />
                         <Input
+                          id="customer-bill-edit-note"
+                          name="customerBillEditNote"
                           value={editNote}
                           onChange={(event) =>
                             setEditNote(
@@ -1045,6 +1772,8 @@ function CustomerBillsPage() {
                           placeholder="Note e.g. black shirt"
                         />
                         <Input
+                          id="customer-bill-edit-phone"
+                          name="customerBillEditPhone"
                           value={editPhone}
                           onChange={(event) =>
                             setEditPhone(
@@ -1082,6 +1811,16 @@ function CustomerBillsPage() {
                           >
                             Cancel
                           </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="ml-auto gap-1.5 border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
+                            disabled={isSelectedBillStillRunning}
+                            onClick={handleDeleteSelectedBill}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            Delete Bill
+                          </Button>
                         </div>
                       </div>
                     ) : (
@@ -1092,10 +1831,7 @@ function CustomerBillsPage() {
                           )}
                         </h2>
                         <p className="text-sm text-slate-500">
-                          {getDisplayCustomerLabel(selectedAccount)}
-                          {getBillTableLabel(selectedAccount)
-                            ? ` · ${getBillTableLabel(selectedAccount)}`
-                            : ""}
+                          {getBillTableLabel(selectedAccount) || "No table"}
                         </p>
                         {selectedRunningTable && (
                           <p className="mt-1 inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-bold text-emerald-700 ring-1 ring-emerald-200">
@@ -1116,11 +1852,11 @@ function CustomerBillsPage() {
                             }
                           </p>
                         )}
-                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <div className={`mt-3 grid gap-2 ${selectedAccount.paymentStatus === "paid" ? "grid-cols-1" : "grid-cols-[0.7fr_0.9fr_1.15fr]"}`}>
                           <Button
                             size="sm"
                             variant="outline"
-                            className="h-9 gap-2 px-3"
+                            className="h-9 justify-center gap-2 px-2"
                             onClick={() => {
                               setEditName(
                                 selectedAccount.customerName
@@ -1136,53 +1872,79 @@ function CustomerBillsPage() {
                               setIsEditingCustomer(true);
                             }}
                           >
-                            Edit Customer
+                            Edit
                           </Button>
-                          <Button
-                            size="sm"
-                            className="h-9 gap-2 bg-emerald-950 px-3 hover:bg-emerald-900"
-                            onClick={() =>
-                              navigate(
-                                `/operator/cafe?customerBillId=${selectedAccount.id}`
-                              )
-                            }
-                          >
-                            <Coffee className="h-4 w-4" />
-                            Add Cafe Order
-                          </Button>
-                          <Button
-                            size="sm"
-                            className="h-9 gap-2 bg-slate-950 px-3 hover:bg-slate-900"
-                            onClick={() =>
-                              navigate(
-                                `/operator/accessories?customerBillId=${selectedAccount.id}`
-                              )
-                            }
-                          >
-                            <Package className="h-4 w-4" />
-                            Add Accessories
-                          </Button>
+                          {selectedAccount.paymentStatus === "unpaid" && (
+                            <>
+                              <Button
+                                size="sm"
+                                className="h-9 justify-center gap-2 bg-emerald-950 px-2 hover:bg-emerald-900"
+                                onClick={() =>
+                                  navigate(
+                                    `/operator/cafe?customerBillId=${selectedAccount.id}`
+                                  )
+                                }
+                              >
+                                <Coffee className="h-4 w-4" />
+                                Add Cafe
+                              </Button>
+                              <Button
+                                size="sm"
+                                className="h-9 justify-center gap-2 bg-slate-950 px-2 hover:bg-slate-900"
+                                onClick={() =>
+                                  navigate(
+                                    `/operator/accessories?customerBillId=${selectedAccount.id}`
+                                  )
+                                }
+                              >
+                                <Package className="h-4 w-4" />
+                                Add Accessories
+                              </Button>
+                            </>
+                          )}
                         </div>
                       </>
                     )}
                   </div>
-                  <div className="shrink-0 text-right">
-                    <div className="whitespace-nowrap rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700 ring-1 ring-amber-200">
-                      Awaiting Payment
+                  <div className="shrink-0">
+                    <div className="flex items-center justify-end gap-2">
+                      <div className={`whitespace-nowrap rounded-full px-3 py-1 text-xs font-bold ring-1 ${selectedAccount.paymentStatus === "paid" ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : "bg-amber-50 text-amber-700 ring-amber-200"}`}>
+                        {selectedAccount.paymentStatus === "paid"
+                          ? "Paid"
+                          : "Awaiting Payment"}
+                      </div>
+                      {selectedBillAge && (
+                        <span className="whitespace-nowrap text-xs font-medium text-slate-500">
+                          {selectedBillAge}
+                        </span>
+                      )}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-10 w-10 rounded-full p-0 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                        aria-label="Close bill details"
+                        onClick={() => {
+                          setSelectedId(null);
+                          setError("");
+                          setMessage("");
+                          setPaymentSplits([]);
+                          setIsEditingCustomer(false);
+                        }}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
                     </div>
-                    {selectedBillAge && (
-                      <p className="mt-1 text-xs text-slate-500">
-                        {selectedBillAge}
-                      </p>
-                    )}
                   </div>
                 </div>
+              </div>
 
-                <section className="mb-5 rounded-xl border bg-slate-50 p-4">
-                  <h3 className="mb-3 text-sm font-bold text-slate-900">
+              <div className="flex-1 overflow-y-auto px-5 py-2.5 pr-7 [scrollbar-color:#cbd5e1_transparent] [scrollbar-width:thin]">
+                <section className="mb-3 rounded-lg border bg-slate-50 px-3 py-2">
+                  <h3 className="mb-2 text-sm font-bold text-slate-900">
                     Session Time
                   </h3>
-                  <div className="grid gap-3 text-sm sm:grid-cols-[minmax(0,1fr)_auto_auto_minmax(7rem,auto)]">
+                  <div className="grid gap-2 text-sm sm:grid-cols-4">
                     <div className="min-w-0">
                       <p className="text-xs font-semibold uppercase text-slate-500">
                         Date
@@ -1222,7 +1984,7 @@ function CustomerBillsPage() {
                   </div>
                 </section>
 
-                <section className="mb-5">
+                <section className="mb-3">
                   <h3 className="mb-2 font-bold">
                     Sessions
                   </h3>
@@ -1231,7 +1993,7 @@ function CustomerBillsPage() {
                       (charge, index) => (
                         <div
                           key={charge.id}
-                          className="rounded-lg border bg-white p-3 shadow-sm"
+                          className="rounded-lg border bg-white px-3 py-2 shadow-sm"
                         >
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
@@ -1240,7 +2002,7 @@ function CustomerBillsPage() {
                                   ? "Time Charge"
                                   : `Game ${index + 1} · ${getChargeTypeLabel(charge.sessionType)}`}
                               </p>
-                              <p className="mt-1 text-xs text-slate-500">
+                              <p className="mt-0.5 text-xs text-slate-500">
                                 {formatTime(
                                   charge.startedAt
                                 )}{" "}
@@ -1255,10 +2017,10 @@ function CustomerBillsPage() {
                                   charge.durationMinutes
                                 )}
                               </p>
-                              <p className="mt-1 text-sm text-slate-600">
+                              <p className="mt-0.5 text-xs font-medium text-slate-600">
                                 {charge.loserName
-                                  ? `${formatCustomerDisplayName(charge.loserName)} lost`
-                                  : formatCustomerDisplayName(charge.payerName)}
+                                  ? `${getBillPrimaryLabel(selectedAccount)} lost`
+                                  : getBillPrimaryLabel(selectedAccount)}
                               </p>
                             </div>
                             <p className="shrink-0 font-bold text-slate-950">
@@ -1271,14 +2033,14 @@ function CustomerBillsPage() {
 
                     {selectedAccount.gameCharges
                       .length === 0 && (
-                      <p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-500">
+                      <p className="text-sm text-slate-500">
                         No game charges.
                       </p>
                     )}
                   </div>
                 </section>
 
-                <section className="mb-5">
+                <section className="mb-3">
                   <h3 className="mb-2 font-bold">
                     Cafe Charges
                   </h3>
@@ -1287,7 +2049,7 @@ function CustomerBillsPage() {
                       (charge) => (
                         <div
                           key={charge.id}
-                          className="flex justify-between rounded-lg border bg-slate-50 p-3"
+                          className="flex justify-between gap-3 rounded-lg border bg-slate-50 px-3 py-2"
                         >
                           <div>
                             <p className="font-semibold">
@@ -1306,14 +2068,14 @@ function CustomerBillsPage() {
 
                     {getCafeCharges(selectedAccount)
                       .length === 0 && (
-                      <p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-500">
-                        No cafe charges.
+                      <p className="text-sm text-slate-500">
+                        No cafe items added
                       </p>
                     )}
                   </div>
                 </section>
 
-                <section className="mb-5">
+                <section className="mb-1">
                   <h3 className="mb-2 font-bold">
                     Accessories Charges
                   </h3>
@@ -1322,7 +2084,7 @@ function CustomerBillsPage() {
                       (charge) => (
                         <div
                           key={charge.id}
-                          className="flex justify-between rounded-lg border bg-indigo-50 p-3"
+                          className="flex justify-between gap-3 rounded-lg border bg-indigo-50 px-3 py-2"
                         >
                           <div>
                             <p className="font-semibold">
@@ -1344,14 +2106,15 @@ function CustomerBillsPage() {
 
                     {getAccessoryCharges(selectedAccount)
                       .length === 0 && (
-                      <p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-500">
-                        No accessories charges.
+                      <p className="text-sm text-slate-500">
+                        No accessories added
                       </p>
                     )}
                   </div>
                 </section>
+              </div>
 
-                <div className="sticky bottom-0 -mx-5 space-y-2 border-t bg-white px-5 py-4 text-sm shadow-[0_-10px_24px_rgba(15,23,42,0.08)]">
+              <div className="max-h-[52vh] space-y-1 overflow-y-auto border-t bg-white px-5 py-2.5 text-sm shadow-[0_-10px_24px_rgba(15,23,42,0.08)] [scrollbar-color:#cbd5e1_transparent] [scrollbar-width:thin]">
                   <div className="flex justify-between">
                     <span>Table Charges</span>
                     <strong>
@@ -1370,14 +2133,50 @@ function CustomerBillsPage() {
                       {formatCurrency(selectedTotals?.accessoryTotal ?? 0)}
                     </strong>
                   </div>
+                  {selectedAccount.paymentStatus === "unpaid" && (
+                  <div className="rounded-lg border bg-emerald-50 p-2.5">
+                    <div className="flex items-center justify-between text-sm text-slate-700">
+                      <span>Advance Games</span>
+                      <strong>{selectedAdvanceBalance}</strong>
+                    </div>
+                    {selectedAccount.advanceApplicationId ? (
+                      <Button className="mt-2 w-full" size="sm" variant="outline" onClick={handleUndoAdvanceGames}>
+                        Undo Advance Games
+                      </Button>
+                    ) : (
+                      <div className="mt-2 flex gap-2">
+                        <Input
+                          className="h-9"
+                          type="number"
+                          inputMode="numeric"
+                          min={1}
+                          max={selectedMaximumAdvanceGames}
+                          step={1}
+                          value={advanceGamesText}
+                          onChange={(event) => setAdvanceGamesText(event.target.value.replace(/\D/g, ""))}
+                          disabled={selectedMaximumAdvanceGames < 1}
+                        />
+                        <Button size="sm" onClick={handleApplyAdvanceGames} disabled={selectedMaximumAdvanceGames < 1}>
+                          Apply Advance Games
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                  )}
+                  {selectedAccount.paymentStatus === "unpaid" ? (
                   <div className="flex items-center justify-between gap-3">
                     <span>Discount</span>
                     <div className="flex items-center gap-2">
                       <Input
+                        id="customer-bill-discount"
+                        name="customerBillDiscount"
                         className="h-9 w-24"
                         type="number"
                         min={0}
                         value={discountText}
+                        onFocus={(event) =>
+                          event.currentTarget.select()
+                        }
                         onChange={(event) =>
                           setDiscountText(
                             event.target.value
@@ -1395,7 +2194,13 @@ function CustomerBillsPage() {
                       </Button>
                     </div>
                   </div>
-                  <div className="flex justify-between border-t pt-3 text-lg">
+                  ) : (
+                    <div className="flex justify-between">
+                      <span>Discount</span>
+                      <strong>{formatCurrency(selectedAccount.discount)}</strong>
+                    </div>
+                  )}
+                  <div className="flex justify-between border-t pt-1.5 text-lg">
                     <span className="font-bold">
                       Grand Total
                     </span>
@@ -1403,9 +2208,84 @@ function CustomerBillsPage() {
                       {formatCurrency(selectedTotals?.grandTotal ?? 0)}
                     </strong>
                   </div>
-                </div>
 
-                <div className="mt-5 rounded-xl border bg-slate-50 p-4">
+                {selectedAccount.paymentStatus === "paid" ? (
+                  <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-bold">Payment received</p>
+                        <p className="mt-1">
+                          {selectedAccount.paidAt
+                            ? `${formatShortDate(selectedAccount.paidAt)} at ${formatTime(selectedAccount.paidAt)}`
+                            : "Paid"}
+                          {selectedAccount.paymentMethod
+                            ? ` \u00B7 ${paymentLabel(selectedAccount.paymentMethod)}`
+                            : ""}
+                        </p>
+                      </div>
+                      {!isEditingPaidPayment && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-8 bg-white"
+                          onClick={() => {
+                            setCorrectedPaymentMethod(
+                              selectedAccount.paymentMethod ?? "cash"
+                            );
+                            setIsEditingPaidPayment(true);
+                          }}
+                        >
+                          Edit payment
+                        </Button>
+                      )}
+                    </div>
+
+                    {isEditingPaidPayment && (
+                      <div className="mt-3 grid gap-2 border-t border-emerald-200 pt-3">
+                        <label className="font-semibold" htmlFor="correct-paid-payment-method">
+                          Correct payment method
+                        </label>
+                        <select
+                          id="correct-paid-payment-method"
+                          className="h-9 rounded-md border border-emerald-200 bg-white px-3 text-slate-900"
+                          value={correctedPaymentMethod}
+                          onChange={(event) =>
+                            setCorrectedPaymentMethod(
+                              event.target.value as PaymentMethod
+                            )
+                          }
+                        >
+                          {paymentMethods.map((method) => (
+                            <option key={method.value} value={method.value}>
+                              {method.label}
+                            </option>
+                          ))}
+                        </select>
+                        <div className="flex gap-2">
+                          <Button size="sm" onClick={handleCorrectPaymentMethod}>
+                            Save correction
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="bg-white"
+                            onClick={() => setIsEditingPaidPayment(false)}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                <div className="mt-2 rounded-lg border bg-slate-50 p-2">
+                  {error && (
+                    <p className="mb-3 rounded-lg bg-red-50 px-4 py-3 text-sm font-medium text-red-700 ring-1 ring-red-200">
+                      {error}
+                    </p>
+                  )}
+
                   <label className="text-sm font-semibold text-slate-700">
                     Payment Method
                   </label>
@@ -1424,25 +2304,20 @@ function CustomerBillsPage() {
                   />
 
                   <Button
-                    className="mt-3 w-full gap-2"
+                    className="mt-2 w-full gap-2"
                     onClick={
                       handleReceivePayment
                     }
                     disabled={
-                      !!selectedRunningTable &&
-                      (selectedRunningTable.status ===
-                        "running" ||
-                        selectedRunningTable.status ===
-                          "paused")
+                      isReceivingSelectedPayment ||
+                      isSelectedBillStillRunning
                     }
                   >
                     <ReceiptText className="h-4 w-4" />
-                    {selectedRunningTable &&
-                    (selectedRunningTable.status ===
-                      "running" ||
-                      selectedRunningTable.status ===
-                        "paused")
-                      ? `Still Playing on ${selectedRunningTable.name}`
+                    {isReceivingSelectedPayment
+                      ? "Receiving Payment..."
+                      : isSelectedBillStillRunning
+                      ? `Still Playing on ${selectedRunningTable?.name}`
                       : `Receive Payment${
                           paymentSplits.length >
                           0
@@ -1452,23 +2327,228 @@ function CustomerBillsPage() {
                               )}`
                         }`}
                   </Button>
+                  <Button
+                    className="mt-2 w-full"
+                    variant="outline"
+                    onClick={handleOpenCreditDialog}
+                    disabled={isSelectedBillStillRunning}
+                  >
+                    Move to Credit
+                  </Button>
                 </div>
+                )}
               </div>
-            ) : (
-              <div className="flex min-h-[360px] items-center justify-center text-center">
-                <div>
-                  <ReceiptText className="mx-auto h-10 w-10 text-slate-300" />
-                  <h2 className="mt-3 font-bold">
-                    No open bill selected
-                  </h2>
-                  <p className="mt-1 text-sm text-slate-500">
-                    Open customer bills will appear here.
-                  </p>
-                </div>
-              </div>
-            )}
-          </Card>
+            </Card>
+          )}
         </div>
+
+        {isCreditDialogOpen &&
+          selectedAccount &&
+          selectedTotals && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+              <Card className="max-h-[90vh] w-full max-w-xl overflow-y-auto p-5">
+                <div className="mb-4 flex items-start justify-between gap-4">
+                  <div>
+                    <h2 className="text-xl font-bold text-slate-950">
+                      Move to Credit Ledger
+                    </h2>
+                    <p className="text-sm text-slate-500">
+                      This records the amount as customer credit, not as payment.
+                    </p>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-9 w-9 p-0"
+                    onClick={() =>
+                      setIsCreditDialogOpen(false)
+                    }
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+
+                <div className="space-y-3 text-sm">
+                  <div className="rounded-lg border bg-slate-50 p-3">
+                    <p className="font-bold text-slate-950">
+                      {getBillPrimaryLabel(
+                        selectedAccount
+                      )}
+                    </p>
+                    <p className="text-slate-500">
+                      {getBillTableLabel(
+                        selectedAccount
+                      ) || "No table"}
+                    </p>
+                    {selectedAccount.customerNote && (
+                      <p className="text-slate-500">
+                        {selectedAccount.customerNote}
+                      </p>
+                    )}
+                    {selectedAccount.phone && (
+                      <p className="text-slate-500">
+                        {selectedAccount.phone}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="rounded-lg border p-3">
+                    <h3 className="mb-2 font-bold">
+                      Bill Details
+                    </h3>
+                    <div className="space-y-1">
+                      <div className="flex justify-between">
+                        <span>Table Charges</span>
+                        <strong>
+                          {formatCurrency(
+                            selectedAccount.totalGameAmount
+                          )}
+                        </strong>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Cafe Charges</span>
+                        <strong>
+                          {formatCurrency(
+                            selectedTotals.cafeTotal
+                          )}
+                        </strong>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Accessories</span>
+                        <strong>
+                          {formatCurrency(
+                            selectedTotals.accessoryTotal
+                          )}
+                        </strong>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Discount</span>
+                        <strong>
+                          {formatCurrency(
+                            Math.min(
+                              selectedAccount.discount,
+                              selectedAccount.totalGameAmount
+                            )
+                          )}
+                        </strong>
+                      </div>
+                      <div className="flex justify-between border-t pt-2 text-base">
+                        <span className="font-bold">
+                          Final Outstanding
+                        </span>
+                        <strong>
+                          {formatCurrency(
+                            selectedTotals.grandTotal
+                          )}
+                        </strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-lg border p-3">
+                      <h3 className="mb-2 font-bold">
+                        Cafe Items
+                      </h3>
+                      <div className="space-y-1">
+                        {getCafeCharges(
+                          selectedAccount
+                        ).map((charge) => (
+                          <div
+                            key={charge.id}
+                            className="flex justify-between gap-3"
+                          >
+                            <span>
+                              {charge.name} x
+                              {charge.quantity}
+                            </span>
+                            <strong>
+                              {formatCurrency(
+                                charge.subtotal
+                              )}
+                            </strong>
+                          </div>
+                        ))}
+                        {getCafeCharges(
+                          selectedAccount
+                        ).length === 0 && (
+                          <p className="text-slate-500">
+                            No cafe items
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border p-3">
+                      <h3 className="mb-2 font-bold">
+                        Accessories
+                      </h3>
+                      <div className="space-y-1">
+                        {getAccessoryCharges(
+                          selectedAccount
+                        ).map((charge) => (
+                          <div
+                            key={charge.id}
+                            className="flex justify-between gap-3"
+                          >
+                            <span>
+                              {charge.name
+                                .replace(
+                                  "[Accessory]",
+                                  ""
+                                )
+                                .trim()}{" "}
+                              x{charge.quantity}
+                            </span>
+                            <strong>
+                              {formatCurrency(
+                                charge.subtotal
+                              )}
+                            </strong>
+                          </div>
+                        ))}
+                        {getAccessoryCharges(
+                          selectedAccount
+                        ).length === 0 && (
+                          <p className="text-slate-500">
+                            No accessories
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <label className="block font-semibold text-slate-700">
+                    Credit Note
+                    <Input
+                      className="mt-1"
+                      value={creditNote}
+                      onChange={(event) =>
+                        setCreditNote(
+                          event.target.value
+                        )
+                      }
+                      placeholder="Optional reason or promise note"
+                    />
+                  </label>
+                </div>
+
+                <div className="mt-5 grid gap-2 sm:grid-cols-2">
+                  <Button
+                    variant="outline"
+                    onClick={() =>
+                      setIsCreditDialogOpen(false)
+                    }
+                  >
+                    Cancel
+                  </Button>
+                  <Button onClick={handleMoveToCredit}>
+                    Add to Credit Ledger
+                  </Button>
+                </div>
+              </Card>
+            </div>
+          )}
       </div>
     </main>
   );

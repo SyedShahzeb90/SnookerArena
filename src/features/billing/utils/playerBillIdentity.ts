@@ -59,6 +59,24 @@ export function cafeItemBelongsToPlayer({
   session: Session;
   playerName: string;
 }) {
+  const customerId = getSessionPlayerCustomerId(
+    session,
+    playerName
+  );
+  const itemPlayerId = item.playerId?.trim();
+
+  if (itemPlayerId && customerId) {
+    return itemPlayerId === customerId;
+  }
+
+  if (itemPlayerId && !customerId) {
+    return (
+      normalizePlayerName(
+        item.playerName ?? item.customerName
+      ) === normalizePlayerName(playerName)
+    );
+  }
+
   return isSamePlayerIdentity(
     {
       playerId: item.playerId,
@@ -66,10 +84,7 @@ export function cafeItemBelongsToPlayer({
         item.playerName ?? item.customerName,
     },
     {
-      customerId: getSessionPlayerCustomerId(
-        session,
-        playerName
-      ),
+      customerId,
       playerName,
     }
   );

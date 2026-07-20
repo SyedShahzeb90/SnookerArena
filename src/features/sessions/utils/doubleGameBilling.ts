@@ -1,4 +1,7 @@
-import type { Session } from "@/types/session";
+import type {
+  Session,
+  TableChargeLine,
+} from "@/types/session";
 
 export interface PayerBreakdownItem {
   playerName: string;
@@ -111,6 +114,56 @@ export function calculateDoubleGamePayerBreakdown({
   return billablePlayers.map((playerName) => ({
     playerName,
     tableAmountShare: share,
+  }));
+}
+
+export function calculateTableChargeLinePayerBreakdown({
+  session,
+  line,
+}: {
+  session: Session;
+  line: TableChargeLine;
+}): Array<PayerBreakdownItem & { line: TableChargeLine }> {
+  if (line.type !== "doubleGame") {
+    return [
+      {
+        line,
+        playerName:
+          line.payerName ??
+          line.loserName ??
+          session.payerName ??
+          session.loserName ??
+          session.player1,
+        tableAmountShare: line.amount,
+        note: line.label,
+      },
+    ];
+  }
+
+  return calculateDoubleGamePayerBreakdown({
+    session: {
+      ...session,
+      winnerName:
+        line.winnerName ?? session.winnerName,
+      loserName:
+        line.loserName ?? session.loserName,
+      payerName:
+        line.payerName ?? session.payerName,
+      payerCustomerId:
+        line.payerCustomerId ??
+        session.payerCustomerId,
+      winningTeam:
+        line.winningTeam ??
+        session.winningTeam,
+      losingTeam:
+        line.losingTeam ??
+        session.losingTeam,
+    },
+    tableAmount: line.amount,
+  }).map((payer) => ({
+    ...payer,
+    line,
+    note: payer.note ?? line.label,
   }));
 }
 

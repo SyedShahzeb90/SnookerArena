@@ -1,8 +1,10 @@
 import {
   CircleX,
 } from "lucide-react";
+import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
@@ -10,8 +12,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { Table } from "@/types/table";
+import { useCustomerAccountStore } from "@/features/customers/store/customerAccountStore";
 import { getSessionPlayers } from "@/features/sessions/utils/sessionPlayers";
 import { getDoubleGameTeams } from "@/features/sessions/utils/doubleGameBilling";
+import { isWalkInName } from "@/features/sessions/utils/walkInLabel";
 
 interface Props {
   open: boolean;
@@ -24,7 +28,17 @@ interface Props {
     payerCustomerId?: string;
     winningTeam?: "A" | "B";
     losingTeam?: "A" | "B";
+    isFinal?: boolean;
+    finalGames?: number;
+    endTime?: Date;
   }) => void;
+}
+
+function formatDateTimeLocal(date: Date) {
+  const offset = date.getTimezoneOffset();
+  return new Date(date.getTime() - offset * 60000)
+    .toISOString()
+    .slice(0, 16);
 }
 
 function EndSessionDialog({
@@ -34,13 +48,63 @@ function EndSessionDialog({
   onConfirm,
 }: Props) {
   const session = table.session;
+  const [finalEnabled, setFinalEnabled] =
+    useState(false);
+  const [finalValue, setFinalValue] =
+    useState("");
+  const [manualEndEnabled, setManualEndEnabled] =
+    useState(false);
+  const [manualEndTime, setManualEndTime] =
+    useState("");
+  const customerAccounts =
+    useCustomerAccountStore(
+      (state) => state.accounts
+    );
+
+  useEffect(() => {
+    if (!open) {
+      setFinalEnabled(false);
+      setFinalValue("");
+      setManualEndEnabled(false);
+      setManualEndTime("");
+    }
+  }, [open]);
 
   if (!session) return null;
 
+  const currentChargeLine =
+    session.tableChargeLines?.at(-1);
+  const currentFrameType =
+    currentChargeLine?.type ??
+    (session.sessionType === "double"
+      ? "doubleGame"
+      : session.sessionType === "single"
+        ? "singleGame"
+        : "tableBooking");
+  const hasNamedSessionPlayer = [
+    session.player1,
+    session.player2,
+    session.player3,
+    session.player4,
+  ].some(
+    (name) =>
+      Boolean(name?.trim()) &&
+      !isWalkInName(name)
+  );
+  const showFinalInput =
+    table.id >= 1 &&
+    table.id <= 7 &&
+    hasNamedSessionPlayer &&
+    !currentChargeLine?.isFinal &&
+    (currentFrameType === "singleGame" ||
+      currentFrameType === "doubleGame");
   const players =
     getSessionPlayers(session);
   const isDouble =
-    session.sessionType === "double";
+    currentFrameType === "doubleGame";
+  const isTimeBased =
+    session.sessionType === "time" ||
+    session.sessionType === "private";
   const teams = getDoubleGameTeams(session);
   const teamALabel =
     teams.teamAPlayers.join(", ") ||
@@ -53,17 +117,94 @@ function EndSessionDialog({
     loserName: string,
     payerCustomerId?: string
   ) => {
+    const finalData = getFinalData();
+    if (!finalData) return;
+    const winner =
+      singlePlayerOptions.find(
+        (player) =>
+          player.customerId !== payerCustomerId
+      );
     const winnerName =
+      winner?.name ??
       players.find(
         (player) => player !== loserName
-      ) ?? loserName;
+      ) ??
+      loserName;
 
     onConfirm({
       winnerName,
       loserName,
       payerName: loserName,
       payerCustomerId,
+      ...finalData,
     });
+  };
+
+  const getFinalData = () => {
+    const parsedFinalGames = Number(finalValue);
+
+    if (
+      showFinalInput &&
+      finalEnabled &&
+      (!Number.isInteger(parsedFinalGames) ||
+        parsedFinalGames < 1)
+    ) {
+      window.alert(
+        "Final Games must be a positive whole number."
+      );
+      return undefined;
+    }
+
+    return {
+      isFinal: showFinalInput && finalEnabled,
+      finalGames:
+        showFinalInput && finalEnabled
+          ? parsedFinalGames
+          : undefined,
+    };
+  };
+
+  const getManualEndTime = () => {
+    if (!manualEndEnabled) return undefined;
+
+    const parsed = new Date(manualEndTime);
+    const startedAt = new Date(session.startTime);
+    const now = new Date();
+
+    if (
+      !manualEndTime ||
+      Number.isNaN(parsed.getTime()) ||
+      parsed <= startedAt ||
+      parsed > now
+    ) {
+      window.alert(
+        "End time must be after the session start and not later than the current time."
+      );
+      return null;
+    }
+
+    return parsed;
+  };
+
+  const getPlayerLabel = (player: {
+    name: string;
+    customerId?: string;
+  }) => {
+    const account = customerAccounts.find(
+      (candidate) =>
+        candidate.id === player.customerId
+    );
+    const sequence =
+      account?.customerToken.match(/\d+/)?.[0];
+
+    if (account && sequence) {
+      return `${account.customerName} - T${table.id}-${sequence.padStart(
+        3,
+        "0"
+      )}`;
+    }
+
+    return player.name;
   };
 
   const singlePlayerOptions = [
@@ -93,28 +234,143 @@ function EndSessionDialog({
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>
-            {isDouble
-              ? "Who lost?"
-              : "Who lost?"}
+            {isTimeBased ? "End Session" : "Who lost?"}
           </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4">
           <div className="rounded-lg border bg-slate-50 p-4">
             <p className="text-sm font-medium text-slate-500">
-              Select the loser before ending this session.
+              {isTimeBased
+                ? "End this booking now or enter the actual end time manually."
+                : "Select the loser before ending this session."}
             </p>
-            <p className="mt-1 text-sm text-slate-500">
-              The loser will be selected as payer by default.
-            </p>
+            {!isTimeBased && (
+              <p className="mt-1 text-sm text-slate-500">
+                The loser will be selected as payer by default.
+              </p>
+            )}
           </div>
 
-          {isDouble ? (
+          {showFinalInput && (
+            <div className="flex items-center justify-end gap-2 rounded-lg border bg-slate-50 p-3">
+              <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4"
+                  checked={finalEnabled}
+                  onChange={(event) => {
+                    const enabled =
+                      event.target.checked;
+
+                    setFinalEnabled(enabled);
+                    setFinalValue(
+                      enabled
+                        ? finalValue || "1"
+                        : ""
+                    );
+                  }}
+                />
+                Final
+              </label>
+              <Input
+                className="h-9 w-24 bg-white"
+                type="number"
+                inputMode="numeric"
+                min={1}
+                step={1}
+                value={finalValue}
+                disabled={!finalEnabled}
+                onChange={(event) => {
+                  setFinalValue(
+                    event.target.value.replace(
+                      /\D/g,
+                      ""
+                    )
+                  );
+                }}
+                placeholder="1"
+              />
+            </div>
+          )}
+
+          {isTimeBased && (
+            <div className="grid gap-3 rounded-lg border bg-slate-50 p-3">
+              <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4"
+                  checked={manualEndEnabled}
+                  onChange={(event) => {
+                    const enabled = event.target.checked;
+                    setManualEndEnabled(enabled);
+                    setManualEndTime(
+                      enabled ? formatDateTimeLocal(new Date()) : ""
+                    );
+                  }}
+                />
+                End time manually
+              </label>
+              {manualEndEnabled && (
+                <Input
+                  type="datetime-local"
+                  value={manualEndTime}
+                  min={formatDateTimeLocal(new Date(session.startTime))}
+                  max={formatDateTimeLocal(new Date())}
+                  onChange={(event) =>
+                    setManualEndTime(event.target.value)
+                  }
+                />
+              )}
+            </div>
+          )}
+
+          {isTimeBased ? (
+            <Button
+              size="lg"
+              className="h-12 w-full"
+              onClick={() => {
+                const endTime = getManualEndTime();
+                if (endTime === null) return;
+                onConfirm({ endTime });
+              }}
+            >
+              End Session
+            </Button>
+          ) : isDouble && !hasNamedSessionPlayer ? (
             <div className="grid gap-3">
               <Button
                 size="lg"
                 className="h-14 justify-start gap-3 text-base"
-                onClick={() =>
+                onClick={() => {
+                  const finalData = getFinalData();
+                  if (!finalData) return;
+                  onConfirm({
+                    loserName: "Walk-in Customer",
+                    payerName:
+                      session.player1?.trim() ||
+                      "Walk-in Customer",
+                    payerCustomerId:
+                      session.player1CustomerId,
+                    losingTeam: "A",
+                    winningTeam: "B",
+                    ...finalData,
+                  });
+                }}
+              >
+                <CircleX className="h-5 w-5" />
+                Walk-in Customer Lost
+              </Button>
+            </div>
+          ) : isDouble ? (
+            <div className="grid gap-3">
+              <Button
+                size="lg"
+                className="h-14 justify-start gap-3 text-base"
+                onClick={() => {
+                  const finalData =
+                    getFinalData();
+                  if (!finalData) return;
                   onConfirm({
                     winnerName: teamBLabel,
                     loserName: teamALabel,
@@ -122,8 +378,9 @@ function EndSessionDialog({
                     losingTeam: "A",
                     payerName:
                       teams.teamAPlayers[0],
-                  })
-                }
+                    ...finalData,
+                  });
+                }}
               >
                 <CircleX className="h-5 w-5" />
                 {teamALabel} Lost
@@ -131,7 +388,10 @@ function EndSessionDialog({
               <Button
                 size="lg"
                 className="h-14 justify-start gap-3 text-base"
-                onClick={() =>
+                onClick={() => {
+                  const finalData =
+                    getFinalData();
+                  if (!finalData) return;
                   onConfirm({
                     winnerName: teamALabel,
                     loserName: teamBLabel,
@@ -139,8 +399,9 @@ function EndSessionDialog({
                     losingTeam: "B",
                     payerName:
                       teams.teamBPlayers[0],
-                  })
-                }
+                    ...finalData,
+                  });
+                }}
               >
                 <CircleX className="h-5 w-5" />
                 {teamBLabel} Lost
@@ -163,12 +424,9 @@ function EndSessionDialog({
                   <CircleX className="h-5 w-5" />
                   <span className="flex flex-col items-start leading-tight">
                     <span>
-                      {player.name} Lost
+                      {getPlayerLabel(player)} Lost
                     </span>
-                    {singlePlayerOptions.filter(
-                      (item) =>
-                        item.name === player.name
-                    ).length > 1 && (
+                    {player.customerId && (
                       <span className="text-xs font-normal opacity-80">
                         {player.slot}
                       </span>

@@ -18,6 +18,7 @@ import { useBusinessDayStore } from "@/features/business-day/store/businessDaySt
 import { calculateBusinessDaySummary } from "@/features/business-day/utils/businessDaySummary";
 import { useSalesStore } from "@/features/sales/store/salesStore";
 import { useExpensesStore } from "@/features/expenses/store/expensesStore";
+import { useOutsidePurchaseStore } from "@/features/outside-purchases/store/outsidePurchaseStore";
 
 function AdminDashboard() {
   const navigate = useNavigate();
@@ -43,12 +44,16 @@ function AdminDashboard() {
     useBusinessDayStore((state) =>
       state.getActiveBusinessDay()
     );
+  const outsidePurchases = useOutsidePurchaseStore(
+    (state) => state.purchases
+  );
   const daySummary = activeDay
     ? calculateBusinessDaySummary({
         day: activeDay,
         sales,
         expenses,
         pendingBills,
+        outsidePurchases,
       })
     : undefined;
 

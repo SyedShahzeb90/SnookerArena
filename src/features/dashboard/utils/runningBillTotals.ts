@@ -5,6 +5,10 @@ export function getRunningBillTotals({
   billedAccessoriesTotal,
   sessionAccessoriesTotal,
   separatePlayerBills = false,
+  openBillTotal = 0,
+  currentSessionBilledCafeTotal = 0,
+  currentSessionBilledAccessoriesTotal = 0,
+  openBillIncludesBilledTotals = false,
 }: {
   tableBill: number;
   billedCafeTotal: number;
@@ -12,6 +16,10 @@ export function getRunningBillTotals({
   billedAccessoriesTotal: number;
   sessionAccessoriesTotal: number;
   separatePlayerBills?: boolean;
+  openBillTotal?: number;
+  currentSessionBilledCafeTotal?: number;
+  currentSessionBilledAccessoriesTotal?: number;
+  openBillIncludesBilledTotals?: boolean;
 }) {
   const cafeTotal = Math.max(
     billedCafeTotal,
@@ -28,6 +36,20 @@ export function getRunningBillTotals({
     currentBill:
       separatePlayerBills
         ? tableBill
-        : tableBill + cafeTotal + accessoriesTotal,
+        : tableBill +
+          openBillTotal +
+          Math.max(
+            0,
+            (openBillIncludesBilledTotals
+              ? sessionCafeTotal
+              : cafeTotal) - currentSessionBilledCafeTotal
+          ) +
+          Math.max(
+            0,
+            (openBillIncludesBilledTotals
+              ? sessionAccessoriesTotal
+              : accessoriesTotal) -
+              currentSessionBilledAccessoriesTotal
+          ),
   };
 }

@@ -8,6 +8,7 @@ import { isActiveExpense } from "@/features/expenses/utils/expenseHelpers";
 import { calculateBill } from "@/features/pricing/utils/calculateBill";
 import { calculateGamePrice } from "@/features/pricing/utils/calculateGamePrice";
 import type { Sale } from "@/features/sales/types/sale";
+import type { OutsidePurchase } from "@/features/outside-purchases/types/outsidePurchase";
 
 import type {
   BusinessDay,
@@ -74,11 +75,13 @@ export function calculateBusinessDaySummary({
   sales,
   expenses,
   pendingBills,
+  outsidePurchases = [],
 }: {
   day: BusinessDay;
   sales: Sale[];
   expenses: Expense[];
   pendingBills: PendingBill[];
+  outsidePurchases?: OutsidePurchase[];
 }): BusinessDaySummary {
   const daySales = sales.filter(
     (sale) =>
@@ -199,14 +202,72 @@ export function calculateBusinessDaySummary({
         total + getRemainingPendingBillTotal(bill),
       0
     );
+  const dayOutsidePurchases = outsidePurchases.filter(
+    (purchase) => purchase.businessDayId === day.id
+  );
+  const outsidePurchasesPaidFromDrawer = dayOutsidePurchases.reduce(
+    (total, purchase) => total + purchase.amountPaidFromDrawer,
+    0
+  );
+  const outsidePurchaseCashRestored = outsidePurchases
+    .filter(
+      (purchase) =>
+        purchase.status === "cancelled" &&
+        purchase.cancelledBusinessDayId === day.id
+    )
+    .reduce(
+      (total, purchase) => total + purchase.amountPaidFromDrawer,
+      0
+    );
+  const dayReimbursements = outsidePurchases.flatMap(
+    (purchase) =>
+      purchase.reimbursements.filter(
+        (item) => item.businessDayId === day.id
+      )
+  );
+  const reimbursementTotals = dayReimbursements.reduce(
+    (totals, item) => ({
+      ...totals,
+      [item.paymentMethod]:
+        totals[item.paymentMethod] + item.amount,
+    }),
+    { cash: 0, card: 0, jazzcash: 0, easypaisa: 0 }
+  );
+  const outstandingCustomerReimbursements =
+    outsidePurchases.reduce(
+      (total, purchase) =>
+        total +
+        (purchase.status === "cancelled"
+          ? 0
+          : purchase.outstandingAmount),
+      0
+    );
   const expectedCash =
     day.openingCash +
-    salesTotals.cashSales -
-    expenseTotals.cashExpenses;
+    salesTotals.cashSales +
+    reimbursementTotals.cash -
+    expenseTotals.cashExpenses -
+    outsidePurchasesPaidFromDrawer +
+    outsidePurchaseCashRestored;
 
   return {
     ...salesTotals,
     ...expenseTotals,
+    outsidePurchasesPaidFromDrawer,
+    outsidePurchaseCashRestored,
+    cashCustomerReimbursements:
+      reimbursementTotals.cash,
+    cardCustomerReimbursements:
+      reimbursementTotals.card,
+    jazzCashCustomerReimbursements:
+      reimbursementTotals.jazzcash,
+    easypaisaCustomerReimbursements:
+      reimbursementTotals.easypaisa,
+    digitalCustomerReimbursements:
+      reimbursementTotals.card +
+      reimbursementTotals.jazzcash +
+      reimbursementTotals.easypaisa,
+    outstandingCustomerReimbursements,
     pendingBillsCount: openPendingBills.length,
     pendingBillsAmount,
     expectedCash,

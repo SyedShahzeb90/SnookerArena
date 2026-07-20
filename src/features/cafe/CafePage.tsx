@@ -26,7 +26,10 @@ import type {
 
 import { useTableStore } from "@/store/tableStore";
 import { useCafeStore } from "./store/cafeStore";
-import { getSessionPlayers } from "@/features/sessions/utils/sessionPlayers";
+import {
+  getSessionPlayerEntries,
+  getSessionPlayers,
+} from "@/features/sessions/utils/sessionPlayers";
 import {
   getWalkInDisplayName,
   isWalkInName,
@@ -91,6 +94,10 @@ function CafePage() {
     useCustomerAccountStore(
       (state) => state.accounts
     );
+  const closeCustomerAccount =
+    useCustomerAccountStore(
+      (state) => state.closeCustomerAccount
+    );
 
   const {
     waitingCustomers,
@@ -154,6 +161,8 @@ function CafePage() {
     setAttachSessionType,
   ] = useState<SessionType>("single");
   const previousSelectedTargetKey =
+    useRef("");
+  const previousUrlTableTargetKey =
     useRef("");
   const selectedTargetKey =
     selectedTarget?.type === "runningTable"
@@ -953,6 +962,19 @@ function CafePage() {
 
     if (!tableId || !sessionId) return;
 
+    const urlTargetKey = `${tableId}-${sessionId}`;
+    const sameRunningTarget =
+      selectedTarget?.type === "runningTable" &&
+      selectedTarget.tableId === tableId &&
+      selectedTarget.sessionId === sessionId;
+
+    if (
+      sameRunningTarget &&
+      previousUrlTableTargetKey.current === urlTargetKey
+    ) {
+      return;
+    }
+
     const table = tables.find(
       (item) =>
         item.id === tableId &&
@@ -960,9 +982,13 @@ function CafePage() {
     );
 
     if (!table?.session) return;
+    previousUrlTableTargetKey.current =
+      urlTargetKey;
 
+    const firstPlayer =
+      getSessionPlayerEntries(table.session)[0];
     const playerName =
-      getSessionPlayers(table.session)[0];
+      firstPlayer?.name ?? "Walk-in Customer";
 
     setExpandedTable(table.id);
     setSelectedTarget({
@@ -970,61 +996,18 @@ function CafePage() {
       tableId: table.id,
       sessionId: table.session.id,
       playerName,
-      customerId: getPlayerCustomerId(
-        table.session,
-        playerName
-      ),
+      customerId: firstPlayer?.customerId,
     });
-  }, [searchParams, tables]);
-
-  function getPlayerCustomerId(
-    session: NonNullable<
-      (typeof tables)[number]["session"]
-    >,
-    playerName: string
-  ) {
-    const players = [
-      {
-        name: session.player1,
-        customerId:
-          session.player1CustomerId,
-      },
-      {
-        name: session.player2,
-        customerId:
-          session.player2CustomerId,
-      },
-      {
-        name: session.player3,
-        customerId:
-          session.player3CustomerId,
-      },
-      {
-        name: session.player4,
-        customerId:
-          session.player4CustomerId,
-      },
-    ];
-
-    return players.find(
-      (player) =>
-        normalizePlayerName(player.name) ===
-        normalizePlayerName(playerName)
-    )?.customerId;
-  }
+  }, [searchParams, selectedTarget, tables]);
 
   const isCustomerBillCode = (value?: string) =>
     /^CUST-\d+$/i.test(value?.trim() ?? "");
 
   const getRunningPlayerLabel = (
     table: (typeof tables)[number],
-    playerName: string
+    playerName: string,
+    playerCustomerId?: string
   ) => {
-    const playerCustomerId =
-      getPlayerCustomerId(
-        table.session!,
-        playerName
-      );
     const playerAccount =
       customerAccounts.find(
         (account) =>
@@ -1068,7 +1051,11 @@ function CafePage() {
         });
   };
 
-  const handleSaveOrder = () => {
+  const handleSaveOrder = ({
+    returnToDashboard = false,
+  }: {
+    returnToDashboard?: boolean;
+  } = {}) => {
     setOrderMessage("");
     setOrderError("");
     setLastSavedTotal(null);
@@ -1153,6 +1140,9 @@ function CafePage() {
           `Items added to ${getBillPrimaryLabel(account)}`
         );
         setLastSavedTotal(null);
+        if (returnToDashboard) {
+          navigate("/operator");
+        }
         return;
       }
 
@@ -1238,6 +1228,9 @@ function CafePage() {
           `Items added to ${getBillPrimaryLabel(account)}`
         );
         setLastSavedTotal(null);
+        if (returnToDashboard) {
+          navigate("/operator");
+        }
         return;
       }
 
@@ -1318,6 +1311,9 @@ function CafePage() {
       setLastSavedTotal(
         savedOrder.totalAmount
       );
+      if (returnToDashboard) {
+        navigate("/operator");
+      }
     } catch (error) {
       console.error(error);
       setOrderError(
@@ -1578,6 +1574,9 @@ function CafePage() {
             selectedAttachAccount.id
         ),
     }));
+    closeCustomerAccount(
+      selectedAttachAccount.id
+    );
 
     setSelectedTarget({
       type: "runningTable",
@@ -1712,15 +1711,16 @@ function CafePage() {
                   >
                     {(() => {
                       const sessionPlayers =
-                        getSessionPlayers(
+                        getSessionPlayerEntries(
                           table.session!
                         );
                       const getPlayerLabel = (
-                        player: string
+                        player: (typeof sessionPlayers)[number]
                       ) =>
                         getRunningPlayerLabel(
                           table,
-                          player
+                          player.name,
+                          player.customerId
                         );
 
                       return (
@@ -1759,22 +1759,17 @@ function CafePage() {
                     {expandedTable === table.id && (
                       <div className="space-y-2 border-t p-3">
                         {sessionPlayers.map((player) => {
-                          const playerCustomerId =
-                            getPlayerCustomerId(
-                              table.session!,
-                              player
-                            );
-
                           return (
                             <Button
-                              key={player}
+                              key={`${player.slot}-${player.customerId ?? player.name}`}
                               variant={
                                 selectedTarget?.type ===
                                   "runningTable" &&
                                 selectedTarget.tableId ===
                                   table.id &&
-                                selectedTarget.playerName ===
-                                  player
+                                (player.customerId
+                                  ? selectedTarget.customerId === player.customerId
+                                  : selectedTarget.playerName === player.name)
                                   ? "default"
                                   : "secondary"
                               }
@@ -1785,9 +1780,9 @@ function CafePage() {
                                   tableId: table.id,
                                   sessionId:
                                     table.session!.id,
-                                  playerName: player,
+                                  playerName: player.name,
                                   customerId:
-                                    playerCustomerId,
+                                    player.customerId,
                                 })
                               }
                             >
@@ -2137,19 +2132,25 @@ function CafePage() {
                   }
                   onIncrease={handleIncrease}
                   onDecrease={handleDecrease}
-                  onSave={handleSaveOrder}
+                  onSave={() => handleSaveOrder()}
+                  onSaveAndReturn={() =>
+                    handleSaveOrder({
+                      returnToDashboard: true,
+                    })
+                  }
                   saveDisabled={
                     !selectedTarget
                   }
                   saveLabel={
                     selectedBillAccount
-                      ? "Save to Bill"
+                      ? "Save"
                       : lastSavedTotal ===
                     (selectedOrder?.totalAmount ??
                       0)
-                      ? "Order Saved"
-                      : "Save Order"
+                      ? "Saved"
+                      : "Save"
                   }
+                  saveAndReturnLabel="Save & Return"
                 />
 
                 {!attachDialogOpen &&

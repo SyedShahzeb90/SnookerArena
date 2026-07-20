@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { useCheckoutStore } from "@/features/billing/store/checkoutStore";
 import { useExpensesStore } from "@/features/expenses/store/expensesStore";
 import { useSalesStore } from "@/features/sales/store/salesStore";
+import { useOutsidePurchaseStore } from "@/features/outside-purchases/store/outsidePurchaseStore";
 
 import { useBusinessDayStore } from "../store/businessDayStore";
 import { calculateBusinessDaySummary } from "../utils/businessDaySummary";
@@ -132,6 +133,9 @@ function DayHistoryPage() {
   );
   const pendingBills = useCheckoutStore(
     (state) => state.pendingBills
+  );
+  const outsidePurchases = useOutsidePurchaseStore(
+    (state) => state.purchases
   );
 
   const [dateFilter, setDateFilter] =
@@ -333,6 +337,10 @@ function DayHistoryPage() {
                     "Table Sales",
                     "Cafe Sales",
                     "Expenses",
+                    "Outside Purchases",
+                    "Cash Reimbursements",
+                    "Digital Reimbursements",
+                    "Outstanding Reimbursements",
                     "Net Profit",
                     "Expected Cash",
                     "Actual Cash",
@@ -361,6 +369,7 @@ function DayHistoryPage() {
                           sales,
                           expenses,
                           pendingBills,
+                          outsidePurchases,
                         })
                       : day;
 
@@ -398,6 +407,18 @@ function DayHistoryPage() {
                       </td>
                       <td className="px-4 py-3">
                         {money(summary.totalExpenses)}
+                      </td>
+                      <td className="px-4 py-3">
+                        {money(summary.outsidePurchasesPaidFromDrawer ?? 0)}
+                      </td>
+                      <td className="px-4 py-3">
+                        {money(summary.cashCustomerReimbursements ?? 0)}
+                      </td>
+                      <td className="px-4 py-3">
+                        {money(summary.digitalCustomerReimbursements ?? 0)}
+                      </td>
+                      <td className="px-4 py-3">
+                        {money(summary.outstandingCustomerReimbursements ?? 0)}
                       </td>
                       <td className="px-4 py-3 font-bold">
                         {money(summary.netProfit)}
@@ -466,7 +487,7 @@ function DayHistoryPage() {
                 {rows.length === 0 && (
                   <tr>
                     <td
-                      colSpan={19}
+                      colSpan={23}
                       className="px-4 py-10 text-center text-slate-500"
                     >
                       No day history found.

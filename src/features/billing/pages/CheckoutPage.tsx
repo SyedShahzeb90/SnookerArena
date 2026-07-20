@@ -14,7 +14,10 @@ import { getSessionPlayers } from "@/features/sessions/utils/sessionPlayers";
 import { calculateGamePrice } from "@/features/pricing/utils/calculateGamePrice";
 import { useBusinessDayStore } from "@/features/business-day/store/businessDayStore";
 import { getRemainingPendingBillTotal } from "@/features/business-day/utils/businessDaySummary";
-import { calculateDoubleGamePayerBreakdown } from "@/features/sessions/utils/doubleGameBilling";
+import {
+  calculateDoubleGamePayerBreakdown,
+  calculateTableChargeLinePayerBreakdown,
+} from "@/features/sessions/utils/doubleGameBilling";
 import { useCustomerAccountStore } from "@/features/customers/store/customerAccountStore";
 import {
   getWalkInDisplayName,
@@ -24,11 +27,11 @@ import type { CustomerAccount } from "@/features/customers/types/customerAccount
 import {
   getBillPrimaryLabel,
   getBillTableLabel,
+  formatCustomerDisplayLabel,
 } from "@/features/customers/utils/billDisplay";
 import { normalizePlayerName } from "@/features/cafe/utils/playerIdentity";
 import {
   getPlayerCafeAmount,
-  getSessionPlayerCustomerId,
   hasPlayerName,
 } from "../utils/playerBillIdentity";
 type StatusFilter = "pending" | "paid" | "cancelled";
@@ -91,13 +94,6 @@ function formatCustomerDisplayName(value?: string) {
       ? word.toUpperCase()
       : word[0].toUpperCase() + word.slice(1).toLowerCase(),
   );
-}
-
-function formatCustomerDisplayText(value?: string) {
-  return (value ?? "")
-    .split(/\s+vs\s+/i)
-    .map((part) => formatCustomerDisplayName(part))
-    .join(" vs ");
 }
 
 function formatGameTypeLabel(
@@ -318,6 +314,86 @@ function accountHasSessionActivity(
     )
   );
 }
+function getAccountTableIds(account: CustomerAccount) {
+  return new Set(
+    [
+      ...account.gameCharges.map((charge) => charge.tableId),
+      ...account.cafeCharges.map((charge) => charge.tableId),
+      ...(account.accessoryCharges ?? []).map(
+        (charge) => charge.tableId
+      ),
+    ].filter((tableId): tableId is number =>
+      typeof tableId === "number"
+    )
+  );
+}
+function getAccountActivityTimes(account: CustomerAccount) {
+  return [
+    account.openedAt,
+    account.lastActivityAt,
+    ...account.gameCharges.flatMap((charge) => [
+      charge.startedAt,
+      charge.endedAt,
+      charge.createdAt,
+    ]),
+    ...account.cafeCharges.flatMap((charge) => [
+      charge.orderedAt,
+      charge.createdAt,
+    ]),
+    ...(account.accessoryCharges ?? []).flatMap((charge) => [
+      charge.orderedAt,
+      charge.createdAt,
+    ]),
+  ]
+    .map((value) => (value ? new Date(value).getTime() : NaN))
+    .filter((value) => Number.isFinite(value));
+}
+function accountMirrorsLegacyPendingBill(
+  account: CustomerAccount,
+  bill: PendingBill
+) {
+  if (accountHasSessionActivity(account, bill.session.id)) {
+    return true;
+  }
+
+  const billStaffNumber = bill.staffBillNumber?.trim();
+  if (
+    billStaffNumber &&
+    account.staffBillNumber === billStaffNumber
+  ) {
+    return true;
+  }
+
+  const tableMatches = getAccountTableIds(account).has(bill.tableId);
+  if (!tableMatches) {
+    return false;
+  }
+
+  const accountName = normalizePlayerName(account.customerName);
+  const sessionPlayers = getSessionPlayers(bill.session).map((player) =>
+    normalizePlayerName(player)
+  );
+  const nameMatches =
+    sessionPlayers.includes(accountName) ||
+    (isWalkInName(account.customerName) &&
+      sessionPlayers.some((name) => name === "walk-in customer"));
+
+  if (!nameMatches) {
+    return false;
+  }
+
+  const sessionStart = new Date(bill.session.startTime).getTime();
+  const sessionEnd = bill.session.endTime
+    ? new Date(bill.session.endTime).getTime()
+    : sessionStart;
+  const toleranceMs = 5 * 60 * 1000;
+
+  return getAccountActivityTimes(account).some(
+    (time) =>
+      time >= sessionStart - toleranceMs &&
+      time <= sessionEnd + toleranceMs
+  );
+}
 function findPendingPlayerAccount({
   accounts,
   sessionId,
@@ -384,15 +460,12 @@ function getPendingPayerBreakdown(
   const lines = bill.session.tableChargeLines ?? [];
 
   if (lines.length > 0) {
-    return lines.map((line) => ({
-      playerName:
-        line.payerName ??
-        line.loserName ??
-        bill.session.payerName ??
-        bill.session.loserName ??
-        bill.session.player1,
-      tableAmountShare: line.amount,
-    }));
+    return lines.flatMap((line) =>
+      calculateTableChargeLinePayerBreakdown({
+        session: bill.session,
+        line,
+      })
+    );
   }
 
   const players = getSessionPlayers(bill.session);
@@ -404,6 +477,56 @@ function getPendingPayerBreakdown(
   return calculateDoubleGamePayerBreakdown({
     session: { ...bill.session, payerName },
     tableAmount,
+  });
+}
+function pendingBillHasCafeOnlyPlayer(
+  bill: PendingBill
+) {
+  if (!bill.session.endTime) return false;
+
+  const cafePlayers = Array.from(
+    new Set(
+      bill.session.cafeOrders
+        .filter(
+          (item) =>
+            !item.name.startsWith("[Accessory]") &&
+            item.subtotal > 0
+        )
+        .map(
+          (item) =>
+            item.playerName ?? item.customerName ?? ""
+        )
+        .map((name) => name.trim())
+        .filter(Boolean)
+    )
+  );
+
+  if (cafePlayers.length === 0) {
+    return false;
+  }
+
+  const pricing = calculateGamePrice({
+    sessionType: bill.session.sessionType,
+    tableType: bill.tableType,
+    startTime: new Date(bill.session.startTime),
+    endTime: new Date(bill.session.endTime),
+  });
+  const payerBreakdown = getPendingPayerBreakdown(
+    bill,
+    pricing.gameAmount
+  );
+
+  return cafePlayers.some((playerName) => {
+    const tableAmount = payerBreakdown.reduce(
+      (total, payer) =>
+        normalizePlayerName(payer.playerName) ===
+        normalizePlayerName(playerName)
+          ? total + payer.tableAmountShare
+          : total,
+      0
+    );
+
+    return tableAmount <= 0;
   });
 }
 function getDateRange(
@@ -452,18 +575,46 @@ function getPendingPlayerBillRows(
     bill,
     customerAccounts
   );
-  const players = Array.from(
-    new Set(
-      [
-        ...getSessionPlayers(bill.session),
-        ...linkedAccounts.map(
-          (account) => account.customerName
-        ),
-      ]
-        .map((player) => player.trim())
-        .filter(Boolean)
-    ),
+  const players = [
+    {
+      playerName: bill.session.player1,
+      customerId: bill.session.player1CustomerId,
+    },
+    {
+      playerName: bill.session.player2,
+      customerId: bill.session.player2CustomerId,
+    },
+    {
+      playerName: bill.session.player3,
+      customerId: bill.session.player3CustomerId,
+    },
+    {
+      playerName: bill.session.player4,
+      customerId: bill.session.player4CustomerId,
+    },
+    ...linkedAccounts.map((account) => ({
+      playerName: account.customerName,
+      customerId: account.id,
+    })),
+  ].filter(
+    (player): player is {
+      playerName: string;
+      customerId: string | undefined;
+    } => Boolean(player.playerName?.trim())
   );
+  const seenPlayerKeys = new Set<string>();
+  const uniquePlayers = players.filter((player) => {
+    const key = player.customerId
+      ? `customer-${player.customerId}`
+      : `name-${normalizePlayerName(player.playerName)}`;
+
+    if (seenPlayerKeys.has(key)) {
+      return false;
+    }
+
+    seenPlayerKeys.add(key);
+    return true;
+  });
   const paidPlayerNames = bill.paidPlayerNames ?? [];
   if (!bill.session.endTime) return [];
   const pricing = calculateGamePrice({
@@ -475,18 +626,21 @@ function getPendingPlayerBillRows(
   const payerBreakdown = getPendingPayerBreakdown(
     bill,
     pricing.gameAmount
-  );
-  return players
+  ) as Array<{
+    line?: {
+      type?: string;
+      payerCustomerId?: string;
+    };
+    playerName: string;
+    tableAmountShare: number;
+  }>;
+  return uniquePlayers
     .filter(
-      (playerName) =>
+      ({ playerName }) =>
         !hasPlayerName(paidPlayerNames, playerName)
     )
-    .map((playerName) => {
+    .map(({ playerName, customerId }) => {
       const sessionCafeAmount = getPlayerCafeAmount(
-        bill.session,
-        playerName,
-      );
-      const customerId = getSessionPlayerCustomerId(
         bill.session,
         playerName,
       );
@@ -504,12 +658,30 @@ function getPendingPlayerBillRows(
         sessionCafeAmount,
         accountCafeAmount
       );
-      const snookerAmount = payerBreakdown.reduce(
-        (total, payer) =>
-          normalizePlayerName(payer.playerName) ===
-          normalizePlayerName(playerName)
+      const settledAccountAmount = account?.gameCharges
+        .filter((charge) => charge.sessionId === bill.session.id)
+        .reduce((total, charge) => total + charge.amount, 0);
+      const snookerAmount = settledAccountAmount !== undefined
+        ? Math.max(0, settledAccountAmount - (account?.advanceReduction ?? 0))
+        : payerBreakdown.reduce(
+        (total, payer) => {
+          const payerCustomerId =
+            payer.line?.type === "doubleGame"
+              ? undefined
+              : payer.line?.payerCustomerId ??
+                bill.session.payerCustomerId;
+          const matchesCustomer =
+            customerId && payerCustomerId
+              ? payerCustomerId === customerId
+              : false;
+          const matchesName =
+            normalizePlayerName(payer.playerName) ===
+              normalizePlayerName(playerName);
+
+          return matchesCustomer || matchesName
             ? total + payer.tableAmountShare
-            : total,
+            : total;
+        },
         0
       );
       const total = snookerAmount + cafeAmount;
@@ -537,8 +709,11 @@ function getRowTime(row: CheckoutRow) {
 
 function getRowPaidTime(row: CheckoutRow) {
   return row.type === "paid"
-    ? row.sale.paidAt ?? row.sale.createdAt
+    ? getSalePaymentTime(row.sale)
     : undefined;
+}
+function getSalePaymentTime(sale: Sale) {
+  return sale.paidAt ?? sale.createdAt;
 }
 function getCheckoutRowDisplayName(row: CheckoutRow, name?: string) {
   if (row.type === "pending") {
@@ -551,11 +726,7 @@ function getCheckoutRowDisplayName(row: CheckoutRow, name?: string) {
     });
   }
   if (row.type === "account") {
-    return getWalkInDisplayName({
-      name,
-      tableName: getBillTableLabel(row.account),
-      time: row.account.lastActivityAt ?? row.account.openedAt,
-    });
+    return formatCustomerDisplayLabel(row.account);
   }
   return getWalkInDisplayName({
     name,
@@ -570,28 +741,14 @@ function getCheckoutRowPlayersLabel(
 ) {
   if (row.type === "pending") {
     if (account) {
-      if (isWalkInName(account.customerName)) {
-        const note = account.customerNote?.trim();
-        return note
-          ? `Walk-in · ${formatCustomerDisplayText(note)}`
-          : "Walk-in Customer";
-      }
-      return formatCustomerDisplayName(account.customerName);
+      return getBillPrimaryLabel(account);
     }
     return isWalkInName(row.playerName)
       ? "Walk-in Customer"
       : formatCustomerDisplayName(row.playerName);
   }
   if (row.type === "account") {
-    if (isWalkInName(row.account.customerName)) {
-      const note = row.account.customerNote?.trim();
-
-      return note
-        ? `Walk-in · ${formatCustomerDisplayText(note)}`
-        : "Walk-in Customer";
-    }
-
-    return formatCustomerDisplayText(row.account.customerName);
+    return getBillPrimaryLabel(row.account);
   }
   if (row.sale.sessionType === "double") {
     const teamA = row.sale.teamAPlayers?.filter(Boolean) ?? [];
@@ -641,6 +798,23 @@ function getCheckoutRowBillLabel(row: CheckoutRow, account?: CustomerAccount) {
 }
 function getCheckoutRowTypeLabel(row: CheckoutRow) {
   if (row.type === "pending") {
+    if (row.snookerAmount <= 0) {
+      return "Cafe Only";
+    }
+
+    const gameCount = Math.max(
+      1,
+      Math.round(row.snookerAmount / 300)
+    );
+
+    if (row.bill.session.sessionType === "single") {
+      return `Single Game ×${gameCount}`;
+    }
+
+    if (row.bill.session.sessionType === "double") {
+      return `Double Game ×${gameCount}`;
+    }
+
     return (
       formatTableChargeLineLabel(
         row.bill.session.tableChargeLines,
@@ -725,16 +899,28 @@ function getCheckoutRowCafeAmount(row: CheckoutRow) {
   return Math.max(row.sale.cafeAmount - accessoryAmount, 0);
 }
 function getCheckoutRowDiscount(row: CheckoutRow) {
+  const tableAmount = getCheckoutRowTableAmount(row);
+  const eligibleAmount =
+    tableAmount + getCheckoutRowCafeAmount(row);
+
   if (row.type === "paid") {
-    return row.sale.discount;
+    return Math.min(
+      row.sale.discount,
+      eligibleAmount
+    );
   }
   if (row.type === "account") {
-    return row.account.discount;
+    return Math.min(
+      row.account.discount,
+      eligibleAmount
+    );
   }
-  return row.bill.session.payerName &&
+  const discount = row.bill.session.payerName &&
     row.bill.session.payerName !== row.playerName
     ? 0
     : row.bill.session.discount;
+
+  return Math.min(discount, eligibleAmount);
 }
 function getCheckoutRowTotal(row: CheckoutRow) {
   if (row.type === "paid") {
@@ -790,8 +976,8 @@ function dedupeCheckoutRows(rows: CheckoutRow[]) {
     return true;
   });
 }
-function isCheckoutTableSale(sale: Sale) {
-  return sale.saleType === undefined || sale.saleType === "table";
+function isCheckoutPaidSale(sale: Sale) {
+  return sale.paymentStatus === "paid";
 }
 function CheckoutPage() {
   const navigate = useNavigate();
@@ -817,6 +1003,9 @@ function CheckoutPage() {
     state.getActiveBusinessDay(),
   );
   const customerAccounts = useCustomerAccountStore((state) => state.accounts);
+  const closeCustomerAccount = useCustomerAccountStore(
+    (state) => state.closeCustomerAccount
+  );
   const [selectedBill, setSelectedBill] = useState<PendingBill | null>(null);
   const [selectedPlayerName, setSelectedPlayerName] = useState<
     string | undefined
@@ -831,6 +1020,8 @@ function CheckoutPage() {
   const [customEnd, setCustomEnd] = useState("");
   const [message, setMessage] = useState("");
   const [billToCancel, setBillToCancel] = useState<PendingBill | null>(null);
+  const [accountToCancel, setAccountToCancel] =
+    useState<CustomerAccount | null>(null);
   const [cancelReason, setCancelReason] = useState("");
   const [cancelNote, setCancelNote] = useState("");
   const [cancelError, setCancelError] = useState("");
@@ -881,11 +1072,16 @@ function CheckoutPage() {
   const displayPendingBills = useMemo(
     () =>
       activePendingBills.filter((bill) => {
+        if (pendingBillHasCafeOnlyPlayer(bill)) {
+          return true;
+        }
+
         const billStaffNumber = bill.staffBillNumber;
         return !openCustomerAccountBills.some((account) => {
           return (
-            billStaffNumber &&
-            account.staffBillNumber === billStaffNumber
+            (billStaffNumber &&
+              account.staffBillNumber === billStaffNumber) ||
+            accountMirrorsLegacyPendingBill(account, bill)
           );
         });
       }),
@@ -908,14 +1104,14 @@ function CheckoutPage() {
     );
   }, [displayPendingBills, openCustomerAccountBills]);
   const checkoutSales = useMemo(
-    () => sales.filter(isCheckoutTableSale),
+    () => sales.filter(isCheckoutPaidSale),
     [sales],
   );
   const todaySales = useMemo(() => {
     const today = new Date();
     return checkoutSales.filter((sale) => {
-      const createdAt = new Date(sale.createdAt);
-      return createdAt.toDateString() === today.toDateString();
+      const paidAt = getUsableTime(getSalePaymentTime(sale));
+      return paidAt?.toDateString() === today.toDateString();
     });
   }, [checkoutSales]);
   const totalReceivedToday = todaySales.reduce(
@@ -1002,7 +1198,13 @@ function CheckoutPage() {
     ).filter((row) => {
       if (
         range &&
-        !isInDateRange(getRowTime(row), range.start, range.end)
+        !isInDateRange(
+          row.type === "paid"
+            ? getSalePaymentTime(row.sale)
+            : getRowTime(row),
+          range.start,
+          range.end
+        )
       ) {
         return false;
       }
@@ -1083,8 +1285,16 @@ function CheckoutPage() {
         );
       })
       .sort((first, second) => {
-        const firstTime = new Date(getRowTime(first)).getTime();
-        const secondTime = new Date(getRowTime(second)).getTime();
+        const firstTime = new Date(
+          first.type === "paid"
+            ? getSalePaymentTime(first.sale)
+            : getRowTime(first)
+        ).getTime();
+        const secondTime = new Date(
+          second.type === "paid"
+            ? getSalePaymentTime(second.sale)
+            : getRowTime(second)
+        ).getTime();
         return secondTime - firstTime;
       });
   }, [
@@ -1309,6 +1519,31 @@ function CheckoutPage() {
     );
     setBillToCancel(null);
   };
+  const handleCancelAccountBill = (account: CustomerAccount) => {
+    setAccountToCancel(account);
+    setCancelReason("");
+    setCancelNote("");
+    setCancelError("");
+  };
+  const confirmCancelAccountBill = () => {
+    if (!accountToCancel) return;
+    const reason = cancelReason.trim();
+    const note = cancelNote.trim();
+    if (!reason) {
+      setCancelError("Please select a cancellation reason.");
+      return;
+    }
+    if (reason === "Other" && !note) {
+      setCancelError("Please enter a note for Other.");
+      return;
+    }
+
+    closeCustomerAccount(accountToCancel.id);
+    setMessage(
+      `Cancelled bill ${getBillPrimaryLabel(accountToCancel)}.`
+    );
+    setAccountToCancel(null);
+  };
   const handleDeleteSale = (sale: Sale) => {
     const confirmed = window.confirm(
       `Delete paid bill ${sale.invoiceNumber}? This is for removing mistaken test bills.`,
@@ -1324,6 +1559,17 @@ function CheckoutPage() {
     }
 
     if (row.type === "pending") {
+      const account = row.customerId
+        ? customerAccountById.get(row.customerId)
+        : undefined;
+
+      if (account) {
+        navigate(
+          `/operator/customer-bills?customerBillId=${account.id}`
+        );
+        return;
+      }
+
       const sessionCafeAmount = getPlayerCafeAmount(
         row.bill.session,
         row.playerName
@@ -1612,10 +1858,10 @@ function CheckoutPage() {
             <table
               className={`${
                 showPaymentColumn && showStatusColumn
-                  ? "w-[1468px]"
+                  ? "w-[1600px]"
                   : showPaymentColumn
-                    ? "w-[1336px]"
-                    : "w-[1316px]"
+                    ? "w-[1470px]"
+                    : "w-[1450px]"
               } table-fixed text-left text-sm`}
             >
               <colgroup>
@@ -1628,9 +1874,9 @@ function CheckoutPage() {
                 <col className="w-[6.5rem]" />
                 <col className="w-[7rem]" />
                 <col className="w-[6.5rem]" />
-                {showStatusColumn && <col className="w-[8.25rem]" />}
+                {showStatusColumn && <col className="w-[10rem]" />}
                 {showPaymentColumn && <col className="w-[9.5rem]" />}
-                <col className="w-[7.25rem]" />
+                <col className="w-[12rem]" />
               </colgroup>
               {" "}
               <thead className="sticky top-0 z-10 bg-slate-50 text-xs uppercase text-slate-500 shadow-sm">
@@ -1788,7 +2034,7 @@ function CheckoutPage() {
                       <td className="px-3 py-2 text-right align-middle">
                         {" "}
                         {row.type === "pending" || row.type === "account" ? (
-                          <div className="flex flex-nowrap justify-end gap-2">
+                          <div className="flex flex-wrap justify-end gap-2">
                             {" "}
                             <Button
                               size="sm"
@@ -1827,6 +2073,24 @@ function CheckoutPage() {
                                   Bill{" "}
                                 </Button>
                               )}{" "}
+                            {row.type === "account" && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="gap-1 whitespace-nowrap border-red-200 text-red-700 hover:bg-red-50"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleCancelAccountBill(
+                                    row.account
+                                  );
+                                }}
+                              >
+                                {" "}
+                                <Trash2 className="h-3.5 w-3.5" /> Cancel
+                                Bill{" "}
+                              </Button>
+                            )}{" "}
                           </div>
                         ) : (
                           <Button
@@ -1858,7 +2122,9 @@ function CheckoutPage() {
                       {statusFilter === "pending"
                         ? "No pending bills found."
                         : statusFilter === "paid"
-                          ? "No paid bills found today."
+                          ? dateFilter === "all"
+                            ? "No paid bills found."
+                            : "No paid bills found for this date range."
                           : statusFilter === "cancelled"
                             ? "No cancelled bills found."
                             : "No bills found."}{" "}
@@ -1903,7 +2169,7 @@ function CheckoutPage() {
           onReceivePlayerBill={handleReceivePlayerBill}
         />
       )}{" "}
-      {billToCancel && (
+      {(billToCancel || accountToCancel) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4">
           {" "}
           <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl">
@@ -1964,7 +2230,13 @@ function CheckoutPage() {
             </div>{" "}
             <div className="mt-5 flex justify-end gap-2">
               {" "}
-              <Button variant="outline" onClick={() => setBillToCancel(null)}>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setBillToCancel(null);
+                  setAccountToCancel(null);
+                }}
+              >
                 {" "}
                 Keep Bill{" "}
               </Button>{" "}
@@ -1974,7 +2246,11 @@ function CheckoutPage() {
                   !cancelReason ||
                   (cancelReason === "Other" && !cancelNote.trim())
                 }
-                onClick={confirmCancelPendingBill}
+                onClick={() =>
+                  billToCancel
+                    ? confirmCancelPendingBill()
+                    : confirmCancelAccountBill()
+                }
               >
                 {" "}
                 Cancel Bill{" "}

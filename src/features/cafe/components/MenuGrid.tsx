@@ -46,13 +46,15 @@ function MenuGrid({
     useState("");
 
   const categories = useMemo(
-    () => [
-      "Fast Food",
-      "Snacks",
-      "Drinks",
-      "Desserts",
-    ],
-    []
+    () =>
+      Array.from(
+        new Set(
+          menu.map(
+            (item) => item.category
+          )
+        )
+      ),
+    [menu]
   );
 
   const filteredMenu = menu.filter(
@@ -65,8 +67,8 @@ function MenuGrid({
   );
 
   return (
-    <div className="grid grid-cols-12 gap-6">
-      <div className="col-span-8 space-y-6">
+    <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
+      <div className="space-y-5 lg:col-span-8">
         <Input
           placeholder="🔍 Search menu..."
           value={search}
@@ -99,7 +101,7 @@ function MenuGrid({
                   {category}
                 </h2>
 
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 items-stretch gap-3 sm:grid-cols-2 xl:grid-cols-3">
                   {items.map(
                     (item) => (
                       <MenuCard
@@ -118,9 +120,20 @@ function MenuGrid({
             );
           }
         )}
+
+        {filteredMenu.length === 0 && (
+          <div className="rounded-lg border border-dashed border-slate-200 px-4 py-6 text-center">
+            <p className="text-sm font-semibold text-slate-700">
+              No products found
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              Try another category or search term.
+            </p>
+          </div>
+        )}
       </div>
 
-      <div className="col-span-4">
+      <div className="lg:col-span-4">
         <OrderSummary
           customerName={
             customerName

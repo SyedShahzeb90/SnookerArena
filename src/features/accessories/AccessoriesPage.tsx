@@ -23,10 +23,11 @@ import {
   getBillTableLabel,
 } from "@/features/customers/utils/billDisplay";
 import { useSalesStore } from "@/features/sales/store/salesStore";
-import { getSessionPlayers } from "@/features/sessions/utils/sessionPlayers";
+import {
+  getSessionPlayerEntries,
+} from "@/features/sessions/utils/sessionPlayers";
 import { getWalkInDisplayName } from "@/features/sessions/utils/walkInLabel";
 import { useTableStore } from "@/store/tableStore";
-import type { Session } from "@/types/session";
 import {
   type AccessoryItem,
   useAccessoriesStore,
@@ -80,35 +81,6 @@ function cleanAccessoryName(name: string) {
     : name;
 }
 
-function getPlayerCustomerId(
-  session: Session,
-  playerName: string
-) {
-  const players = [
-    {
-      name: session.player1,
-      customerId: session.player1CustomerId,
-    },
-    {
-      name: session.player2,
-      customerId: session.player2CustomerId,
-    },
-    {
-      name: session.player3,
-      customerId: session.player3CustomerId,
-    },
-    {
-      name: session.player4,
-      customerId: session.player4CustomerId,
-    },
-  ];
-
-  return players.find(
-    (player) =>
-      player.name?.trim() === playerName
-  )?.customerId;
-}
-
 function AccessoriesPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -159,6 +131,7 @@ function AccessoriesPage() {
     useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [billSaved, setBillSaved] = useState(false);
   const [
     openBillsExpanded,
     setOpenBillsExpanded,
@@ -283,10 +256,11 @@ function AccessoriesPage() {
             item.name.startsWith(
               accessoryPrefix
             )) &&
-          (item.customerName ===
-            target.customerName ||
-            item.playerName ===
-              target.customerName)
+          (target.customerId
+            ? item.playerId === target.customerId
+            : !item.playerId &&
+              (item.customerName === target.customerName ||
+                item.playerName === target.customerName))
       ) ?? [];
 
     setCart(
@@ -306,6 +280,7 @@ function AccessoriesPage() {
   ) => {
     setSelectedTarget(target);
     loadCartForTarget(target);
+    setBillSaved(false);
     setMessage("");
     setError("");
   };
@@ -347,7 +322,7 @@ function AccessoriesPage() {
       );
 
       if (table?.session) {
-        const players = getSessionPlayers(
+        const players = getSessionPlayerEntries(
           table.session
         );
 
@@ -359,7 +334,7 @@ function AccessoriesPage() {
         }
 
         const customerName =
-          players[0] ?? "Walk-in Customer";
+          players[0]?.name ?? "Walk-in Customer";
 
         selectTarget({
           type: "table",
@@ -367,11 +342,7 @@ function AccessoriesPage() {
           tableName: table.name,
           sessionId: table.session.id,
           customerName,
-          customerId:
-            getPlayerCustomerId(
-              table.session,
-              customerName
-            ),
+          customerId: players[0]?.customerId,
         });
       }
     }
@@ -382,6 +353,7 @@ function AccessoriesPage() {
   ]);
 
   const addToCart = (item: AccessoryItem) => {
+    setBillSaved(false);
     setCart((current) => {
       const existing = current.find(
         (cartItem) => cartItem.id === item.id
@@ -412,6 +384,7 @@ function AccessoriesPage() {
     id: string,
     amount: number
   ) => {
+    setBillSaved(false);
     setCart((current) =>
       current
         .map((item) =>
@@ -461,7 +434,11 @@ function AccessoriesPage() {
     setEditingItemId(null);
   };
 
-  const saveToBill = () => {
+  const saveToBill = ({
+    returnToDashboard = false,
+  }: {
+    returnToDashboard?: boolean;
+  } = {}) => {
     setMessage("");
     setError("");
 
@@ -529,10 +506,11 @@ function AccessoriesPage() {
                 item.name.startsWith(
                   accessoryPrefix
                 )) &&
-              (item.customerName ===
-                customerName ||
-                item.playerName ===
-                  customerName)
+              (selectedTarget.customerId
+                ? item.playerId === selectedTarget.customerId
+                : !item.playerId &&
+                  (item.customerName === customerName ||
+                    item.playerName === customerName))
             )
         ) ?? [];
 
@@ -555,6 +533,7 @@ function AccessoriesPage() {
               selectedTarget.sessionId,
             customerName,
             playerName: customerName,
+            playerId: selectedTarget.customerId,
             orderedAt: now,
           })),
         ],
@@ -564,6 +543,10 @@ function AccessoriesPage() {
     setMessage(
       `Accessories saved to ${customerName}'s bill.`
     );
+    setBillSaved(true);
+    if (returnToDashboard) {
+      navigate("/operator");
+    }
   };
 
   const completeSale = () => {
@@ -649,6 +632,7 @@ function AccessoriesPage() {
 
     setCart([]);
     setSelectedTarget(null);
+    setBillSaved(false);
     setMessage(
       `Accessories sale completed. Rs. ${total} received.`
     );
@@ -697,7 +681,7 @@ function AccessoriesPage() {
                 {runningTables.map((table) => {
                   const session = table.session!;
                   const players =
-                    getSessionPlayers(session);
+                    getSessionPlayerEntries(session);
 
                   return (
                     <div
@@ -710,14 +694,15 @@ function AccessoriesPage() {
                       <div className="space-y-2">
                         {players.map((player) => (
                           <Button
-                            key={player}
+                            key={`${player.slot}-${player.customerId ?? player.name}`}
                             variant={
                               selectedTarget?.type ===
                                 "table" &&
                               selectedTarget.tableId ===
                                 table.id &&
-                              selectedTarget.customerName ===
-                                player
+                              (player.customerId
+                                ? selectedTarget.customerId === player.customerId
+                                : selectedTarget.customerName === player.name)
                                 ? "default"
                                 : "secondary"
                             }
@@ -728,17 +713,13 @@ function AccessoriesPage() {
                                 tableId: table.id,
                                 tableName: table.name,
                                 sessionId: session.id,
-                                customerName: player,
-                                customerId:
-                                  getPlayerCustomerId(
-                                    session,
-                                    player
-                                  ),
+                                customerName: player.name,
+                                customerId: player.customerId,
                               })
                             }
                           >
                             {getWalkInDisplayName({
-                              name: player,
+                              name: player.name,
                               tableId: table.id,
                               tableName: table.name,
                               tableType: table.type,
@@ -1091,16 +1072,38 @@ function AccessoriesPage() {
                     Rs. {total}
                   </span>
                 </div>
-                <Button
-                  className="mb-3 w-full"
-                  disabled={
-                    !selectedTarget ||
-                    cart.length === 0
-                  }
-                  onClick={saveToBill}
-                >
-                  Save to Bill
-                </Button>
+                <div className="mb-3 grid gap-2 sm:grid-cols-2">
+                  <Button
+                    className="w-full"
+                    variant="outline"
+                    disabled={
+                      !selectedTarget ||
+                      cart.length === 0
+                    }
+                    onClick={() => saveToBill()}
+                  >
+                    {billSaved ? "Saved" : "Save"}
+                  </Button>
+                  <Button
+                    className="w-full"
+                    disabled={
+                      !selectedTarget ||
+                      cart.length === 0
+                    }
+                    onClick={() =>
+                      saveToBill({
+                        returnToDashboard: true,
+                      })
+                    }
+                  >
+                    Save & Return
+                  </Button>
+                </div>
+                {billSaved && (
+                  <p className="mb-3 rounded-md bg-emerald-50 px-3 py-2 text-center text-sm font-semibold text-emerald-700">
+                    Saved
+                  </p>
+                )}
                 <select
                   className="mb-3 w-full rounded-md border bg-white p-2"
                   value={paymentMethod}

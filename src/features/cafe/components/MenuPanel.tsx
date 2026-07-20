@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
 import { useCafeStore } from "../store/cafeStore";
+import MenuCard from "./MenuCard";
 
 type SelectedTarget =
   | {
@@ -28,31 +29,6 @@ interface Props {
   onAddItem?: (menuItemId: string) => void;
 }
 
-const categories = [
-  "All",
-  "Snacks",
-  "Fast Food",
-  "Drinks",
-  "Tea / Coffee",
-  "Desserts",
-  "Other",
-];
-
-function getMenuIcon(
-  item: {
-    emoji?: string;
-    category: string;
-  }
-) {
-  if (item.emoji?.trim()) return item.emoji;
-  if (item.category === "Fast Food") return "🍔";
-  if (item.category === "Snacks") return "🍟";
-  if (item.category === "Drinks") return "🥤";
-  if (item.category === "Tea / Coffee") return "☕";
-  if (item.category === "Desserts") return "🍰";
-  return "🍽";
-}
-
 function MenuPanel({
   disabled = false,
   selectedTarget,
@@ -65,16 +41,53 @@ function MenuPanel({
   } = useCafeStore();
 
   const [search, setSearch] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  const clearSearch = () => {
+    setSearch("");
+    if (searchInputRef.current) {
+      searchInputRef.current.value = "";
+    }
+  };
 
   const [category, setCategory] =
     useState("All");
 
+  const categories = useMemo(
+    () => [
+      "All",
+      ...Array.from(
+        new Set(
+          menu.map(
+            (item) => item.category
+          )
+        )
+      ),
+    ],
+    [menu]
+  );
+
   const filteredMenu = useMemo(() => {
+    const query = search.trim().toLocaleLowerCase();
+
+    const getSearchRank = (item: (typeof menu)[number]) => {
+      if (!query) return 0;
+
+      const name = item.name.toLocaleLowerCase();
+      const categoryName = item.category.toLocaleLowerCase();
+
+      if (name === query) return 0;
+      if (name.startsWith(query)) return 1;
+      if (name.split(/\s+/).some((word) => word.startsWith(query))) return 2;
+      if (name.includes(query)) return 3;
+      if (categoryName.includes(query)) return 4;
+
+      return Number.POSITIVE_INFINITY;
+    };
+
     return menu.filter((item) => {
       const matchesSearch =
-        item.name
-          .toLowerCase()
-          .includes(search.toLowerCase());
+        getSearchRank(item) < Number.POSITIVE_INFINITY;
 
       const matchesCategory =
         category === "All" ||
@@ -86,6 +99,13 @@ function MenuPanel({
         matchesSearch &&
         matchesCategory
       );
+    }).sort((a, b) => {
+      const rankDifference = getSearchRank(a) - getSearchRank(b);
+
+      return rankDifference || a.name.localeCompare(b.name, undefined, {
+        numeric: true,
+        sensitivity: "base",
+      });
     });
   }, [menu, search, category]);
 
@@ -133,6 +153,7 @@ function MenuPanel({
     <div className="flex h-full flex-col">
 
       <Input
+        ref={searchInputRef}
         placeholder="Search food..."
         value={search}
         onChange={(e) =>
@@ -159,73 +180,49 @@ function MenuPanel({
         ))}
       </div>
 
-      <div className="grid min-h-0 flex-1 grid-cols-3 gap-4 overflow-y-auto pr-2">
+      <div className="grid min-h-0 flex-1 auto-rows-max content-start grid-cols-1 gap-3 overflow-y-auto pr-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
 
         {filteredMenu.map((item) => (
-
-          <div
+          <MenuCard
             key={item.id}
-            className="flex flex-col rounded-xl border bg-white p-4 shadow-sm transition hover:shadow-md"
-          >
+            item={item}
+            onAdd={() => {
+              if (onAddItem) {
+                onAddItem(item.id);
+                clearSearch();
+                return;
+              }
 
-            <div className="mb-4 flex h-24 items-center justify-center rounded-lg bg-slate-100 text-5xl">
-
-              {getMenuIcon(item)}
-
-            </div>
-
-            <h3 className="font-semibold">
-              {item.name}
-            </h3>
-
-            <p className="mt-1 text-sm text-gray-500">
-              {item.category}
-            </p>
-
-            <p className="mt-4 text-lg font-bold text-emerald-600">
-              Rs. {item.price}
-            </p>
-
-            <Button
-              className="mt-4"
-              onClick={() => {
-
-                if (
-                  onAddItem
-                ) {
-                  onAddItem(item.id);
-                  return;
-                }
-
-                if (
-                  selectedTarget.type ===
-                  "runningTable"
-                ) {
-                  addItemToPlayer(
-                    selectedTarget.tableId,
-                    selectedTarget.sessionId,
-                    selectedTarget.playerName,
-                    item
-                  );
-                } else {
-                  addItemToWaitingCustomer(
-                    selectedTarget.type ===
-                      "waitingCustomer"
-                      ? selectedTarget.customerId
-                      : selectedTarget.customerAccountId,
-                    item
-                  );
-                }
-
-              }}
-            >
-              + Add
-            </Button>
-
-          </div>
-
+              if (selectedTarget.type === "runningTable") {
+                addItemToPlayer(
+                  selectedTarget.tableId,
+                  selectedTarget.sessionId,
+                  selectedTarget.playerName,
+                  item
+                );
+              } else {
+                addItemToWaitingCustomer(
+                  selectedTarget.type === "waitingCustomer"
+                    ? selectedTarget.customerId
+                    : selectedTarget.customerAccountId,
+                  item
+                );
+              }
+              clearSearch();
+            }}
+          />
         ))}
 
+        {filteredMenu.length === 0 && (
+          <div className="col-span-full rounded-lg border border-dashed border-slate-200 px-4 py-6 text-center">
+            <p className="text-sm font-semibold text-slate-700">
+              No products found
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              Try another category or search term.
+            </p>
+          </div>
+        )}
       </div>
 
     </div>

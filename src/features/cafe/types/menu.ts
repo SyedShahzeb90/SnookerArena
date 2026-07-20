@@ -5,17 +5,13 @@ export interface MenuItem {
 
   price: number;
 
-  category:
-    | "Snacks"
-    | "Fast Food"
-    | "Drinks"
-    | "Tea / Coffee"
-    | "Desserts"
-    | "Other";
+  category: string;
 
   available: boolean;
 
   emoji?: string;
+
+  imageDataUrl?: string;
 
   isAvailable?: boolean;
 

@@ -4,6 +4,24 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      try {
+        const key = "snooker-arena-theme";
+        const stored = localStorage.getItem(key);
+        const preference = ["light", "dark", "system"].includes(stored)
+          ? stored
+          : "system";
+        const dark =
+          preference === "dark" ||
+          (preference === "system" &&
+            matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.classList.toggle("dark", dark);
+        document.documentElement.dataset.theme = dark ? "dark" : "light";
+        document.documentElement.style.colorScheme = dark ? "dark" : "light";
+      } catch {
+        // The React theme provider applies the fallback when storage is unavailable.
+      }
+    </script>
     <title>cuedesk-desktop</title>
   </head>
   <body>

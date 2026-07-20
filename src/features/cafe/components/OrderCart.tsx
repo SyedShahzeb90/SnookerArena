@@ -1,4 +1,5 @@
 import type { OrderItem } from "../types/menu";
+import { useEffect, useRef } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -11,8 +12,10 @@ interface Props {
   onIncrease: (menuItemId: string) => void;
   onDecrease: (menuItemId: string) => void;
   onSave: () => void;
+  onSaveAndReturn?: () => void;
   saveDisabled?: boolean;
   saveLabel?: string;
+  saveAndReturnLabel?: string;
 }
 
 function OrderCart({
@@ -23,15 +26,59 @@ function OrderCart({
   onIncrease,
   onDecrease,
   onSave,
+  onSaveAndReturn,
   saveDisabled = false,
   saveLabel = "Save Order",
+  saveAndReturnLabel = "Save & Return",
 }: Props) {
+  const itemRefs = useRef(
+    new Map<string, HTMLDivElement>()
+  );
+  const previousQuantities = useRef(
+    new Map(
+      items.map((item) => [
+        item.menuItemId,
+        item.quantity,
+      ])
+    )
+  );
   const total = items.reduce(
     (sum, item) =>
       sum +
       item.price * item.quantity,
     0
   );
+
+  useEffect(() => {
+    const previous = previousQuantities.current;
+    const changedItem = [...items]
+      .reverse()
+      .find(
+        (item) =>
+          previous.get(item.menuItemId) !==
+          item.quantity
+      );
+
+    previousQuantities.current = new Map(
+      items.map((item) => [
+        item.menuItemId,
+        item.quantity,
+      ])
+    );
+
+    if (!changedItem) return;
+
+    const frame = requestAnimationFrame(() => {
+      itemRefs.current
+        .get(changedItem.menuItemId)
+        ?.scrollIntoView({
+          behavior: "smooth",
+          block: "nearest",
+        });
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [items]);
 
   return (
     <Card className="flex h-full min-h-0 flex-col p-5">
@@ -108,6 +155,18 @@ function OrderCart({
         {items.map((item) => (
           <div
             key={item.menuItemId}
+            ref={(element) => {
+              if (element) {
+                itemRefs.current.set(
+                  item.menuItemId,
+                  element
+                );
+              } else {
+                itemRefs.current.delete(
+                  item.menuItemId
+                );
+              }
+            }}
             className="rounded-xl border p-4"
           >
             <div className="flex items-start justify-between gap-3">
@@ -172,16 +231,30 @@ function OrderCart({
           </span>
         </div>
 
-        <Button
-          className="w-full text-lg"
-          size="lg"
-          onClick={onSave}
-          disabled={
-            saveDisabled || !items.length
-          }
-        >
-          {saveLabel}
-        </Button>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <Button
+            className="w-full text-lg"
+            size="lg"
+            variant="outline"
+            onClick={onSave}
+            disabled={
+              saveDisabled || !items.length
+            }
+          >
+            {saveLabel}
+          </Button>
+
+          <Button
+            className="w-full text-lg"
+            size="lg"
+            onClick={onSaveAndReturn ?? onSave}
+            disabled={
+              saveDisabled || !items.length
+            }
+          >
+            {saveAndReturnLabel}
+          </Button>
+        </div>
         {!items.length && (
           <p className="mt-2 text-center text-sm text-slate-500">
             No new items to save

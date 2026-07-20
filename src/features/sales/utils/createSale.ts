@@ -65,7 +65,7 @@ export function createSaleFromTable({
   );
 
   const bill = calculateBill({
-    gameAmount: pricing.gameAmount,
+    gameAmount: session.settledTableAmount ?? pricing.gameAmount,
     cafeAmount: session.cafeAmount,
     discount: session.discount,
   });
@@ -74,7 +74,7 @@ export function createSaleFromTable({
   const payerBreakdown =
     calculateDoubleGamePayerBreakdown({
       session,
-      tableAmount: pricing.gameAmount,
+      tableAmount: session.settledTableAmount ?? pricing.gameAmount,
     });
 
   const playerBreakdown = players.map(
@@ -117,15 +117,21 @@ export function createSaleFromTable({
       ];
   const saleTableAmount =
     playerBill?.tableAmount ??
-    pricing.gameAmount;
+    session.settledTableAmount ?? pricing.gameAmount;
   const saleCafeAmount =
     playerBill?.cafeAmount ??
     session.cafeAmount;
   const saleSubtotal =
     saleTableAmount + saleCafeAmount;
   const saleDiscount = playerBill
-    ? playerBill.discount ?? 0
-    : session.discount;
+    ? Math.min(
+        playerBill.discount ?? 0,
+        saleTableAmount
+      )
+    : Math.min(
+        session.discount,
+        saleTableAmount
+      );
   const saleGrandTotal =
     saleSubtotal - saleDiscount;
   const saleItems =
@@ -167,6 +173,8 @@ export function createSaleFromTable({
     grandTotal: playerBill
       ? saleGrandTotal
       : bill.total,
+    originalTableAmount: session.originalTableAmount,
+    originalGameCount: session.originalGameCount,
     paymentMethod,
     paymentSplits,
     paymentStatus: "paid",

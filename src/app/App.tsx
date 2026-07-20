@@ -18,6 +18,8 @@ import TableHistoryPage from "@/features/table-history/pages/TableHistoryPage";
 import DayHistoryPage from "@/features/business-day/pages/DayHistoryPage";
 import DeveloperToolsPage from "@/features/admin/DeveloperToolsPage";
 import CustomerBillsPage from "@/features/customers/pages/CustomerBillsPage";
+import CreditLedgerPage from "@/features/credit-ledger/pages/CreditLedgerPage";
+import OperatorShell from "@/features/dashboard/components/OperatorShell";
 
 function App() {
   return (
@@ -28,90 +30,94 @@ function App() {
           element={<Navigate to="/operator" replace />}
         />
 
-        <Route
-          path="/operator"
-          element={<OperatorDashboard />}
-        />
+        <Route element={<OperatorShell />}>
+          <Route path="/operator" element={<OperatorDashboard />} />
 
-        <Route
-          path="/operator/cafe"
-          element={<CafePage />}
-        />
+          <Route
+            path="/operator/cafe"
+            element={<CafePage />}
+          />
 
-        <Route
-          path="/operator/accessories"
-          element={<AccessoriesPage />}
-        />
+          <Route
+            path="/operator/accessories"
+            element={<AccessoriesPage />}
+          />
 
-        <Route
-          path="/operator/billing"
-          element={<CheckoutPage />}
-        />
+          <Route
+            path="/operator/billing"
+            element={<CheckoutPage />}
+          />
 
-        <Route
-          path="/operator/customer-bills"
-          element={<CustomerBillsPage />}
-        />
+          <Route
+            path="/operator/customer-bills"
+            element={<CustomerBillsPage />}
+          />
 
-        <Route
-          path="/operator/expenses"
-          element={<ExpensesPage />}
-        />
+          <Route
+            path="/operator/credit-ledger"
+            element={<CreditLedgerPage />}
+          />
 
-        <Route
-          path="/operator/table-history"
-          element={<TableHistoryPage />}
-        />
+          <Route
+            path="/operator/expenses"
+            element={<ExpensesPage />}
+          />
 
-        <Route
-          path="/operator/day-history"
-          element={<DayHistoryPage />}
-        />
+          <Route
+            path="/operator/table-history"
+            element={<TableHistoryPage />}
+          />
 
-        <Route
-          path="/admin"
-          element={<AdminDashboard />}
-        />
+          <Route
+            path="/operator/day-history"
+            element={<DayHistoryPage />}
+          />
 
-        <Route
-          path="/admin/sales"
-          element={<SalesHistoryPage />}
-        />
+          <Route
+            path="/admin"
+            element={<AdminDashboard />}
+          />
 
-        <Route
-          path="/admin/customer-bills"
-          element={<CustomerBillsPage />}
-        />
+          <Route
+            path="/admin/sales"
+            element={<SalesHistoryPage />}
+          />
 
-        <Route
-          path="/admin/profit-loss"
-          element={<ProfitLossPage />}
-        />
+          <Route
+            path="/admin/customer-bills"
+            element={<CustomerBillsPage />}
+          />
 
-        <Route
-          path="/admin/expenses"
-          element={<ExpensesPage />}
-        />
+          <Route
+            path="/admin/profit-loss"
+            element={<ProfitLossPage />}
+          />
 
-        <Route
-          path="/admin/menu"
-          element={<MenuManagementPage />}
-        />
+          <Route
+            path="/admin/expenses"
+            element={<ExpensesPage />}
+          />
 
-        <Route
-          path="/admin/table-history"
-          element={<TableHistoryPage />}
-        />
+          <Route
+            path="/admin/menu"
+            element={<MenuManagementPage />}
+          />
 
-        <Route
-          path="/admin/day-history"
-          element={<DayHistoryPage />}
-        />
+          <Route
+            path="/admin/table-history"
+            element={<TableHistoryPage />}
+          />
 
-        <Route
-          path="/admin/developer-tools"
-          element={<DeveloperToolsPage />}
-        />
+          <Route
+            path="/admin/day-history"
+            element={<DayHistoryPage />}
+          />
+
+          <Route
+            path="/admin/developer-tools"
+            element={<DeveloperToolsPage />}
+          />
+        </Route>
 
         <Route
           path="/cafe"

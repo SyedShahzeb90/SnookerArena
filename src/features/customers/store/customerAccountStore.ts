@@ -75,6 +75,7 @@ interface CustomerAccountStore {
     >
   ) => void;
   closeCustomerAccount: (id: string) => void;
+  deleteCustomerAccount: (id: string) => void;
   removeSessionCharges: (
     sessionId: string
   ) => void;
@@ -109,8 +110,24 @@ interface CustomerAccountStore {
     customerId: string,
     discount: number
   ) => void;
+  applyAdvanceGamesToBill: (
+    customerId: string,
+    games: number,
+    applicationId: string
+  ) => boolean;
+  undoAdvanceGamesFromBill: (
+    customerId: string,
+    applicationId: string
+  ) => boolean;
   markCustomerBillPaid: (
     input: MarkPaidInput
+  ) => void;
+  updatePaidBillPaymentMethod: (
+    customerId: string,
+    paymentMethod: PaymentMethod
+  ) => void;
+  markCustomerBillCredited: (
+    customerId: string
   ) => void;
   calculateCustomerTotals: (
     account: CustomerAccount
@@ -119,6 +136,25 @@ interface CustomerAccountStore {
   splitGenericWalkInBills: () => void;
   mergeDuplicateWalkInSessionBills: () => void;
 }
+
+export function isActionableCustomerBill(
+  account: CustomerAccount
+) {
+  const hasCharges =
+    account.gameCharges.length > 0 ||
+    account.cafeCharges.length > 0 ||
+    (account.accessoryCharges ?? []).length > 0;
+
+  return (
+    account.status === "active" &&
+    account.paymentStatus === "unpaid" &&
+    hasCharges
+  );
+}
+
+export const selectActionableCustomerBillCount = (
+  state: Pick<CustomerAccountStore, "accounts">
+) => state.accounts.filter(isActionableCustomerBill).length;
 
 function normalize(value?: string) {
   return (value ?? "").trim().toLowerCase();
@@ -159,13 +195,14 @@ function calculateTotals(
     "gameCharges" | "cafeCharges" | "discount"
   > & {
     accessoryCharges?: CustomerAccessoryCharge[];
+    advanceReduction?: number;
   }
 ): CustomerTotals {
   const totalGameAmount =
-    account.gameCharges.reduce(
+    Math.max(0, account.gameCharges.reduce(
       (total, charge) => total + charge.amount,
       0
-    );
+    ) - (account.advanceReduction ?? 0));
   const totalCafeAmount =
     account.cafeCharges
       .filter(
@@ -295,6 +332,8 @@ export const useCustomerAccountStore =
             grandTotal: 0,
             paymentStatus: "unpaid",
             lastActivityAt: now,
+            advanceGamesApplied: 0,
+            advanceReduction: 0,
           };
 
           set((state) => ({
@@ -347,6 +386,13 @@ export const useCustomerAccountStore =
                         new Date().toISOString(),
                     }
                   : account
+            ),
+          })),
+
+        deleteCustomerAccount: (id) =>
+          set((state) => ({
+            accounts: state.accounts.filter(
+              (account) => account.id !== id
             ),
           })),
 
@@ -444,7 +490,7 @@ export const useCustomerAccountStore =
           input
         ) => {
           if (input.customerId) {
-            const existing = get().accounts.find(
+            let existing = get().accounts.find(
               (account) =>
                 account.id === input.customerId &&
                 account.status === "active" &&
@@ -453,6 +499,41 @@ export const useCustomerAccountStore =
             );
 
             if (existing) return existing;
+
+            const paidCustomer = get().accounts.find(
+              (account) =>
+                account.id === input.customerId &&
+                account.status === "closed" &&
+                account.paymentStatus === "paid"
+            );
+            if (paidCustomer) {
+              const now = new Date().toISOString();
+              existing = withTotals({
+                ...paidCustomer,
+                status: "active",
+                paymentStatus: "unpaid",
+                openedAt: now,
+                closedAt: undefined,
+                paidAt: undefined,
+                paymentMethod: undefined,
+                activeBusinessDayId: undefined,
+                saleId: undefined,
+                gameCharges: [],
+                cafeCharges: [],
+                accessoryCharges: [],
+                discount: 0,
+                advanceGamesApplied: 0,
+                advanceReduction: 0,
+                advanceApplicationId: undefined,
+                updatedAt: now,
+              });
+              set((state) => ({
+                accounts: state.accounts.map((account) =>
+                  account.id === existing!.id ? existing! : account
+                ),
+              }));
+              return existing;
+            }
           }
 
           return get().getOrCreateActiveCustomer(
@@ -619,10 +700,12 @@ export const useCustomerAccountStore =
             );
           const customer =
             existingOrderCustomer ??
-            findAccountForOrderInput(
-              get().accounts,
-              input
-            ) ??
+            (!input.customerId
+              ? findAccountForOrderInput(
+                  get().accounts,
+                  input
+                )
+              : undefined) ??
             get().getOrCreateActiveCustomerByIdOrName(
               input
             );
@@ -690,10 +773,12 @@ export const useCustomerAccountStore =
             );
           const customer =
             existingOrderCustomer ??
-            findAccountForOrderInput(
-              get().accounts,
-              input
-            ) ??
+            (!input.customerId
+              ? findAccountForOrderInput(
+                  get().accounts,
+                  input
+                )
+              : undefined) ??
             get().getOrCreateActiveCustomerByIdOrName(
               input
             );
@@ -756,20 +841,65 @@ export const useCustomerAccountStore =
         ) =>
           set((state) => ({
             accounts: state.accounts.map(
-              (account) =>
-                account.id === customerId
-                  ? withTotals({
-                      ...account,
-                      discount: Math.max(
-                        0,
-                        discount
-                      ),
-                      updatedAt:
-                        new Date().toISOString(),
-                    })
-                  : account
+              (account) => {
+                if (account.id !== customerId) {
+                  return account;
+                }
+
+                const eligibleDiscount = Math.min(
+                  Math.max(0, discount),
+                  account.totalGameAmount +
+                    account.totalCafeAmount
+                );
+
+                return withTotals({
+                  ...account,
+                  discount: eligibleDiscount,
+                  updatedAt:
+                    new Date().toISOString(),
+                });
+              }
             ),
           })),
+
+        applyAdvanceGamesToBill: (customerId, games, applicationId) => {
+          const account = get().accounts.find((item) => item.id === customerId);
+          if (!account || account.status !== "active" || account.paymentStatus !== "unpaid") return false;
+          if (account.advanceApplicationId || !Number.isInteger(games) || games < 1) return false;
+          const eligibleGames = Math.floor(
+            account.gameCharges.reduce((sum, charge) => sum + (charge.originalAmount ?? charge.amount), 0) / 300
+          );
+          if (games > eligibleGames) return false;
+          set((state) => ({
+            accounts: state.accounts.map((item) => item.id === customerId
+              ? withTotals({
+                  ...item,
+                  advanceGamesApplied: games,
+                  advanceReduction: games * 300,
+                  advanceApplicationId: applicationId,
+                  updatedAt: new Date().toISOString(),
+                })
+              : item),
+          }));
+          return true;
+        },
+
+        undoAdvanceGamesFromBill: (customerId, applicationId) => {
+          const account = get().accounts.find((item) => item.id === customerId);
+          if (!account || account.status !== "active" || account.paymentStatus !== "unpaid" || account.advanceApplicationId !== applicationId) return false;
+          set((state) => ({
+            accounts: state.accounts.map((item) => item.id === customerId
+              ? withTotals({
+                  ...item,
+                  advanceGamesApplied: 0,
+                  advanceReduction: 0,
+                  advanceApplicationId: undefined,
+                  updatedAt: new Date().toISOString(),
+                })
+              : item),
+          }));
+          return true;
+        },
 
         markCustomerBillPaid: (input) =>
           set((state) => ({
@@ -797,6 +927,45 @@ export const useCustomerAccountStore =
                   activeBusinessDayId:
                     input.activeBusinessDayId,
                   saleId: input.saleId,
+                };
+              }
+            ),
+          })),
+
+        updatePaidBillPaymentMethod: (
+          customerId,
+          paymentMethod
+        ) =>
+          set((state) => ({
+            accounts: state.accounts.map((account) =>
+              account.id === customerId &&
+              account.paymentStatus === "paid"
+                ? {
+                    ...account,
+                    paymentMethod,
+                    updatedAt: new Date().toISOString(),
+                  }
+                : account
+            ),
+          })),
+
+        markCustomerBillCredited: (customerId) =>
+          set((state) => ({
+            accounts: state.accounts.map(
+              (account) => {
+                if (account.id !== customerId) {
+                  return account;
+                }
+
+                const now =
+                  new Date().toISOString();
+
+                return {
+                  ...withTotals(account),
+                  status: "closed",
+                  closedAt: now,
+                  updatedAt: now,
+                  paymentStatus: "unpaid",
                 };
               }
             ),

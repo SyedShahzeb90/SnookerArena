@@ -108,6 +108,8 @@ function BillingDialog({
     useState(String(session.discount ?? 0));
   const [appliedDiscount, setAppliedDiscount] =
     useState(session.discount ?? 0);
+  const [receivingPlayerName, setReceivingPlayerName] =
+    useState<string | null>(null);
   const defaultPayer =
     session.player1?.trim() ||
     "Walk-in Customer";
@@ -137,6 +139,7 @@ function BillingDialog({
     setAppliedDiscount(
       session.discount ?? 0
     );
+    setReceivingPlayerName(null);
   }, [session, defaultPayer, paidPlayerNames]);
 
   const adjustedSession = {
@@ -204,12 +207,15 @@ function BillingDialog({
       (!payerName ||
         bill.playerName === payerName ||
         playerBills.length === 1);
+    const billDiscount = shouldApplyDiscount
+      ? Math.min(
+          appliedDiscount,
+          bill.tableAmount + bill.cafeAmount
+        )
+      : 0;
 
     return Math.max(
-      bill.total -
-        (shouldApplyDiscount
-          ? appliedDiscount
-          : 0),
+      bill.total - billDiscount,
       0
     );
   };
@@ -249,9 +255,33 @@ function BillingDialog({
     });
 
   const updateDiscount = (value: string) => {
-    const discount = Math.max(
+    const requestedDiscount = Math.max(
       0,
       Number(value) || 0
+    );
+    const eligibleDiscountAmount =
+      playerName
+        ? visiblePlayerBills[0]
+          ? visiblePlayerBills[0].tableAmount +
+            visiblePlayerBills[0].cafeAmount
+          : 0
+        : payerName
+          ? (() => {
+              const payerBill = playerBills.find(
+                (bill) => bill.playerName === payerName
+              );
+              return payerBill
+                ? payerBill.tableAmount + payerBill.cafeAmount
+                : 0;
+            })()
+          : playerBills.reduce(
+              (total, bill) =>
+                total + bill.tableAmount + bill.cafeAmount,
+              0
+            );
+    const discount = Math.min(
+      requestedDiscount,
+      eligibleDiscountAmount
     );
 
     setAppliedDiscount(discount);
@@ -284,6 +314,8 @@ function BillingDialog({
   const handleReceivePlayerBill = (
     bill: (typeof playerBills)[number]
   ) => {
+    if (receivingPlayerName) return;
+
     if (!canReceivePayment) {
       setPaymentError(
         "Please start the day and enter the operator name before receiving payment."
@@ -297,6 +329,7 @@ function BillingDialog({
     if (validSplits === null) return;
 
     const playerName = bill.playerName;
+    setReceivingPlayerName(playerName);
     const nextPaidPlayers =
       hasPlayerName(paidPlayers, playerName)
         ? paidPlayers
@@ -314,11 +347,10 @@ function BillingDialog({
       cafeItems: bill.cafeItems,
       allPlayerNames:
         payablePlayerNames,
-      discount:
-        getPayableBillTotal(bill) ===
-        bill.total
-          ? 0
-          : appliedDiscount,
+      discount: Math.min(
+        appliedDiscount,
+        bill.tableAmount + bill.cafeAmount
+      ),
     });
 
     if (onReceivePlayerBill) {
@@ -337,9 +369,18 @@ function BillingDialog({
         paymentMethod,
         payerName || defaultPayer,
         validSplits,
-        appliedDiscount
+        Math.min(
+          appliedDiscount,
+          playerBills.reduce(
+            (total, bill) =>
+              total + bill.tableAmount + bill.cafeAmount,
+            0
+          )
+        )
       );
     }
+
+    setReceivingPlayerName(null);
   };
 
   return (
@@ -439,6 +480,7 @@ function BillingDialog({
                 type="number"
                 min={0}
                 value={discountText}
+                onFocus={(event) => event.currentTarget.select()}
                 onChange={(event) => {
                   const nextValue =
                     event.target.value;
@@ -491,6 +533,9 @@ function BillingDialog({
                   paidPlayers,
                   bill.playerName
                 );
+              const receiving =
+                receivingPlayerName ===
+                bill.playerName;
 
               return (
                 <Button
@@ -501,7 +546,9 @@ function BillingDialog({
                       ? "secondary"
                       : "default"
                   }
-                  disabled={paid}
+                  disabled={
+                    paid || receivingPlayerName !== null
+                  }
                   onClick={() =>
                     handleReceivePlayerBill(
                       bill
@@ -514,6 +561,10 @@ function BillingDialog({
                         ? `${getDisplayName(
                             bill.playerName
                           )} bill received`
+                        : receiving
+                          ? `Receiving ${getDisplayName(
+                              bill.playerName
+                            )} bill...`
                         : `Receive ${getDisplayName(
                             bill.playerName
                           )} bill`}

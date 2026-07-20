@@ -15,12 +15,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { useCheckoutStore } from "@/features/billing/store/checkoutStore";
 import { useExpensesStore } from "@/features/expenses/store/expensesStore";
 import { useSalesStore } from "@/features/sales/store/salesStore";
+import { useOutsidePurchaseStore } from "@/features/outside-purchases/store/outsidePurchaseStore";
 
 import { useBusinessDayStore } from "../store/businessDayStore";
 import { calculateBusinessDaySummary } from "../utils/businessDaySummary";
 
 function money(value: number) {
-  return `Rs. ${value}`;
+  return `Rs. ${Math.round(value).toLocaleString()}`;
 }
 
 function dateTime(value: string) {
@@ -60,6 +61,9 @@ function BusinessDayCard() {
   const pendingBills = useCheckoutStore(
     (state) => state.pendingBills
   );
+  const outsidePurchases = useOutsidePurchaseStore(
+    (state) => state.purchases
+  );
   const message = useBusinessDayStore(
     (state) => state.message
   );
@@ -72,9 +76,10 @@ function BusinessDayCard() {
             sales,
             expenses,
             pendingBills,
+            outsidePurchases,
           })
         : undefined,
-    [activeDay, sales, expenses, pendingBills]
+    [activeDay, sales, expenses, pendingBills, outsidePurchases]
   );
 
   const [startOpen, setStartOpen] =
@@ -217,7 +222,11 @@ function BusinessDayCard() {
 
   return (
     <>
-      <Card className="mb-5 border-emerald-100 bg-white p-5 shadow-sm">
+      <Card
+        className={`border-emerald-100 bg-white shadow-sm ${
+          activeDay ? "p-4" : "p-5"
+        }`}
+      >
         {!activeDay ? (
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
@@ -273,12 +282,13 @@ function BusinessDayCard() {
           </div>
         ) : (
           <div>
-            <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <div>
-                <p className="text-sm font-semibold text-emerald-700">
-                  Business Day Active
+            <div className="mb-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div className="min-w-0">
+                <p className="flex items-center gap-2 text-sm font-semibold text-emerald-700">
+                  <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.12)]" />
+                  <span>Business Day Active</span>
                 </p>
-                <h2 className="mt-1 text-2xl font-bold text-slate-950">
+                <h2 className="mt-1 text-xl font-bold text-slate-950">
                   Opened by {activeDay.openedBy}
                 </h2>
                 <p className="text-sm text-slate-500">
@@ -287,10 +297,10 @@ function BusinessDayCard() {
                 </p>
               </div>
 
-              <div className="flex gap-2">
+              <div className="flex shrink-0 flex-wrap gap-2">
                 <Button
                   variant="outline"
-                  size="lg"
+                  className="h-9 px-3"
                   onClick={() =>
                     navigate(
                       "/operator/day-history"
@@ -300,8 +310,7 @@ function BusinessDayCard() {
                   Day History
                 </Button>
                 <Button
-                  size="lg"
-                  className="bg-red-700 hover:bg-red-800"
+                  className="h-9 bg-red-700 px-4 !text-white hover:bg-red-800 dark:!bg-red-600 dark:hover:!bg-red-500"
                   onClick={openEnd}
                 >
                   End Day
@@ -309,50 +318,116 @@ function BusinessDayCard() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-6">
-              {[
-                [
-                  "Opening Cash",
-                  money(activeDay.openingCash),
-                ],
-                [
-                  "Today Received",
-                  money(summary?.totalSales ?? 0),
-                ],
-                [
-                  "Cash Sales",
-                  money(summary?.cashSales ?? 0),
-                ],
-                [
-                  "Expected Cash",
-                  money(summary?.expectedCash ?? 0),
-                ],
-                [
-                  "Pending Bills",
-                  money(
-                    summary?.pendingBillsAmount ??
-                      0
-                  ),
-                ],
-                [
-                  "Expenses",
-                  money(
-                    summary?.totalExpenses ?? 0
-                  ),
-                ],
-              ].map(([label, value]) => (
-                <div
-                  key={label}
-                  className="rounded-lg bg-slate-50 p-3"
-                >
-                  <p className="text-xs text-slate-500">
-                    {label}
-                  </p>
-                  <p className="mt-1 font-bold text-slate-950">
-                    {value}
-                  </p>
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <div className="flex h-[144px] flex-col rounded-lg border border-emerald-100 bg-emerald-50/40 p-3.5 dark:!border-emerald-800 dark:!bg-emerald-950/55">
+                <p className="text-xs font-semibold text-slate-500">
+                  Today Received
+                </p>
+                <p className="mt-2 text-2xl font-bold text-slate-950">
+                  {money(summary?.totalSales ?? 0)}
+                </p>
+                <div className="mt-auto grid grid-cols-2 gap-3 pt-2 text-sm">
+                  <div className="min-w-0">
+                    <p className="text-xs text-slate-500">
+                      Cash
+                    </p>
+                    <p className="font-semibold tabular-nums text-emerald-700">
+                      {money(summary?.cashSales ?? 0)}
+                    </p>
+                  </div>
+                  <div className="min-w-0 text-right">
+                    <p className="text-xs text-slate-500">
+                      Digital
+                    </p>
+                    <p className="font-semibold tabular-nums text-slate-800">
+                      {money(
+                        (summary?.cardSales ?? 0) +
+                          (summary?.jazzCashSales ?? 0) +
+                          (summary?.easypaisaSales ?? 0)
+                      )}
+                    </p>
+                  </div>
                 </div>
-              ))}
+              </div>
+
+              <div className="flex h-[144px] flex-col rounded-lg border border-blue-100 bg-blue-50/40 p-3.5 dark:!border-blue-800 dark:!bg-blue-950/55">
+                <p className="text-xs font-semibold text-slate-500">
+                  Cash Position
+                </p>
+                <div className="mt-auto space-y-1 pt-1 text-xs">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-slate-500">
+                      Opening Cash
+                    </span>
+                    <span className="font-semibold tabular-nums text-slate-800">
+                      {money(activeDay.openingCash)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-slate-500">
+                      Cash Sales
+                    </span>
+                    <span className="font-semibold tabular-nums text-slate-800">
+                      {money(summary?.cashSales ?? 0)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 text-[11px]">
+                    <span className="whitespace-nowrap text-slate-500">Outside cash</span>
+                    <span className="whitespace-nowrap font-semibold tabular-nums text-slate-800">
+                      -{money(summary?.outsidePurchasesPaidFromDrawer ?? 0)} / +{money(
+                        (summary?.cashCustomerReimbursements ?? 0) +
+                          (summary?.digitalCustomerReimbursements ?? 0)
+                      )}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 rounded-md bg-blue-100/50 px-2 py-1 dark:!bg-blue-900/80">
+                    <span className="text-slate-600 dark:!text-blue-100">
+                      Expected Cash
+                    </span>
+                    <span className="text-base font-bold text-blue-800 dark:!text-blue-200">
+                      {money(summary?.expectedCash ?? 0)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex h-[144px] flex-col rounded-lg border border-amber-100 bg-amber-50/40 p-3.5 dark:!border-amber-800 dark:!bg-amber-950/55">
+                <p className="text-xs font-semibold text-slate-500">
+                  Pending Bills
+                </p>
+                <p className="mt-2 text-2xl font-bold text-slate-950">
+                  {money(summary?.pendingBillsAmount ?? 0)}
+                </p>
+                <p className="mt-auto pt-2 text-sm font-medium text-amber-700">
+                  {summary?.pendingBillsCount ?? 0} open{" "}
+                  {(summary?.pendingBillsCount ?? 0) === 1
+                    ? "bill"
+                    : "bills"}
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Awaiting payment
+                </p>
+              </div>
+
+              <div className="flex h-[144px] flex-col rounded-lg border border-red-100 bg-red-50/40 p-3.5 dark:!border-red-800 dark:!bg-red-950/55">
+                <p className="text-xs font-semibold text-slate-500">
+                  Expenses
+                </p>
+                <p className="mt-2 text-2xl font-bold text-slate-950">
+                  {money(summary?.totalExpenses ?? 0)}
+                </p>
+                <div className="mt-auto pt-2">
+                  {(summary?.totalExpenses ?? 0) > 0 ? (
+                    <p className="text-sm font-medium text-red-700">
+                      Recorded today
+                    </p>
+                  ) : (
+                    <p className="text-sm text-slate-500">
+                      No expenses
+                    </p>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -461,6 +536,22 @@ function BusinessDayCard() {
                 [
                   "Net Profit",
                   summary?.netProfit ?? 0,
+                ],
+                [
+                  "Outside Purchases Paid Out",
+                  summary?.outsidePurchasesPaidFromDrawer ?? 0,
+                ],
+                [
+                  "Cash Reimbursements",
+                  summary?.cashCustomerReimbursements ?? 0,
+                ],
+                [
+                  "Digital Reimbursements",
+                  summary?.digitalCustomerReimbursements ?? 0,
+                ],
+                [
+                  "Outstanding Reimbursements",
+                  summary?.outstandingCustomerReimbursements ?? 0,
                 ],
               ].map(([label, value]) => (
                 <div

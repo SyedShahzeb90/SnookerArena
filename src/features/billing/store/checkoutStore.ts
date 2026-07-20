@@ -5,6 +5,7 @@ import { useCafeStore } from "@/features/cafe/store/cafeStore";
 import { useBusinessDayStore } from "@/features/business-day/store/businessDayStore";
 import { useSalesStore } from "@/features/sales/store/salesStore";
 import { createSaleFromTable } from "@/features/sales/utils/createSale";
+import { calculateGamePrice } from "@/features/pricing/utils/calculateGamePrice";
 import { useTableHistoryStore } from "@/features/table-history/store/tableHistoryStore";
 import { useCustomerAccountStore } from "@/features/customers/store/customerAccountStore";
 import type {
@@ -21,6 +22,34 @@ import {
   isWalkInName,
 } from "@/features/sessions/utils/walkInLabel";
 import { hasPlayerName } from "../utils/playerBillIdentity";
+
+function getPendingBillTableAmount(
+  bill: PendingBill
+) {
+  if (bill.session.settledTableAmount !== undefined) {
+    return bill.session.settledTableAmount;
+  }
+  const lineTotal =
+    bill.session.tableChargeLines?.reduce(
+      (total, line) => total + line.amount,
+      0
+    );
+
+  if (lineTotal !== undefined) {
+    return lineTotal;
+  }
+
+  if (!bill.session.endTime) {
+    return 0;
+  }
+
+  return calculateGamePrice({
+    sessionType: bill.session.sessionType,
+    tableType: bill.tableType,
+    startTime: new Date(bill.session.startTime),
+    endTime: new Date(bill.session.endTime),
+  }).gameAmount;
+}
 
 export interface PendingBill {
   id: string;
@@ -259,16 +288,23 @@ export const useCheckoutStore =
               state.pendingBills.map(
                 (bill) =>
                   bill.id === billId
-                    ? {
-                        ...bill,
-                        session: {
-                          ...bill.session,
-                          discount: Math.max(
-                            0,
-                            discount
-                          ),
-                        },
-                      }
+                    ? (() => {
+                        const eligibleDiscount =
+                          Math.min(
+                            Math.max(0, discount),
+                            getPendingBillTableAmount(
+                              bill
+                            ) + bill.cafeAmount
+                          );
+
+                        return {
+                          ...bill,
+                          session: {
+                            ...bill.session,
+                            discount: eligibleDiscount,
+                          },
+                        };
+                      })()
                     : bill
               ),
           })),

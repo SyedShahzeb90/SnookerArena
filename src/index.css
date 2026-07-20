@@ -128,3 +128,211 @@
     @apply font-sans;
     }
 }
+
+@layer base {
+  html,
+  body,
+  #root {
+    min-height: 100%;
+  }
+
+  body {
+    transition: background-color 120ms ease, color 120ms ease;
+  }
+
+  .dark {
+    color-scheme: dark;
+  }
+
+  .dark select,
+  .dark input,
+  .dark textarea {
+    color: var(--foreground);
+  }
+
+  .dark option {
+    background: oklch(0.205 0.015 255);
+    color: oklch(0.94 0.01 255);
+  }
+}
+
+@layer utilities {
+  .dark .bg-white {
+    background-color: oklch(0.205 0.015 255) !important;
+  }
+
+  .dark .bg-white\/80,
+  .dark .bg-white\/95 {
+    background-color: oklch(0.205 0.015 255 / 0.94) !important;
+  }
+
+  .dark .bg-slate-50 {
+    background-color: oklch(0.235 0.018 255) !important;
+  }
+
+  .dark .bg-slate-100 {
+    background-color: oklch(0.17 0.018 255) !important;
+  }
+
+  .dark .bg-gray-50,
+  .dark .bg-gray-100 {
+    background-color: oklch(0.22 0.015 255) !important;
+  }
+
+  .dark .text-slate-950,
+  .dark .text-slate-900,
+  .dark .text-slate-800,
+  .dark .text-slate-700,
+  .dark .text-black,
+  .dark .text-gray-900,
+  .dark .text-gray-800,
+  .dark .text-gray-700 {
+    color: oklch(0.94 0.01 255) !important;
+  }
+
+  .dark .text-slate-600,
+  .dark .text-slate-500,
+  .dark .text-gray-600,
+  .dark .text-gray-500 {
+    color: oklch(0.72 0.02 255) !important;
+  }
+
+  .dark .text-slate-400,
+  .dark .text-gray-400 {
+    color: oklch(0.64 0.02 255) !important;
+  }
+
+  .dark .border-slate-100,
+  .dark .border-slate-200,
+  .dark .border-slate-300,
+  .dark .border-gray-100,
+  .dark .border-gray-200,
+  .dark .border-gray-300 {
+    border-color: oklch(0.34 0.018 255) !important;
+  }
+
+  .dark .ring-slate-200,
+  .dark .ring-slate-300 {
+    --tw-ring-color: oklch(0.34 0.018 255) !important;
+  }
+
+  .dark .bg-emerald-50,
+  .dark .bg-emerald-50\/40 {
+    background-color: oklch(0.25 0.045 160) !important;
+  }
+
+  .dark .bg-red-50,
+  .dark .bg-red-50\/40 {
+    background-color: oklch(0.25 0.045 25) !important;
+  }
+
+  .dark .bg-amber-50,
+  .dark .bg-amber-50\/40 {
+    background-color: oklch(0.27 0.045 75) !important;
+  }
+
+  .dark .bg-blue-50,
+  .dark .bg-blue-50\/40,
+  .dark .bg-indigo-50 {
+    background-color: oklch(0.25 0.04 255) !important;
+  }
+
+  .dark .text-emerald-600,
+  .dark .text-emerald-700,
+  .dark .text-emerald-800 {
+    color: oklch(0.78 0.15 160) !important;
+  }
+
+  .dark .text-red-600,
+  .dark .text-red-700,
+  .dark .text-red-800 {
+    color: oklch(0.76 0.16 25) !important;
+  }
+
+  .dark .text-amber-600,
+  .dark .text-amber-700,
+  .dark .text-amber-800 {
+    color: oklch(0.82 0.14 80) !important;
+  }
+
+  .dark .text-blue-600,
+  .dark .text-blue-700,
+  .dark .text-blue-800,
+  .dark .text-indigo-700,
+  .dark .text-indigo-800 {
+    color: oklch(0.78 0.12 250) !important;
+  }
+
+  .dark .border-emerald-100,
+  .dark .border-emerald-200,
+  .dark .border-red-100,
+  .dark .border-red-200,
+  .dark .border-amber-100,
+  .dark .border-amber-200,
+  .dark .border-blue-100,
+  .dark .border-blue-200,
+  .dark .border-indigo-100,
+  .dark .border-indigo-200 {
+    border-color: oklch(0.4 0.04 255) !important;
+  }
+
+  .dark table {
+    color: var(--foreground);
+  }
+
+  .dark thead {
+    background-color: oklch(0.235 0.018 255);
+  }
+
+  .dark tbody tr {
+    border-color: oklch(0.31 0.018 255);
+  }
+
+  .dark tbody tr:hover {
+    background-color: oklch(0.245 0.018 255);
+  }
+
+  .dark .hover\:bg-slate-50:hover,
+  .dark .hover\:bg-slate-100:hover {
+    background-color: oklch(0.275 0.018 255) !important;
+  }
+
+  .dark .hover\:bg-emerald-100:hover {
+    background-color: oklch(0.3 0.055 160) !important;
+  }
+
+  .dark .hover\:bg-red-100:hover {
+    background-color: oklch(0.3 0.055 25) !important;
+  }
+
+  .dark .hover\:bg-amber-100:hover {
+    background-color: oklch(0.32 0.055 75) !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body {
+    transition: none;
+  }
+}
+
+@media print {
+  html.dark {
+    color-scheme: light;
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.145 0 0);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.145 0 0);
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.145 0 0);
+  }
+
+  .dark body,
+  .dark main,
+  .dark .bg-white,
+  .dark .bg-slate-50,
+  .dark .bg-slate-100 {
+    background: white !important;
+    color: black !important;
+  }
+}

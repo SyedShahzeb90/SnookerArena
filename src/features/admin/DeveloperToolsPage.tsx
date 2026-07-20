@@ -18,7 +18,10 @@ import { useFloorPlanStore } from "@/features/floor-plan/useFloorPlanStore";
 import { useSalesStore } from "@/features/sales/store/salesStore";
 import { useTableHistoryStore } from "@/features/table-history/store/tableHistoryStore";
 import { useCustomerAccountStore } from "@/features/customers/store/customerAccountStore";
+import { useCreditLedgerStore } from "@/features/credit-ledger/store/creditLedgerStore";
+import { useAdvanceGamesStore } from "@/features/advance-games/store/advanceGamesStore";
 import { useTableStore } from "@/store/tableStore";
+import { useOutsidePurchaseStore } from "@/features/outside-purchases/store/outsidePurchaseStore";
 
 type ResetMode = "test-data" | "full";
 
@@ -30,6 +33,9 @@ const storageKeys = [
   "snooker-arena-table-history",
   "snooker-arena-business-day",
   "snooker-arena-customer-accounts",
+  "snooker-arena-credit-ledger",
+  "snooker-arena-advance-games",
+  "snooker-arena-outside-purchases",
   "snooker-arena-floor-plan-positions",
   "snooker-arena-floor-plan-zones",
 ];
@@ -38,6 +44,44 @@ function clearKnownStorage() {
   storageKeys.forEach((key) => {
     window.localStorage.removeItem(key);
   });
+}
+
+export function clearTestDataForTesting({
+  resetSalesStore,
+  resetBillingStore,
+  resetCafeTestData,
+  resetExpensesStore,
+  resetTableHistoryStore,
+  resetBusinessDayStore,
+  resetCustomerAccountsForTesting,
+  resetCreditLedgerStore,
+  resetAdvanceGamesStore,
+  resetOutsidePurchaseStore,
+  resetTableStoreToDefault,
+}: {
+  resetSalesStore: () => void;
+  resetBillingStore: () => void;
+  resetCafeTestData: () => void;
+  resetExpensesStore: () => void;
+  resetTableHistoryStore: () => void;
+  resetBusinessDayStore: () => void;
+  resetCustomerAccountsForTesting: () => void;
+  resetCreditLedgerStore: () => void;
+  resetAdvanceGamesStore: () => void;
+  resetOutsidePurchaseStore: () => void;
+  resetTableStoreToDefault: () => void;
+}) {
+  resetSalesStore();
+  resetBillingStore();
+  resetCafeTestData();
+  resetExpensesStore();
+  resetTableHistoryStore();
+  resetBusinessDayStore();
+  resetCustomerAccountsForTesting();
+  resetCreditLedgerStore();
+  resetAdvanceGamesStore();
+  resetOutsidePurchaseStore();
+  resetTableStoreToDefault();
 }
 
 function DeveloperToolsPage() {
@@ -88,6 +132,16 @@ function DeveloperToolsPage() {
       (state) =>
         state.resetCustomerAccountsForTesting
     );
+  const resetCreditLedgerStore =
+    useCreditLedgerStore(
+      (state) => state.resetCreditLedgerStore
+    );
+  const resetAdvanceGamesStore = useAdvanceGamesStore(
+    (state) => state.resetAdvanceGamesStore
+  );
+  const resetOutsidePurchaseStore = useOutsidePurchaseStore(
+    (state) => state.resetOutsidePurchaseStore
+  );
 
   const [mode, setMode] =
     useState<ResetMode | null>(null);
@@ -110,14 +164,19 @@ function DeveloperToolsPage() {
   };
 
   const resetBusinessRecords = () => {
-    resetSalesStore();
-    resetBillingStore();
-    resetCafeTestData();
-    resetExpensesStore();
-    resetTableHistoryStore();
-    resetBusinessDayStore();
-    resetCustomerAccountsForTesting();
-    resetTableStoreToDefault();
+    clearTestDataForTesting({
+      resetSalesStore,
+      resetBillingStore,
+      resetCafeTestData,
+      resetExpensesStore,
+      resetTableHistoryStore,
+      resetBusinessDayStore,
+      resetCustomerAccountsForTesting,
+      resetCreditLedgerStore,
+      resetAdvanceGamesStore,
+      resetOutsidePurchaseStore,
+      resetTableStoreToDefault,
+    });
   };
 
   const handleConfirm = () => {
@@ -146,6 +205,8 @@ function DeveloperToolsPage() {
       resetTableHistoryStore();
       resetBusinessDayStore();
       resetCustomerAccountsForTesting();
+      resetCreditLedgerStore();
+      resetOutsidePurchaseStore();
       resetTableStoreToDefault();
       resetFloorPlanStoreToDefault();
       setMessage(

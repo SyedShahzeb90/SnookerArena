@@ -63,9 +63,10 @@ interface SaveOrderInput {
 
 export interface MenuItemInput {
   name: string;
-  category: MenuItem["category"];
+  category: string;
   price: number;
   emoji?: string;
+  imageDataUrl?: string;
   isAvailable: boolean;
 }
 
@@ -181,6 +182,10 @@ interface CafeStore {
   clearSessionOrders: (
     tableId: number,
     sessionId: string
+  ) => void;
+
+  deleteSavedOrdersForCustomerAccount: (
+    customerAccountId: string
   ) => void;
 
   saveOrder: (
@@ -314,6 +319,7 @@ export const useCafeStore =
         category: input.category,
         price: input.price,
         emoji: input.emoji,
+        imageDataUrl: input.imageDataUrl,
         available: input.isAvailable,
         isAvailable: input.isAvailable,
         createdAt: now,
@@ -337,6 +343,7 @@ export const useCafeStore =
                 category: input.category,
                 price: input.price,
                 emoji: input.emoji,
+                imageDataUrl: input.imageDataUrl,
                 available:
                   input.isAvailable,
                 isAvailable:
@@ -799,6 +806,14 @@ clearSessionOrders: (tableId, sessionId) =>
             order.sessionId === sessionId
           )
       ),
+  })),
+
+deleteSavedOrdersForCustomerAccount: (customerAccountId) =>
+  set((state) => ({
+    savedOrders: state.savedOrders.filter(
+      (order) =>
+        order.customerAccountId !== customerAccountId
+    ),
   })),
 
 saveOrder: (input) => {

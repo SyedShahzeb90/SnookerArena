@@ -28,7 +28,21 @@ export interface TableChargeLine {
   payerCustomerId?: string;
   loserName?: string;
   winnerName?: string;
+  winningTeam?: "A" | "B";
+  losingTeam?: "A" | "B";
+  isFinal?: boolean;
+  finalGames?: number;
+  settlementProcessedAt?: string;
+  settlement?: FrameSettlementEffect[];
   notes?: string;
+}
+
+export interface FrameSettlementEffect {
+  customerId: string;
+  customerName: string;
+  payableGamesDelta: number;
+  advanceGamesDelta: number;
+  role: "loser" | "winner";
 }
 
 export interface CafeOrderItem {
@@ -66,6 +80,10 @@ export interface Session {
 
   tableChargeLines?: TableChargeLine[];
 
+  frameTimerStartedAt?: string;
+
+  frameTimerPausedMilliseconds?: number;
+
   player1: string;
   player1CustomerId?: string;
 
@@ -87,6 +105,18 @@ export interface Session {
   teamAOneNameEnough?: boolean;
 
   teamBOneNameEnough?: boolean;
+
+  teamABillOwnerCustomerId?: string;
+  teamABillOwnerName?: string;
+  teamBBillOwnerCustomerId?: string;
+  teamBBillOwnerName?: string;
+
+  settlementProcessedAt?: string;
+  settlementId?: string;
+  originalGameCount?: number;
+  originalTableAmount?: number;
+  settledTableAmount?: number;
+  advanceGamesEarned?: number;
 
   winningTeam?: "A" | "B";
 

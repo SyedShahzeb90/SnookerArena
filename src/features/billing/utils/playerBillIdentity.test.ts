@@ -116,6 +116,31 @@ describe("player bill identity", () => {
     ).toBe(250);
   });
 
+  it("keeps attached cafe charges with the same player after the session customer id changes", () => {
+    const session = makeSession({
+      player1: "Ali",
+      player1CustomerId: "CUST-ALI-EDITED",
+      cafeOrders: [
+        {
+          menuItemId: "TEA",
+          name: "Tea",
+          price: 120,
+          quantity: 1,
+          subtotal: 120,
+          timeAdded: new Date("2026-07-13T12:05:00"),
+          tableId: 1,
+          sessionId: "S1",
+          playerName: "Ali",
+          playerId: "CUST-ALI-WAITING",
+        },
+      ],
+    });
+
+    expect(
+      getPlayerCafeAmount(session, "Ali")
+    ).toBe(120);
+  });
+
   it("compares paid player names after normalization", () => {
     expect(hasPlayerName([" shah "], "Shah")).toBe(
       true

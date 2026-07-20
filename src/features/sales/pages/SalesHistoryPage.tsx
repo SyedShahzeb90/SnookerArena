@@ -38,6 +38,9 @@ function getPaymentLabel(
     typeof useSalesStore.getState
   >["sales"][number]
 ) {
+  if (sale.settlementLabel) {
+    return sale.settlementLabel;
+  }
   if (!sale.paymentSplits?.length) {
     return paymentLabels[sale.paymentMethod];
   }

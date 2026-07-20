@@ -125,29 +125,6 @@ function FloorPlanTable({
         table.session.totalPausedMilliseconds
     );
   }, [table.session, now]);
-  const elapsedMilliseconds = useMemo(() => {
-    if (!table.session) return 0;
-
-    const currentTime =
-      table.session.pausedAt
-        ? new Date(
-            table.session.pausedAt
-          ).getTime()
-        : table.session.endTime
-          ? new Date(
-              table.session.endTime
-            ).getTime()
-          : now.getTime();
-
-    return (
-      currentTime -
-      new Date(
-        table.session.startTime
-      ).getTime() -
-      table.session.totalPausedMilliseconds
-    );
-  }, [table.session, now]);
-
   const currentBill = useMemo(() => {
     if (!table.session) return 0;
 
@@ -171,17 +148,51 @@ function FloorPlanTable({
   }, [table, cafeAmount, now]);
 
   const status = statusStyles[table.status];
-  const elapsedMinutes =
-    elapsedMilliseconds / 60000;
+  const currentChargeLine =
+    table.session?.tableChargeLines?.at(-1);
+  const currentFrameType =
+    currentChargeLine?.type ??
+    (table.session?.sessionType === "single"
+      ? "singleGame"
+      : table.session?.sessionType === "double"
+        ? "doubleGame"
+        : "tableBooking");
+  const usesFrameWarning =
+    table.type === "table" &&
+    table.id >= 1 &&
+    table.id <= 7 &&
+    (currentFrameType === "singleGame" ||
+      currentFrameType === "doubleGame");
+  const frameStartedAt = table.session
+    ? new Date(
+        table.session.frameTimerStartedAt ??
+          currentChargeLine?.startedAt ??
+          table.session.startTime
+      ).getTime()
+    : now.getTime();
+  const framePausedMilliseconds = table.session
+    ? table.session.totalPausedMilliseconds -
+      (table.session.frameTimerPausedMilliseconds ??
+        table.session.totalPausedMilliseconds)
+    : 0;
+  const frameCurrentTime = table.session?.pausedAt
+    ? new Date(table.session.pausedAt).getTime()
+    : now.getTime();
+  const frameElapsedMinutes = Math.max(
+    0,
+    frameCurrentTime - frameStartedAt - framePausedMilliseconds
+  ) / 60000;
   const timeWarningStyle =
     table.status === "running" &&
-    elapsedMinutes >= 30
+    usesFrameWarning &&
+    frameElapsedMinutes >= 30
       ? {
           border: "border-red-300",
           card: "bg-red-50",
         }
       : table.status === "running" &&
-          elapsedMinutes >= 25
+          usesFrameWarning &&
+          frameElapsedMinutes >= 25
         ? {
             border: "border-amber-300",
             card: "bg-amber-50",

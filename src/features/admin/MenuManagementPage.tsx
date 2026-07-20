@@ -1,14 +1,17 @@
 import {
   ArrowLeft,
+  ImagePlus,
   Pencil,
   Plus,
   ToggleLeft,
   ToggleRight,
   Trash2,
+  X,
 } from "lucide-react";
 import {
   useMemo,
   useState,
+  type ChangeEvent,
   type FormEvent,
 } from "react";
 import { useNavigate } from "react-router-dom";
@@ -36,6 +39,7 @@ const emptyForm: MenuItemInput = {
   category: "Fast Food",
   price: 0,
   emoji: "",
+  imageDataUrl: "",
   isAvailable: true,
 };
 
@@ -57,6 +61,48 @@ function MenuManagementPage() {
     useState("");
   const [error, setError] = useState("");
 
+  const handlePhotoChange = async (
+    event: ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      setError("Please select an image file.");
+      return;
+    }
+
+    try {
+      const source = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(file);
+      });
+      const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const nextImage = new Image();
+        nextImage.onload = () => resolve(nextImage);
+        nextImage.onerror = reject;
+        nextImage.src = source;
+      });
+      const maxSide = 900;
+      const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(image.width * scale));
+      canvas.height = Math.max(1, Math.round(image.height * scale));
+      canvas.getContext("2d")?.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+      setForm((current) => ({
+        ...current,
+        imageDataUrl: canvas.toDataURL("image/jpeg", 0.82),
+      }));
+      setError("");
+    } catch {
+      setError("The selected photo could not be loaded.");
+    }
+  };
+
   const summary = useMemo(() => {
     const available = menu.filter(
       (item) =>
@@ -74,6 +120,17 @@ function MenuManagementPage() {
       ).size,
     };
   }, [menu]);
+
+  const sortedMenu = useMemo(
+    () =>
+      [...menu].sort((a, b) =>
+        a.name.localeCompare(b.name, undefined, {
+          numeric: true,
+          sensitivity: "base",
+        })
+      ),
+    [menu]
+  );
 
   const resetForm = () => {
     setForm(emptyForm);
@@ -128,6 +185,7 @@ function MenuManagementPage() {
       category: item.category,
       price: item.price,
       emoji: item.emoji ?? "",
+      imageDataUrl: item.imageDataUrl ?? "",
       isAvailable:
         item.isAvailable ??
         item.available,
@@ -237,27 +295,28 @@ function MenuManagementPage() {
                 <label className="text-sm font-medium text-slate-700">
                   Category
                 </label>
-                <select
-                  className="mt-1 h-10 w-full rounded-md border bg-white px-3 text-sm"
+                <Input
+                  className="mt-1"
                   value={form.category}
                   onChange={(event) =>
                     setForm({
                       ...form,
-                      category:
-                        event.target
-                          .value as MenuItem["category"],
+                      category: event.target.value,
                     })
                   }
-                >
+                  list="menu-category-options"
+                />
+                <datalist id="menu-category-options">
                   {menuCategories.map((category) => (
                     <option
                       key={category}
                       value={category}
-                    >
-                      {category}
-                    </option>
+                    />
                   ))}
-                </select>
+                </datalist>
+                <p className="mt-1 text-xs text-slate-500">
+                  Pick a suggestion or type a new category.
+                </p>
               </div>
 
               <div>
@@ -296,6 +355,46 @@ function MenuManagementPage() {
                   }
                   placeholder="Optional"
                 />
+              </div>
+
+              <div>
+                <label className="text-sm font-medium text-slate-700">
+                  Product photo
+                </label>
+                {form.imageDataUrl ? (
+                  <div className="relative mt-1 overflow-hidden rounded-lg border bg-slate-100">
+                    <img
+                      src={form.imageDataUrl}
+                      alt="Product preview"
+                      className="h-44 w-full object-contain"
+                    />
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="icon"
+                      title="Remove photo"
+                      className="absolute right-2 top-2"
+                      onClick={() =>
+                        setForm((current) => ({
+                          ...current,
+                          imageDataUrl: "",
+                        }))
+                      }
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ) : null}
+                <label className="mt-2 flex h-10 cursor-pointer items-center justify-center gap-2 rounded-md border bg-white px-3 text-sm font-medium hover:bg-slate-50">
+                  <ImagePlus className="h-4 w-4" />
+                  {form.imageDataUrl ? "Replace photo" : "Choose photo from PC"}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="sr-only"
+                    onChange={handlePhotoChange}
+                  />
+                </label>
               </div>
 
               <label className="flex items-center gap-2 text-sm text-slate-700">
@@ -343,7 +442,7 @@ function MenuManagementPage() {
                 </tr>
               </thead>
               <tbody>
-                {menu.map((item) => {
+                {sortedMenu.map((item) => {
                   const available =
                     item.isAvailable ??
                     item.available;
@@ -354,9 +453,15 @@ function MenuManagementPage() {
                       className="border-t bg-white"
                     >
                       <td className="px-4 py-3 font-semibold">
-                        <span className="mr-2">
-                          {item.emoji}
-                        </span>
+                        {item.imageDataUrl ? (
+                          <img
+                            src={item.imageDataUrl}
+                            alt=""
+                            className="mr-2 inline-block h-10 w-10 rounded object-cover align-middle"
+                          />
+                        ) : (
+                          <span className="mr-2">{item.emoji}</span>
+                        )}
                         {item.name}
                       </td>
                       <td className="px-4 py-3">

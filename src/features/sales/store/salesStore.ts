@@ -18,6 +18,10 @@ interface SalesStore {
     prefix: string
   ) => string;
   addSale: (sale: Sale) => void;
+  updateSalePaymentMethod: (
+    saleId: string,
+    paymentMethod: Sale["paymentMethod"]
+  ) => void;
   deleteSale: (saleId: string) => void;
   resetSalesStore: () => void;
 }
@@ -62,6 +66,19 @@ export const useSalesStore =
             ],
             nextInvoiceSequence:
               state.nextInvoiceSequence + 1,
+          })),
+
+        updateSalePaymentMethod: (saleId, paymentMethod) =>
+          set((state) => ({
+            sales: state.sales.map((sale) =>
+              sale.id === saleId
+                ? {
+                    ...sale,
+                    paymentMethod,
+                    paymentSplits: undefined,
+                  }
+                : sale
+            ),
           })),
 
         deleteSale: (saleId) =>

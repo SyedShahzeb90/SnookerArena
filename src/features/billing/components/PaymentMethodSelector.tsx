@@ -1,3 +1,5 @@
+import { useEffect } from "react";
+
 import type { PaymentMethod } from "@/types/session";
 import type { PaymentSplit } from "@/features/sales/types/sale";
 
@@ -19,6 +21,44 @@ const paymentOptions: {
   { value: "easypaisa", label: "Easypaisa" },
 ];
 
+function getFirstUnusedMethod(
+  splits: PaymentSplit[],
+  fallback: PaymentMethod = "cash"
+) {
+  return (
+    paymentOptions.find(
+      (option) =>
+        !splits.some(
+          (split) => split.method === option.value
+        )
+    )?.value ?? fallback
+  );
+}
+
+function normalizeSplitMethods(
+  splits: PaymentSplit[]
+) {
+  const used = new Set<PaymentMethod>();
+
+  return splits.map((split) => {
+    if (!used.has(split.method)) {
+      used.add(split.method);
+      return split;
+    }
+
+    const nextMethod =
+      paymentOptions.find(
+        (option) => !used.has(option.value)
+      )?.value ?? split.method;
+
+    used.add(nextMethod);
+    return {
+      ...split,
+      method: nextMethod,
+    };
+  });
+}
+
 function PaymentMethodSelector({
   value,
   onChange,
@@ -26,6 +66,10 @@ function PaymentMethodSelector({
   splits = [],
   onSplitsChange,
 }: Props) {
+  const isSplitPayment =
+    Boolean(onSplitsChange) &&
+    totalAmount !== undefined &&
+    splits.length > 0;
   const splitTotal = splits.reduce(
     (total, split) => total + split.amount,
     0
@@ -35,37 +79,96 @@ function PaymentMethodSelector({
       ? 0
       : totalAmount - splitTotal;
 
+  useEffect(() => {
+    if (!onSplitsChange || splits.length < 2) {
+      return;
+    }
+
+    const normalized =
+      normalizeSplitMethods(splits);
+    const changed = normalized.some(
+      (split, index) =>
+        split.method !== splits[index].method
+    );
+
+    if (changed) {
+      onSplitsChange(normalized);
+    }
+  }, [onSplitsChange, splits]);
+
   const updateSplit = (
     index: number,
     split: PaymentSplit
   ) => {
-    onSplitsChange?.(
+    const nextSplits = normalizeSplitMethods(
       splits.map((item, currentIndex) =>
         currentIndex === index ? split : item
       )
     );
+
+    if (
+      totalAmount !== undefined &&
+      nextSplits.length >= 2
+    ) {
+      const otherIndexes = nextSplits
+        .map((_, currentIndex) => currentIndex)
+        .filter(
+          (currentIndex) => currentIndex !== index
+        );
+      const autofillIndex =
+        otherIndexes.find(
+          (currentIndex) =>
+            nextSplits[currentIndex].amount === 0
+        ) ??
+        otherIndexes[otherIndexes.length - 1];
+      const fixedOtherTotal = otherIndexes
+        .filter(
+          (currentIndex) =>
+            currentIndex !== autofillIndex
+        )
+        .reduce(
+          (total, currentIndex) =>
+            total + nextSplits[currentIndex].amount,
+          0
+        );
+      const remainingAmount = Math.max(
+        0,
+        totalAmount - split.amount - fixedOtherTotal
+      );
+
+      nextSplits[autofillIndex] = {
+        ...nextSplits[autofillIndex],
+        amount: remainingAmount,
+      };
+    }
+
+    onSplitsChange?.(nextSplits);
   };
 
   return (
     <div className="space-y-2">
-      <select
-        value={value}
-        onChange={(e) =>
-          onChange(
-            e.target.value as PaymentMethod
-          )
-        }
-        className="w-full rounded-md border p-2"
-      >
-        {paymentOptions.map((option) => (
-          <option
-            key={option.value}
-            value={option.value}
-          >
-            {option.label}
-          </option>
-        ))}
-      </select>
+      {!isSplitPayment && (
+        <select
+          id="payment-method"
+          name="paymentMethod"
+          value={value}
+          onChange={(e) =>
+            onChange(
+              e.target.value as PaymentMethod
+            )
+          }
+          className="w-full rounded-md border p-2"
+        >
+          {paymentOptions.map((option) => (
+            <option
+              key={option.value}
+              value={option.value}
+            >
+              {option.label}
+            </option>
+          ))}
+        </select>
+      )}
 
       {onSplitsChange && totalAmount !== undefined && (
         <div className="rounded-lg border bg-slate-50 p-3">
@@ -103,6 +206,8 @@ function PaymentMethodSelector({
                   className="grid grid-cols-[1fr_110px_32px] gap-2"
                 >
                   <select
+                    id={`payment-split-method-${index}`}
+                    name={`paymentSplitMethod${index}`}
                     className="rounded-md border bg-white p-2"
                     value={split.method}
                     onChange={(event) =>
@@ -113,28 +218,51 @@ function PaymentMethodSelector({
                       })
                     }
                   >
-                    {paymentOptions.map((option) => (
-                      <option
-                        key={option.value}
-                        value={option.value}
-                      >
-                        {option.label}
-                      </option>
-                    ))}
+                    {paymentOptions
+                      .filter(
+                        (option) =>
+                          option.value ===
+                            split.method ||
+                          !splits.some(
+                            (
+                              currentSplit,
+                              currentIndex
+                            ) =>
+                              currentIndex !== index &&
+                              currentSplit.method ===
+                                option.value
+                          )
+                      )
+                      .map((option) => (
+                        <option
+                          key={option.value}
+                          value={option.value}
+                        >
+                          {option.label}
+                        </option>
+                      ))}
                   </select>
 
                   <input
+                    id={`payment-split-amount-${index}`}
+                    name={`paymentSplitAmount${index}`}
                     className="rounded-md border bg-white p-2"
                     type="number"
                     min={0}
-                    value={split.amount}
+                    value={
+                      split.amount === 0
+                        ? ""
+                        : split.amount
+                    }
                     onChange={(event) =>
                       updateSplit(index, {
                         ...split,
                         amount:
-                          Number(
-                            event.target.value
-                          ) || 0,
+                          event.target.value === ""
+                            ? 0
+                            : Number(
+                                event.target.value
+                              ) || 0,
                       })
                     }
                   />
@@ -163,7 +291,9 @@ function PaymentMethodSelector({
                   onSplitsChange([
                     ...splits,
                     {
-                      method: "cash",
+                      method: getFirstUnusedMethod(
+                        splits
+                      ),
                       amount: Math.max(
                         0,
                         remaining

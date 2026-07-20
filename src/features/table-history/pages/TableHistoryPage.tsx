@@ -11,7 +11,6 @@ import {
   useSearchParams,
 } from "react-router-dom";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -23,16 +22,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useTableStore } from "@/store/tableStore";
-import {
-  getWalkInDisplayName,
-  isWalkInName,
-} from "@/features/sessions/utils/walkInLabel";
 
 import { useTableHistoryStore } from "../store/tableHistoryStore";
-import type {
-  TableHistoryPaymentStatus,
-  TableHistoryRecord,
-} from "../types/tableHistory";
+import type { TableHistoryRecord } from "../types/tableHistory";
+import type { TableChargeLine } from "@/types/session";
 
 type DateFilter =
   | "today"
@@ -40,6 +33,16 @@ type DateFilter =
   | "this-week"
   | "this-month"
   | "custom";
+
+type HistoryDisplayRow = {
+  record: TableHistoryRecord;
+  rowId: string;
+  typeLabel: string;
+  startedAt: string;
+  endedAt: string;
+  durationMinutes: number;
+  tableAmount: number;
+};
 
 function formatCurrency(amount: number) {
   return `Rs. ${amount}`;
@@ -74,20 +77,6 @@ function formatTime(value: string) {
   );
 }
 
-function getRecordBillNo(record: TableHistoryRecord) {
-  return (
-    record.billNo ??
-    record.displayToken ??
-    record.customerToken ??
-    record.staffBillNumber ??
-    record.invoiceNumber ??
-    getRecordDisplayName(
-      record,
-      record.payerName ?? record.players[0]
-    )
-  );
-}
-
 function getRecordTypeLabel(record: TableHistoryRecord) {
   if (record.tableType === "private-room") {
     return "Private Room";
@@ -108,45 +97,101 @@ function getRecordTypeLabel(record: TableHistoryRecord) {
   return "Private Room";
 }
 
-function getSimpleDisplayName(name?: string | null) {
-  return isWalkInName(name)
-    ? "Walk-in Customer"
-    : name?.trim() ?? "";
+function getChargeLineTypeLabel(
+  line?: TableChargeLine,
+  fallback?: TableHistoryRecord
+) {
+  if (!line) {
+    return fallback
+      ? getRecordTypeLabel(fallback)
+      : "Session";
+  }
+
+  if (line.type === "singleGame") {
+    return line.isFinal
+      ? `Single Game \u00B7 Final ${line.finalGames ?? 1}`
+      : "Single Game";
+  }
+
+  if (line.type === "doubleGame") {
+    return line.isFinal
+      ? `Double Game \u00B7 Final ${line.finalGames ?? 1}`
+      : "Double Game";
+  }
+
+  return fallback?.tableType === "private-room"
+    ? "Private Room"
+    : "Table Booking";
 }
 
-function getRecordCustomerPlayersLabel(record: TableHistoryRecord) {
-  if (record.sessionType === "double") {
-    const teamA =
-      record.teamAPlayers?.filter(Boolean) ?? [];
-    const teamB =
-      record.teamBPlayers?.filter(Boolean) ?? [];
+function getRecordChargeLines(
+  record: TableHistoryRecord
+) {
+  return (record.tableChargeLines ?? []).filter(
+    (line) => line.amount > 0
+  );
+}
 
-    if (teamA.length || teamB.length) {
-      return [teamA.join("/"), teamB.join("/")]
-        .filter(Boolean)
-        .join(" vs ");
-    }
+function getDisplayRows(
+  record: TableHistoryRecord
+): HistoryDisplayRow[] {
+  const lines = getRecordChargeLines(record);
+  const labelCounts = new Map<string, number>();
+
+  lines.forEach((line) => {
+    const label = getChargeLineTypeLabel(line, record);
+    labelCounts.set(label, (labelCounts.get(label) ?? 0) + 1);
+  });
+
+  const typeLabel = lines.length
+    ? [...labelCounts.entries()]
+        .map(([label, count]) =>
+          count > 1 ? `${label} x${count}` : label
+        )
+        .join(", ")
+    : getRecordTypeLabel(record);
+
+  return [
+    {
+      record,
+      rowId: record.id,
+      typeLabel,
+      startedAt: record.startedAt,
+      endedAt: record.endedAt,
+      durationMinutes: record.durationMinutes,
+      tableAmount: record.tableAmount,
+    },
+  ];
+}
+
+function getRecordActivityCounts(
+  record: TableHistoryRecord
+) {
+  const lines = getRecordChargeLines(record);
+
+  if (lines.length > 0) {
+    return {
+      singleGames: lines.filter(
+        (line) => line.type === "singleGame"
+      ).length,
+      doubleGames: lines.filter(
+        (line) => line.type === "doubleGame"
+      ).length,
+      bookings: lines.filter(
+        (line) => line.type === "tableBooking"
+      ).length,
+    };
   }
 
-  if (
-    record.sessionType === "time" ||
-    record.sessionType === "private"
-  ) {
-    return (
-      getSimpleDisplayName(record.players[0]) ||
-      "Walk-in Customer"
-    );
-  }
-
-  const players = record.players
-    .map(getSimpleDisplayName)
-    .filter(Boolean);
-
-  if (players.every((player) => player === "Walk-in Customer")) {
-    return "Walk-in Customer";
-  }
-
-  return players.join(" vs ") || "Walk-in Customer";
+  return {
+    singleGames: record.sessionType === "single" ? 1 : 0,
+    doubleGames: record.sessionType === "double" ? 1 : 0,
+    bookings:
+      record.sessionType === "time" ||
+      record.sessionType === "private"
+        ? 1
+        : 0,
+  };
 }
 
 function formatDuration(minutes: number) {
@@ -236,33 +281,11 @@ function matchesSearch(
     .trim()
     .toLowerCase();
   const values = [
-    getRecordBillNo(record),
     record.tableName,
     record.sessionType,
     getRecordTypeLabel(record),
-    record.payerName,
-    getRecordDisplayName(record, record.payerName),
-    record.winnerName,
-    getRecordDisplayName(record, record.winnerName),
-    record.loserName,
-    getRecordDisplayName(record, record.loserName),
-    record.cancelledReason,
-    record.cancelledNote,
-    ...record.players,
-    getRecordPlayersLabel(record),
-    getRecordCustomerPlayersLabel(record),
-    ...record.cafeItems.map(
-      (item) =>
-        item.customerName ??
-        item.playerName ??
-        item.name
-    ),
-    ...record.cafeItems.map((item) =>
-      getRecordDisplayName(
-        record,
-        item.customerName ??
-          item.playerName
-      )
+    ...getRecordChargeLines(record).map((line) =>
+      getChargeLineTypeLabel(line, record)
     ),
   ];
 
@@ -273,43 +296,6 @@ function matchesSearch(
         .toLowerCase()
         .includes(search)
     );
-}
-
-function getRecordDisplayName(
-  record: TableHistoryRecord,
-  name?: string | null
-) {
-  return getWalkInDisplayName({
-    name,
-    tableId: record.tableId,
-    tableName: record.tableName,
-    tableType: record.tableType,
-    time: record.startedAt,
-  });
-}
-
-function getRecordPlayersLabel(
-  record: TableHistoryRecord
-) {
-  return record.players
-    .map((player) =>
-      getRecordDisplayName(record, player)
-    )
-    .join(", ");
-}
-
-function paymentBadgeVariant(
-  status: TableHistoryPaymentStatus
-) {
-  if (status === "paid") {
-    return "default";
-  }
-
-  if (status === "cancelled") {
-    return "destructive";
-  }
-
-  return "secondary";
 }
 
 function TableHistoryPage() {
@@ -336,15 +322,30 @@ function TableHistoryPage() {
     useState("");
   const [customEnd, setCustomEnd] =
     useState("");
-  const [statusFilter, setStatusFilter] =
-    useState("all");
   const [sessionTypeFilter, setSessionTypeFilter] =
     useState("all");
   const [search, setSearch] = useState("");
+  const [historyView, setHistoryView] = useState<
+    "sessions" | "earnings"
+  >(() =>
+    searchParams.get("tableId")
+      ? "earnings"
+      : "sessions"
+  );
   const [selectedRecord, setSelectedRecord] =
     useState<TableHistoryRecord | null>(
       null
     );
+  const [selectedEarningsTableId, setSelectedEarningsTableId] =
+    useState<number | null>(() => {
+      const tableId = Number(
+        searchParams.get("tableId")
+      );
+
+      return Number.isFinite(tableId) && tableId > 0
+        ? tableId
+        : null;
+    });
 
   const filteredRecords = useMemo(() => {
     const { start, end } = getDateRange(
@@ -354,6 +355,10 @@ function TableHistoryPage() {
     );
 
     return records
+      .filter(
+        (record) =>
+          record.paymentStatus !== "cancelled"
+      )
       .filter((record) => {
         const endedAt = new Date(
           record.endedAt
@@ -368,12 +373,6 @@ function TableHistoryPage() {
           ? true
           : record.tableId ===
             Number(tableFilter)
-      )
-      .filter((record) =>
-        statusFilter === "all"
-          ? true
-          : record.paymentStatus ===
-            statusFilter
       )
       .filter((record) =>
         sessionTypeFilter === "all"
@@ -395,7 +394,6 @@ function TableHistoryPage() {
     dateFilter,
     customStart,
     customEnd,
-    statusFilter,
     sessionTypeFilter,
     search,
   ]);
@@ -404,38 +402,157 @@ function TableHistoryPage() {
     () =>
       filteredRecords.reduce(
         (totals, record) => {
-          const countsForMoney =
-            record.paymentStatus !==
-            "cancelled";
+          const chargeLines =
+            getRecordChargeLines(record);
+          const singleGames =
+            chargeLines.length > 0
+              ? chargeLines.filter(
+                  (line) =>
+                    line.type === "singleGame"
+                ).length
+              : record.sessionType === "single"
+                ? 1
+                : 0;
+          const doubleGames =
+            chargeLines.length > 0
+              ? chargeLines.filter(
+                  (line) =>
+                    line.type === "doubleGame"
+                ).length
+              : record.sessionType === "double"
+                ? 1
+                : 0;
+          const bookingRows =
+            chargeLines.length > 0
+              ? chargeLines.filter(
+                  (line) =>
+                    line.type === "tableBooking"
+                )
+              : record.sessionType === "time" ||
+                  record.sessionType === "private"
+                ? [undefined]
+                : [];
 
           return {
             sessions: totals.sessions + 1,
-            tableBill:
-              totals.tableBill +
-              (countsForMoney
-                ? record.tableAmount
-                : 0),
-            cafeBill:
-              totals.cafeBill +
-              (countsForMoney
-                ? record.cafeAmount
-                : 0),
-            grandTotal:
-              totals.grandTotal +
-              (countsForMoney
-                ? record.grandTotal
-                : 0),
+            singleGames:
+              totals.singleGames + singleGames,
+            doubleGames:
+              totals.doubleGames + doubleGames,
+            bookingSessions:
+              totals.bookingSessions +
+              bookingRows.length,
+            bookingRevenue:
+              totals.bookingRevenue +
+              (chargeLines.length > 0
+                  ? chargeLines
+                      .filter(
+                        (line) =>
+                          line.type ===
+                          "tableBooking"
+                      )
+                      .reduce(
+                        (total, line) =>
+                          total + line.amount,
+                        0
+                      )
+                  : bookingRows.length
+                    ? record.tableAmount
+                    : 0),
+            tableEarnings:
+              totals.tableEarnings + record.tableAmount,
           };
         },
         {
           sessions: 0,
-          tableBill: 0,
-          cafeBill: 0,
-          grandTotal: 0,
+          singleGames: 0,
+          doubleGames: 0,
+          bookingSessions: 0,
+          bookingRevenue: 0,
+          tableEarnings: 0,
         }
       ),
     [filteredRecords]
   );
+  const displayRows = useMemo(
+    () => filteredRecords.flatMap(getDisplayRows),
+    [filteredRecords]
+  );
+  const tableEarnings = useMemo(() => {
+    const earnings = new Map<
+      number,
+      {
+        tableId: number;
+        tableName: string;
+        sessions: number;
+        singleGames: number;
+        doubleGames: number;
+        bookings: number;
+        amount: number;
+      }
+    >();
+
+    filteredRecords.forEach((record) => {
+      const current = earnings.get(record.tableId) ?? {
+        tableId: record.tableId,
+        tableName: record.tableName,
+        sessions: 0,
+        singleGames: 0,
+        doubleGames: 0,
+        bookings: 0,
+        amount: 0,
+      };
+      const lines = getRecordChargeLines(record);
+
+      current.sessions += 1;
+      current.amount += record.tableAmount;
+      current.singleGames += lines.length
+        ? lines.filter((line) => line.type === "singleGame").length
+        : record.sessionType === "single"
+          ? 1
+          : 0;
+      current.doubleGames += lines.length
+        ? lines.filter((line) => line.type === "doubleGame").length
+        : record.sessionType === "double"
+          ? 1
+          : 0;
+      current.bookings += lines.length
+        ? lines.filter((line) => line.type === "tableBooking").length
+        : record.sessionType === "time" || record.sessionType === "private"
+          ? 1
+          : 0;
+      earnings.set(record.tableId, current);
+    });
+
+    return [...earnings.values()].sort(
+      (a, b) => b.amount - a.amount
+    );
+  }, [filteredRecords]);
+  const selectedEarningsTable =
+    selectedEarningsTableId === null
+      ? undefined
+      : tableEarnings.find(
+          (item) =>
+            item.tableId === selectedEarningsTableId
+        );
+  const selectedEarningsTableName =
+    selectedEarningsTable?.tableName ??
+    tables.find(
+      (table) =>
+        table.id === selectedEarningsTableId
+    )?.name;
+  const selectedTableRecords =
+    selectedEarningsTableId === null
+      ? []
+      : filteredRecords.filter(
+          (record) =>
+            record.tableId === selectedEarningsTableId
+        );
+  const selectedTableTotal =
+    selectedTableRecords.reduce(
+      (total, record) => total + record.tableAmount,
+      0
+    );
 
   return (
     <main className="min-h-screen bg-slate-100 px-6 py-8">
@@ -461,13 +578,36 @@ function TableHistoryPage() {
                 Table History
               </h1>
               <p className="text-sm text-slate-500">
-                Review ended sessions, bills, payments, and cafe items.
+                Track frames, bookings, and earnings for every table.
               </p>
             </div>
           </div>
         </div>
 
-        <div className="mb-5 grid grid-cols-1 gap-4 md:grid-cols-4">
+        <div className="mb-5 flex gap-2">
+          <Button
+            type="button"
+            variant={historyView === "sessions" ? "default" : "outline"}
+            onClick={() => {
+              setHistoryView("sessions");
+              setSelectedRecord(null);
+            }}
+          >
+            Session History
+          </Button>
+          <Button
+            type="button"
+            variant={historyView === "earnings" ? "default" : "outline"}
+            onClick={() => {
+              setHistoryView("earnings");
+              setSelectedRecord(null);
+            }}
+          >
+            Earnings by Table
+          </Button>
+        </div>
+
+        <div className="mb-5 grid grid-cols-1 gap-4 md:grid-cols-3">
           <Card className="p-5">
             <p className="text-sm text-slate-500">
               Total Sessions
@@ -479,35 +619,293 @@ function TableHistoryPage() {
 
           <Card className="p-5">
             <p className="text-sm text-slate-500">
-              Table Bill
+              Table Earnings
             </p>
             <p className="mt-3 text-2xl font-bold text-slate-950">
-              {formatCurrency(summary.tableBill)}
+              {formatCurrency(summary.tableEarnings)}
             </p>
           </Card>
 
           <Card className="p-5">
             <p className="text-sm text-slate-500">
-              Cafe Bill
+              Top Earning Table
             </p>
             <p className="mt-3 text-2xl font-bold text-slate-950">
-              {formatCurrency(summary.cafeBill)}
+              {tableEarnings[0]?.tableName ?? "-"}
             </p>
-          </Card>
-
-          <Card className="p-5">
-            <p className="text-sm text-slate-500">
-              Grand Total
-            </p>
-            <p className="mt-3 text-2xl font-bold text-emerald-700">
-              {formatCurrency(summary.grandTotal)}
+            <p className="mt-1 text-sm font-bold text-emerald-700">
+              {formatCurrency(tableEarnings[0]?.amount ?? 0)}
             </p>
           </Card>
         </div>
 
+        <div className="mb-5 grid grid-cols-1 gap-4 md:grid-cols-4">
+          <Card className="p-4">
+            <p className="text-sm text-slate-500">
+              Single Frames
+            </p>
+            <p className="mt-2 text-2xl font-bold text-slate-950">
+              {summary.singleGames}
+            </p>
+          </Card>
+
+          <Card className="p-4">
+            <p className="text-sm text-slate-500">
+              Double Frames
+            </p>
+            <p className="mt-2 text-2xl font-bold text-slate-950">
+              {summary.doubleGames}
+            </p>
+          </Card>
+
+          <Card className="p-4">
+            <p className="text-sm text-slate-500">
+              Booking Sessions
+            </p>
+            <p className="mt-2 text-2xl font-bold text-slate-950">
+              {summary.bookingSessions}
+            </p>
+          </Card>
+
+          <Card className="p-4">
+            <p className="text-sm text-slate-500">
+              Booking Revenue
+            </p>
+            <p className="mt-2 text-2xl font-bold text-emerald-700">
+              {formatCurrency(summary.bookingRevenue)}
+            </p>
+          </Card>
+        </div>
+
+        {historyView === "earnings" && (
+        <>
+        <Card className="mb-5 overflow-hidden">
+          <div className="flex flex-wrap items-end justify-between gap-3 border-b p-4">
+            <div>
+              <h2 className="font-bold text-slate-950">
+                Earnings by Table
+              </h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Select a table to open its earnings register.
+              </p>
+            </div>
+            <label className="grid min-w-40 gap-1 text-xs font-semibold uppercase text-slate-500">
+              Period
+              <Select
+                value={dateFilter}
+                onValueChange={(value) =>
+                  setDateFilter(value as DateFilter)
+                }
+              >
+                <SelectTrigger className="bg-white font-normal normal-case">
+                  <SelectValue placeholder="Period" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="today">Today</SelectItem>
+                  <SelectItem value="yesterday">Yesterday</SelectItem>
+                  <SelectItem value="this-week">This Week</SelectItem>
+                  <SelectItem value="this-month">This Month</SelectItem>
+                  <SelectItem value="custom">Custom Range</SelectItem>
+                </SelectContent>
+              </Select>
+            </label>
+          </div>
+          {dateFilter === "custom" && (
+            <div className="grid gap-3 border-b bg-slate-50 p-4 md:grid-cols-2">
+              <Input
+                type="date"
+                value={customStart}
+                onChange={(event) =>
+                  setCustomStart(event.target.value)
+                }
+              />
+              <Input
+                type="date"
+                value={customEnd}
+                onChange={(event) =>
+                  setCustomEnd(event.target.value)
+                }
+              />
+            </div>
+          )}
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[720px] text-left text-sm">
+              <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                <tr>
+                  <th className="px-4 py-3">Rank</th>
+                  <th className="px-4 py-3">Table</th>
+                  <th className="px-4 py-3 text-right">Sessions</th>
+                  <th className="px-4 py-3 text-right">Single Frames</th>
+                  <th className="px-4 py-3 text-right">Double Frames</th>
+                  <th className="px-4 py-3 text-right">Bookings</th>
+                  <th className="px-4 py-3 text-right">Earnings</th>
+                  <th className="px-4 py-3 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {tableEarnings.map((item, index) => (
+                  <tr
+                    key={item.tableId}
+                    tabIndex={0}
+                    onClick={() =>
+                      setSelectedEarningsTableId(item.tableId)
+                    }
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        setSelectedEarningsTableId(item.tableId);
+                      }
+                    }}
+                    className={`cursor-pointer transition focus:outline-none focus:ring-2 focus:ring-inset focus:ring-emerald-300 ${
+                      selectedEarningsTableId === item.tableId
+                        ? "bg-emerald-50"
+                        : "bg-white hover:bg-slate-50"
+                    }`}
+                  >
+                    <td className="px-4 py-3 font-bold">{index + 1}</td>
+                    <td className="px-4 py-3 font-semibold">{item.tableName}</td>
+                    <td className="px-4 py-3 text-right">{item.sessions}</td>
+                    <td className="px-4 py-3 text-right">{item.singleGames}</td>
+                    <td className="px-4 py-3 text-right">{item.doubleGames}</td>
+                    <td className="px-4 py-3 text-right">{item.bookings}</td>
+                    <td className="px-4 py-3 text-right font-bold text-emerald-700">
+                      {formatCurrency(item.amount)}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={
+                          selectedEarningsTableId === item.tableId
+                            ? "default"
+                            : "outline"
+                        }
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setSelectedEarningsTableId(item.tableId);
+                        }}
+                      >
+                        View History
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+                {tableEarnings.length === 0 && (
+                  <tr>
+                    <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
+                      No table earnings for this period.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+
+        {selectedEarningsTableId !== null && (
+          <Card className="mb-5 overflow-hidden border-emerald-200">
+            <div className="flex items-center justify-between gap-4 border-b bg-emerald-50 p-4">
+              <div>
+                <h2 className="font-bold text-slate-950">
+                  {selectedEarningsTableName ?? `Table ${selectedEarningsTableId}`} Earnings History
+                </h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  {selectedTableRecords.length} sessions{" \u00B7 "}{formatCurrency(selectedTableTotal)} earned
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  setSelectedEarningsTableId(null)
+                }
+              >
+                Close
+              </Button>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[980px] text-left text-sm">
+                <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3">No.</th>
+                    <th className="px-4 py-3">Date</th>
+                    <th className="px-4 py-3">Time In</th>
+                    <th className="px-4 py-3">Time Out</th>
+                    <th className="px-4 py-3">Session</th>
+                    <th className="px-4 py-3 text-right">Single</th>
+                    <th className="px-4 py-3 text-right">Double</th>
+                    <th className="px-4 py-3 text-right">Bookings</th>
+                    <th className="px-4 py-3 text-right">Earnings</th>
+                    <th className="px-4 py-3 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {selectedTableRecords.map((record, index) => {
+                    const counts = getRecordActivityCounts(record);
+
+                    return (
+                      <tr key={record.id} className="bg-white">
+                        <td className="px-4 py-3 font-bold">{index + 1}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">{formatDate(record.endedAt)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">{formatTime(record.startedAt)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">{formatTime(record.endedAt)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          {getDisplayRows(record)[0]?.typeLabel ?? getRecordTypeLabel(record)}
+                        </td>
+                        <td className="px-4 py-3 text-right">{counts.singleGames || "-"}</td>
+                        <td className="px-4 py-3 text-right">{counts.doubleGames || "-"}</td>
+                        <td className="px-4 py-3 text-right">{counts.bookings || "-"}</td>
+                        <td className="px-4 py-3 text-right font-bold text-emerald-700">
+                          {formatCurrency(record.tableAmount)}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setSelectedRecord(record)}
+                          >
+                            View Details
+                          </Button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+
+                  {selectedTableRecords.length === 0 && (
+                    <tr>
+                      <td colSpan={10} className="px-4 py-8 text-center text-slate-500">
+                        No history for this table with the selected filters.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+                {selectedTableRecords.length > 0 && (
+                  <tfoot className="border-t bg-slate-50 font-bold">
+                    <tr>
+                      <td colSpan={8} className="px-4 py-3 text-right">
+                        Total Earnings
+                      </td>
+                      <td className="px-4 py-3 text-right text-emerald-700">
+                        {formatCurrency(selectedTableTotal)}
+                      </td>
+                      <td />
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
+          </Card>
+        )}
+
+        </>
+        )}
+
+        {historyView === "sessions" && (
         <Card className="overflow-hidden">
           <div className="border-b p-4">
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr_1fr]">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr]">
               <div className="space-y-1.5">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                   Search
@@ -519,7 +917,7 @@ function TableHistoryPage() {
                     onChange={(event) =>
                       setSearch(event.target.value)
                     }
-                    placeholder="Player, payer, winner, loser, cafe customer..."
+                    placeholder="Search table or game type..."
                     className="pl-9"
                   />
                 </div>
@@ -591,36 +989,6 @@ function TableHistoryPage() {
 
               <div className="space-y-1.5">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Status
-                </p>
-                <Select
-                  value={statusFilter}
-                  onValueChange={(value) =>
-                    setStatusFilter(value ?? "all")
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">
-                      All Status
-                    </SelectItem>
-                    <SelectItem value="pending">
-                      Pending
-                    </SelectItem>
-                    <SelectItem value="paid">
-                      Paid
-                    </SelectItem>
-                    <SelectItem value="cancelled">
-                      Cancelled
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-1.5">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                   Session Type
                 </p>
                 <Select
@@ -681,14 +1049,14 @@ function TableHistoryPage() {
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1040px] text-left text-sm">
+            <table className="w-full min-w-[780px] text-left text-sm">
               <thead className="bg-slate-50 text-xs uppercase text-slate-500">
                 <tr>
-                  <th className="min-w-36 whitespace-nowrap px-4 py-3">
-                    Bill No
+                  <th className="w-20 whitespace-nowrap px-4 py-3">
+                    No.
                   </th>
                   <th className="px-4 py-3">
-                    Date / Time
+                    Date / Start - End
                   </th>
                   <th className="px-4 py-3">
                     Table
@@ -697,22 +1065,10 @@ function TableHistoryPage() {
                     Type
                   </th>
                   <th className="px-4 py-3">
-                    Customer / Players
-                  </th>
-                  <th className="px-4 py-3">
                     Duration
                   </th>
                   <th className="px-4 py-3">
-                    Table Bill
-                  </th>
-                  <th className="px-4 py-3">
-                    Cafe Bill
-                  </th>
-                  <th className="px-4 py-3">
-                    Total
-                  </th>
-                  <th className="px-4 py-3">
-                    Status
+                    Table Earnings
                   </th>
                   <th className="px-4 py-3 text-right">
                     Action
@@ -720,67 +1076,38 @@ function TableHistoryPage() {
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {filteredRecords.map((record) => (
+                {displayRows.map((row, index) => (
                   <tr
-                    key={record.id}
+                    key={row.rowId}
                     className="bg-white"
                   >
-                    <td className="min-w-36 whitespace-nowrap px-4 py-3 font-semibold">
-                      {getRecordBillNo(record)}
+                    <td className="w-20 whitespace-nowrap px-4 py-3 font-semibold">
+                      {index + 1}
                     </td>
                     <td className="px-4 py-3">
                       <div className="whitespace-nowrap">
-                        <p>{formatDate(record.endedAt)}</p>
+                        <p>{formatDate(row.endedAt)}</p>
                         <p className="text-xs text-slate-500">
-                          {formatTime(record.endedAt)}
+                          {formatTime(row.startedAt)} -{" "}
+                          {formatTime(row.endedAt)}
                         </p>
                       </div>
                     </td>
                     <td className="px-4 py-3 font-medium">
-                      {record.tableName}
+                      {row.record.tableName}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
-                      {getRecordTypeLabel(record)}
-                    </td>
-                    <td
-                      className="max-w-[260px] truncate px-4 py-3"
-                      title={getRecordCustomerPlayersLabel(
-                        record
-                      )}
-                    >
-                      {getRecordCustomerPlayersLabel(
-                        record
-                      )}
+                      {row.typeLabel}
                     </td>
                     <td className="px-4 py-3">
                       {formatDuration(
-                        record.durationMinutes
+                        row.durationMinutes
                       )}
                     </td>
                     <td className="px-4 py-3">
                       {formatCurrency(
-                        record.tableAmount
+                        row.tableAmount
                       )}
-                    </td>
-                    <td className="px-4 py-3">
-                      {formatCurrency(
-                        record.cafeAmount
-                      )}
-                    </td>
-                    <td className="px-4 py-3 font-bold">
-                      {formatCurrency(
-                        record.grandTotal
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge
-                        variant={paymentBadgeVariant(
-                          record.paymentStatus
-                        )}
-                        className="capitalize"
-                      >
-                        {record.paymentStatus}
-                      </Badge>
                     </td>
                     <td className="px-4 py-3 text-right">
                       <Button
@@ -789,7 +1116,7 @@ function TableHistoryPage() {
                         className="gap-2"
                         onClick={() =>
                           setSelectedRecord(
-                            record
+                            row.record
                           )
                         }
                       >
@@ -800,10 +1127,10 @@ function TableHistoryPage() {
                   </tr>
                 ))}
 
-                {filteredRecords.length === 0 && (
+                {displayRows.length === 0 && (
                   <tr>
                     <td
-                      colSpan={11}
+                      colSpan={7}
                       className="px-4 py-12 text-center text-slate-500"
                     >
                       No table history found.
@@ -814,6 +1141,7 @@ function TableHistoryPage() {
             </table>
           </div>
         </Card>
+        )}
 
         {selectedRecord && (
           <Card className="mt-5 p-5">
@@ -825,12 +1153,6 @@ function TableHistoryPage() {
                     selectedRecord.endedAt
                   )}
                 </h2>
-                <p className="text-sm text-slate-500">
-                  Customer / Players:{" "}
-                  {getRecordCustomerPlayersLabel(
-                    selectedRecord
-                  )}
-                </p>
               </div>
 
               <Button
@@ -843,16 +1165,12 @@ function TableHistoryPage() {
               </Button>
             </div>
 
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div className="rounded-lg border p-4">
                 <p className="text-sm font-semibold text-slate-950">
                   Session
                 </p>
                 <div className="mt-3 space-y-2 text-sm text-slate-600">
-                  <p>
-                    Bill No:{" "}
-                    {getRecordBillNo(selectedRecord)}
-                  </p>
                   <p>
                     Date:{" "}
                     {formatDateTime(
@@ -868,30 +1186,6 @@ function TableHistoryPage() {
                     {getRecordTypeLabel(
                       selectedRecord
                     )}
-                  </p>
-                  <p>
-                    Players / Teams:{" "}
-                    {getRecordCustomerPlayersLabel(
-                      selectedRecord
-                    )}
-                  </p>
-                  <p>
-                    Winner:{" "}
-                    {selectedRecord.winnerName
-                      ? getRecordDisplayName(
-                          selectedRecord,
-                          selectedRecord.winnerName
-                        )
-                      : "-"}
-                  </p>
-                  <p>
-                    Loser:{" "}
-                    {selectedRecord.loserName
-                      ? getRecordDisplayName(
-                          selectedRecord,
-                          selectedRecord.loserName
-                        )
-                      : "-"}
                   </p>
                   <p>
                     Time In:{" "}
@@ -911,168 +1205,70 @@ function TableHistoryPage() {
                       selectedRecord.durationMinutes
                     )}
                   </p>
-                  <p>
-                    Payer:{" "}
-                    {selectedRecord.payerName
-                      ? getRecordDisplayName(
-                          selectedRecord,
-                          selectedRecord.payerName
-                        )
-                      : "-"}
-                  </p>
-                  <p className="capitalize">
-                    Status:{" "}
-                    {selectedRecord.paymentStatus}
-                  </p>
-                  {selectedRecord.paymentStatus ===
-                    "cancelled" && (
-                    <>
-                      <p>
-                        Cancelled At:{" "}
-                        {selectedRecord.cancelledAt
-                          ? formatDateTime(
-                              selectedRecord.cancelledAt
-                            )
-                          : "-"}
-                      </p>
-                      <p>
-                        Cancelled Reason:{" "}
-                        {selectedRecord.cancelledReason ??
-                          "-"}
-                      </p>
-                      <p>
-                        Cancelled Note:{" "}
-                        {selectedRecord.cancelledNote ??
-                          "-"}
-                      </p>
-                    </>
-                  )}
                 </div>
               </div>
 
               <div className="rounded-lg border p-4">
                 <p className="text-sm font-semibold text-slate-950">
-                  Billing
+                  Table Earnings
                 </p>
                 <div className="mt-3 space-y-2 text-sm text-slate-600">
                   <p>
-                    Table Bill:{" "}
+                    Session Earnings:{" "}
                     {formatCurrency(
                       selectedRecord.tableAmount
                     )}
                   </p>
-                  <p>
-                    Cafe Bill:{" "}
-                    {formatCurrency(
-                      selectedRecord.cafeAmount
-                    )}
-                  </p>
-                  <p>
-                    Accessories Bill:{" "}
-                    {formatCurrency(0)}
-                  </p>
-                  <p>
-                    Discount:{" "}
-                    {formatCurrency(
-                      selectedRecord.discount
-                    )}
-                  </p>
-                  <p className="font-bold text-slate-950">
-                    Total:{" "}
-                    {formatCurrency(
-                      selectedRecord.grandTotal
-                    )}
-                  </p>
-                </div>
-              </div>
-
-              <div className="rounded-lg border p-4">
-                <p className="text-sm font-semibold text-slate-950">
-                  Cafe Items
-                </p>
-                <div className="mt-3 space-y-2 text-sm text-slate-600">
-                  {selectedRecord.cafeItems.length >
-                  0 ? (
-                    selectedRecord.cafeItems.map(
-                      (item, index) => (
-                        <div
-                          key={`${item.itemId}-${index}`}
-                          className="rounded-lg bg-slate-50 p-2"
-                        >
-                          <div className="flex justify-between gap-3 font-medium text-slate-950">
-                            <span>{item.name}</span>
-                            <span>
-                              {formatCurrency(
-                                item.subtotal
-                              )}
-                            </span>
-                          </div>
-                          <div className="mt-1 flex justify-between gap-3 text-xs text-slate-500">
-                            <span>
-                              {getRecordDisplayName(
-                                selectedRecord,
-                                item.playerName ??
-                                  item.customerName
-                              )}
-                            </span>
-                            <span>
-                              {item.quantity} x{" "}
-                              {formatCurrency(
-                                item.price
-                              )}
-                            </span>
-                          </div>
-                        </div>
-                      )
-                    )
-                  ) : (
-                    <p>No cafe items.</p>
-                  )}
                 </div>
               </div>
             </div>
 
             <div className="mt-4 rounded-lg border p-4">
               <p className="text-sm font-semibold text-slate-950">
-                Player Breakdown
+                Games / Booking Charges
               </p>
-              <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-                {selectedRecord.playerBreakdown.map(
-                  (player) => (
-                    <div
-                      key={player.playerName}
-                      className="rounded-lg bg-slate-50 p-3 text-sm"
-                    >
-                      <div className="mb-2 flex justify-between font-semibold text-slate-950">
-                        <span>
-                          {getRecordDisplayName(
-                            selectedRecord,
-                            player.playerName
-                          )}
-                        </span>
-                        <span>
-                          {formatCurrency(
-                            player.totalAmount
-                          )}
-                        </span>
-                      </div>
-                      <p>
-                        Table:{" "}
-                        {formatCurrency(
-                          player.tableAmountShare
-                        )}
-                      </p>
-                      <p>
-                        Cafe:{" "}
-                        {formatCurrency(
-                          player.cafeAmount
-                        )}
-                      </p>
-                    </div>
+              <div className="mt-3 space-y-3">
+                {getRecordChargeLines(selectedRecord)
+                  .slice()
+                  .sort(
+                    (a, b) =>
+                      new Date(a.startedAt).getTime() -
+                      new Date(b.startedAt).getTime()
                   )
+                  .map((line, index) => (
+                      <div
+                        key={line.id}
+                        className="rounded-lg bg-slate-50 p-3 text-sm"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <strong className="text-slate-950">
+                            {line.type === "tableBooking"
+                              ? `Booking charge ${index + 1}`
+                              : `Frame ${index + 1}`}: {getChargeLineTypeLabel(line, selectedRecord)}
+                          </strong>
+                          <span className="text-slate-500">
+                            {formatTime(line.startedAt)} - {formatTime(line.endedAt ?? selectedRecord.endedAt)}
+                          </span>
+                        </div>
+                        <div className="mt-2 flex justify-between border-t pt-2 text-slate-600">
+                          <span>
+                            Duration: {formatDuration(line.durationMinutes ?? 0)}
+                          </span>
+                          <strong className="text-emerald-700">
+                            {formatCurrency(line.amount)}
+                          </strong>
+                        </div>
+                      </div>
+                  ))}
+
+                {getRecordChargeLines(selectedRecord).length === 0 && (
+                  <p className="text-sm text-slate-500">
+                    No frame breakdown is available for this older record.
+                  </p>
                 )}
               </div>
             </div>
+
           </Card>
         )}
       </div>
