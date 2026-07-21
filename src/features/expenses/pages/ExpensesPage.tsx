@@ -40,6 +40,7 @@ import {
   isActiveExpense,
   normalizeExpenseCategory,
 } from "../utils/expenseHelpers";
+import { useAppDateTimeFormats } from "@/lib/dateTime";
 
 type SortOrder =
   | "newest"
@@ -113,6 +114,7 @@ function getDateRange(
 }
 
 function ExpensesPage() {
+  useAppDateTimeFormats();
   const navigate = useNavigate();
   const location = useLocation();
   const dashboardPath =

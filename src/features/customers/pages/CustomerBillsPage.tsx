@@ -32,11 +32,23 @@ import { useCheckoutStore } from "@/features/billing/store/checkoutStore";
 import { useCreditLedgerStore } from "@/features/credit-ledger/store/creditLedgerStore";
 import { useAdvanceGamesStore } from "@/features/advance-games/store/advanceGamesStore";
 import { useCafeStore } from "@/features/cafe/store/cafeStore";
+import { useTableHistoryStore } from "@/features/table-history/store/tableHistoryStore";
+import { useClubSettingsStore } from "@/features/settings/store/clubSettingsStore";
+import { useAdminModeStore } from "@/features/admin-mode/adminModeStore";
+import {
+  compareChargeTimestamps,
+  formatAppDate,
+  formatAppTime,
+  formatChargeDuration,
+  formatChargeTimeRange,
+  useAppDateTimeFormats,
+} from "@/lib/dateTime";
 import { isWalkInName } from "@/features/sessions/utils/walkInLabel";
 import {
   getBillPrimaryLabel,
   getBillTableLabel,
 } from "../utils/billDisplay";
+import { getIndividualGameCharges } from "../utils/individualGameCharges";
 
 const paymentMethods: {
   value: PaymentMethod;
@@ -61,6 +73,7 @@ type BillTypeFilter =
 type BillStatusFilter =
   | "unpaid"
   | "paid"
+  | "cancelled"
   | "all";
 type TableFilter = "all" | string;
 
@@ -95,14 +108,7 @@ function formatShortDate(value?: string) {
     return "—";
   }
 
-  return date.toLocaleDateString(
-    undefined,
-    {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    }
-  );
+  return formatAppDate(date);
 }
 
 function formatTime(value?: string) {
@@ -114,13 +120,7 @@ function formatTime(value?: string) {
     return "Unavailable";
   }
 
-  return date.toLocaleTimeString(
-    undefined,
-    {
-      hour: "numeric",
-      minute: "2-digit",
-    }
-  );
+  return formatAppTime(date);
 }
 
 function formatDurationMinutes(minutes?: number) {
@@ -450,12 +450,17 @@ function accountMatchesSession(
   return customerIds.includes(account.id);
 }
 
-function CustomerBillsPage() {
+function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
+  useAppDateTimeFormats();
   const navigate = useNavigate();
+  const defaultPaymentMethod = useClubSettingsStore(
+    (state) => state.settings.defaultPaymentMethod
+  );
   const [searchParams] = useSearchParams();
   const accounts = useCustomerAccountStore(
     (state) => state.accounts
   );
+  const tableHistoryRecords = useTableHistoryStore((state) => state.records);
   const tables = useTableStore(
     (state) => state.tables
   );
@@ -539,7 +544,15 @@ function CustomerBillsPage() {
   const [discountText, setDiscountText] =
     useState("0");
   const [paymentMethod, setPaymentMethod] =
-    useState<PaymentMethod>("cash");
+    useState<PaymentMethod>(() =>
+      useClubSettingsStore.getState().settings.defaultPaymentMethod
+    );
+  const canCorrectPayments = useAdminModeStore(
+    (state) => state.can("correct_payments")
+  );
+  const canCancelBills = useAdminModeStore(
+    (state) => state.can("cancel_bills")
+  );
   const [paymentSplits, setPaymentSplits] =
     useState<PaymentSplit[]>([]);
   const [isEditingPaidPayment, setIsEditingPaidPayment] =
@@ -583,16 +596,19 @@ function CustomerBillsPage() {
             account.paymentStatus === "unpaid";
           const isPaidBill =
             account.paymentStatus === "paid";
+          const isCancelledBill = Boolean(account.cancelledAt);
           const hasBillCharges =
             account.gameCharges.length > 0 ||
             account.cafeCharges.length > 0 ||
             (account.accessoryCharges ?? []).length > 0;
           const matchesStatus =
             billStatusFilter === "all"
-              ? isUnpaidBill || isPaidBill
+              ? isUnpaidBill || isPaidBill || isCancelledBill
               : billStatusFilter === "paid"
                 ? isPaidBill
-                : isUnpaidBill;
+                : billStatusFilter === "cancelled"
+                  ? isCancelledBill
+                  : isUnpaidBill;
 
           if (
             !matchesStatus ||
@@ -745,6 +761,7 @@ function CustomerBillsPage() {
           (account) => account.id === selectedId
         )
       : undefined;
+  const selectedAccountIsCancelled = Boolean(selectedAccount?.cancelledAt);
   const selectedTotals = selectedAccount
     ? getBillTotals(selectedAccount)
     : undefined;
@@ -799,17 +816,24 @@ function CustomerBillsPage() {
   const selectedRunningTable = selectedAccount
     ? getRunningTableForAccount(selectedAccount)
     : undefined;
+  const selectedGameLines = selectedAccount
+    ? getIndividualGameCharges(selectedAccount.gameCharges, tableHistoryRecords)
+    : [];
   const selectedAdvanceBalance = selectedAccount
     ? safeAdvanceTransactions
         .filter((item) => item.customerId === selectedAccount.id)
         .reduce((total, item) => total + item.balanceDelta, 0)
     : 0;
   const selectedEligibleGames = selectedAccount
-    ? Math.floor(
-        selectedAccount.gameCharges.reduce(
-          (total, charge) => total + (charge.originalAmount ?? charge.amount),
-          0
-        ) / 300
+    ? selectedAccount.gameCharges.reduce(
+        (total, charge) =>
+          total +
+          (charge.gameCount ??
+            Math.max(
+              1,
+              Math.round((charge.originalAmount ?? charge.amount) / 300)
+            )),
+        0
       )
     : 0;
   const selectedMaximumAdvanceGames = Math.min(
@@ -831,7 +855,7 @@ function CustomerBillsPage() {
     setDiscountText(
       String(account.discount ?? 0)
     );
-    setPaymentMethod("cash");
+    setPaymentMethod(defaultPaymentMethod);
     setPaymentSplits([]);
     setIsEditingPaidPayment(false);
     setCorrectedPaymentMethod(account.paymentMethod ?? "cash");
@@ -869,6 +893,12 @@ function CustomerBillsPage() {
   };
 
   const handleCorrectPaymentMethod = () => {
+    if (!useAdminModeStore.getState().can("correct_payments")) {
+      setError("Admin Mode is required to correct a payment method.");
+      setMessage("");
+      setIsEditingPaidPayment(false);
+      return;
+    }
     if (!selectedAccount || selectedAccount.paymentStatus !== "paid") {
       return;
     }
@@ -907,6 +937,11 @@ function CustomerBillsPage() {
   };
 
   const handleDeleteSelectedBill = () => {
+    if (!useAdminModeStore.getState().can("cancel_bills")) {
+      setError("Admin Mode is required to delete or cancel a bill.");
+      setMessage("");
+      return;
+    }
     if (!selectedAccount) return;
 
     if (
@@ -939,6 +974,16 @@ function CustomerBillsPage() {
 
     sessionIds.forEach((sessionId) => {
       removePendingBill(`BILL-${sessionId}`);
+    });
+    new Set(
+      selectedAccount.cafeCharges
+        .map((charge) => charge.sourceOrderId)
+        .filter((sourceOrderId): sourceOrderId is string => Boolean(sourceOrderId))
+    ).forEach((sourceOrderId) => {
+      useCafeStore.getState().reverseStockForCharge(
+        sourceOrderId,
+        `Deleted customer bill ${selectedAccount.customerToken}`
+      );
     });
     deleteSavedOrdersForCustomerAccount(selectedAccount.id);
     deleteCustomerAccount(selectedAccount.id);
@@ -1252,7 +1297,7 @@ function CustomerBillsPage() {
       `Payment received for ${selectedAccount.customerName}.`
     );
     setSelectedId(null);
-    setPaymentMethod("cash");
+    setPaymentMethod(defaultPaymentMethod);
     setPaymentSplits([]);
     setPayingCustomerId(null);
   };
@@ -1359,7 +1404,7 @@ function CustomerBillsPage() {
       `${entry.customerName} moved to Credit Ledger.`
     );
     setSelectedId(null);
-    setPaymentMethod("cash");
+    setPaymentMethod(defaultPaymentMethod);
     setPaymentSplits([]);
     setCreditNote("");
     setIsCreditDialogOpen(false);
@@ -1380,14 +1425,12 @@ function CustomerBillsPage() {
         <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
             <h1 className="text-2xl font-bold text-slate-950">
-              Customer Bills
+              {paymentMode ? "Collect Payment" : "Customer Bills"}
             </h1>
             <p className="text-sm text-slate-500">
-              {billStatusFilter === "paid"
-                ? "Review paid customer bills and payment details."
-                : billStatusFilter === "all"
-                  ? "Review unpaid and paid customer bills."
-                  : "Open unpaid customer bills for games and cafe orders."}
+              {paymentMode
+                ? "Collect payment for ended sessions and open bills."
+                : "View and manage customer bill records."}
             </p>
           </div>
 
@@ -1396,6 +1439,8 @@ function CustomerBillsPage() {
               <p className="text-sm text-slate-500">
                 {billStatusFilter === "paid"
                   ? "Paid Bills"
+                  : billStatusFilter === "cancelled"
+                    ? "Cancelled Bills"
                   : billStatusFilter === "all"
                     ? "All Bills"
                     : "Open Bills"}
@@ -1408,6 +1453,8 @@ function CustomerBillsPage() {
               <p className="text-sm text-slate-500">
                 {billStatusFilter === "paid"
                   ? "Paid Amount"
+                  : billStatusFilter === "cancelled"
+                    ? "Cancelled Amount"
                   : billStatusFilter === "all"
                     ? "Total Amount"
                     : "Outstanding Amount"}
@@ -1461,7 +1508,7 @@ function CustomerBillsPage() {
                 <select
                   id="customer-bills-date-filter"
                   name="customerBillsDateFilter"
-                  className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm font-normal normal-case text-slate-900"
+                  className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm font-normal normal-case text-slate-900 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                   value={dateFilter}
                   onChange={(event) =>
                     setDateFilter(
@@ -1481,7 +1528,7 @@ function CustomerBillsPage() {
                 <select
                   id="customer-bills-type-filter"
                   name="customerBillsTypeFilter"
-                  className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm font-normal normal-case text-slate-900"
+                  className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm font-normal normal-case text-slate-900 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                   value={billTypeFilter}
                   onChange={(event) =>
                     setBillTypeFilter(
@@ -1503,7 +1550,7 @@ function CustomerBillsPage() {
                 <select
                   id="customer-bills-table-filter"
                   name="customerBillsTableFilter"
-                  className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm font-normal normal-case text-slate-900"
+                  className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm font-normal normal-case text-slate-900 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                   value={tableFilter}
                   onChange={(event) =>
                     setTableFilter(event.target.value)
@@ -1523,7 +1570,7 @@ function CustomerBillsPage() {
                 <select
                   id="customer-bills-status-filter"
                   name="customerBillsStatusFilter"
-                  className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm font-normal normal-case text-slate-900"
+                  className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm font-normal normal-case text-slate-900 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                   value={billStatusFilter}
                   onChange={(event) => {
                     setBillStatusFilter(
@@ -1534,6 +1581,7 @@ function CustomerBillsPage() {
                 >
                   <option value="unpaid">Unpaid</option>
                   <option value="paid">Paid</option>
+                  <option value="cancelled">Cancelled</option>
                   <option value="all">All Statuses</option>
                 </select>
                 </label>
@@ -1565,7 +1613,7 @@ function CustomerBillsPage() {
 
             <div className="w-full overflow-x-auto">
               <table className="w-full min-w-[1120px] table-fixed text-sm">
-                <thead className="sticky top-0 z-10 bg-slate-50 text-left text-xs uppercase text-slate-500 shadow-sm">
+                <thead className="sticky top-0 z-10 bg-slate-50 text-left text-xs uppercase text-slate-500 shadow-sm dark:bg-slate-900 dark:text-slate-300">
                   <tr>
                     <th className="w-36 whitespace-nowrap px-3 py-3">
                       Bill No
@@ -1594,7 +1642,7 @@ function CustomerBillsPage() {
                     <th className="w-20 whitespace-nowrap px-3 py-3 text-center">
                       Status
                     </th>
-                    <th className="sticky right-0 z-20 w-36 whitespace-nowrap bg-slate-50 px-3 py-3 text-right shadow-[-8px_0_12px_-12px_rgba(15,23,42,0.45)]">
+                    <th className="sticky right-0 z-20 w-36 whitespace-nowrap bg-slate-50 px-3 py-3 text-right shadow-[-8px_0_12px_-12px_rgba(15,23,42,0.45)] dark:bg-slate-900">
                       Action
                     </th>
                   </tr>
@@ -1627,17 +1675,17 @@ function CustomerBillsPage() {
                           }}
                           className={`group cursor-pointer border-l-4 transition focus:outline-none focus:ring-2 focus:ring-inset focus:ring-amber-300 ${
                             selected
-                              ? "border-l-amber-500 bg-amber-50/80 shadow-[inset_0_0_0_1px_rgba(245,158,11,0.22)]"
-                              : "border-l-transparent bg-white hover:bg-amber-50/40"
+                              ? "border-l-amber-500 bg-amber-50/80 shadow-[inset_0_0_0_1px_rgba(245,158,11,0.22)] dark:bg-amber-950/45 dark:shadow-[inset_0_0_0_1px_rgba(251,191,36,0.32)]"
+                              : "border-l-transparent bg-white hover:bg-amber-50/40 dark:bg-slate-950 dark:hover:bg-slate-800"
                           }`}
                         >
-                          <td className="whitespace-nowrap px-3 py-3 align-middle font-mono text-sm font-semibold text-slate-950">
+                          <td className="whitespace-nowrap px-3 py-3 align-middle font-mono text-sm font-semibold text-slate-950 dark:text-slate-100">
                               {getBillPrimaryLabel(
                                 account
                               )}
                           </td>
                           <td className="px-3 py-3 align-middle">
-                            <p className="font-semibold text-slate-950">
+                            <p className="font-semibold text-slate-950 dark:text-slate-100">
                               {getDisplayCustomerLabel(account)}
                             </p>
                             <p className="text-xs text-slate-500">
@@ -1650,7 +1698,7 @@ function CustomerBillsPage() {
                             )}
                           </td>
                           <td className="px-3 py-3 align-middle">
-                            <span className="block whitespace-nowrap font-medium text-slate-700">
+                            <span className="block whitespace-nowrap font-medium text-slate-700 dark:text-slate-200">
                               {formatShortDate(timestamp)}
                             </span>
                             <span className="block whitespace-nowrap text-xs text-slate-500">
@@ -1669,18 +1717,22 @@ function CustomerBillsPage() {
                           <td className="px-3 py-3 text-right align-middle tabular-nums">
                             {formatAmountOrDash(totals.accessoryTotal)}
                           </td>
-                          <td className="px-3 py-3 text-right align-middle font-bold tabular-nums text-slate-950">
+                          <td className="px-3 py-3 text-right align-middle font-bold tabular-nums text-slate-950 dark:text-slate-100">
                             {formatCurrency(totals.grandTotal)}
                           </td>
                           <td className="px-3 py-3 text-center align-middle">
                             <span
                               className={`inline-flex rounded-full px-2 py-1 text-xs font-bold ${
-                                account.paymentStatus === "paid"
+                                account.cancelledAt
+                                  ? "bg-red-50 text-red-700 ring-1 ring-red-200"
+                                  : account.paymentStatus === "paid"
                                   ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
                                   : "bg-amber-50 text-amber-700 ring-1 ring-amber-200"
                               }`}
                             >
-                              {account.paymentStatus === "paid"
+                              {account.cancelledAt
+                                ? "Cancelled"
+                                : account.paymentStatus === "paid"
                                 ? "Paid"
                                 : "Unpaid"}
                             </span>
@@ -1688,8 +1740,8 @@ function CustomerBillsPage() {
                           <td
                             className={`sticky right-0 z-[1] px-3 py-3 text-right align-middle shadow-[-8px_0_12px_-12px_rgba(15,23,42,0.45)] ${
                               selected
-                                ? "bg-amber-50"
-                                : "bg-white group-hover:bg-amber-50"
+                                ? "bg-amber-50 dark:bg-amber-950"
+                                : "bg-white group-hover:bg-amber-50 dark:bg-slate-950 dark:group-hover:bg-slate-800"
                             }`}
                           >
                             <div className="flex justify-end gap-2">
@@ -1729,7 +1781,7 @@ function CustomerBillsPage() {
                         colSpan={10}
                         className="px-4 py-10 text-center text-slate-500"
                       >
-                        No {billStatusFilter === "paid" ? "paid" : billStatusFilter === "all" ? "customer" : "open customer"} bills.
+                        No {billStatusFilter === "paid" ? "paid" : billStatusFilter === "cancelled" ? "cancelled" : billStatusFilter === "all" ? "customer" : "open customer"} bills.
                       </td>
                     </tr>
                   )}
@@ -1740,7 +1792,7 @@ function CustomerBillsPage() {
 
           {selectedAccount && (
             <Card className="flex flex-col overflow-hidden p-0 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:min-h-[calc(100vh-2rem)]">
-              <div className="border-b bg-white px-5 pb-3 pt-5">
+              <div className="border-b bg-white px-5 pb-3 pt-5 dark:bg-slate-950">
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-slate-500">
@@ -1810,16 +1862,18 @@ function CustomerBillsPage() {
                           >
                             Cancel
                           </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="ml-auto gap-1.5 border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
-                            disabled={isSelectedBillStillRunning}
-                            onClick={handleDeleteSelectedBill}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                            Delete Bill
-                          </Button>
+                          {canCancelBills && !selectedAccountIsCancelled && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="ml-auto gap-1.5 border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
+                              disabled={isSelectedBillStillRunning}
+                              onClick={handleDeleteSelectedBill}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                              Delete Bill
+                            </Button>
+                          )}
                         </div>
                       </div>
                     ) : (
@@ -1873,7 +1927,7 @@ function CustomerBillsPage() {
                           >
                             Edit
                           </Button>
-                          {selectedAccount.paymentStatus === "unpaid" && (
+                          {selectedAccount.paymentStatus === "unpaid" && !selectedAccountIsCancelled && (
                             <>
                               <Button
                                 size="sm"
@@ -1907,8 +1961,10 @@ function CustomerBillsPage() {
                   </div>
                   <div className="shrink-0">
                     <div className="flex items-center justify-end gap-2">
-                      <div className={`whitespace-nowrap rounded-full px-3 py-1 text-xs font-bold ring-1 ${selectedAccount.paymentStatus === "paid" ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : "bg-amber-50 text-amber-700 ring-amber-200"}`}>
-                        {selectedAccount.paymentStatus === "paid"
+                      <div className={`whitespace-nowrap rounded-full px-3 py-1 text-xs font-bold ring-1 ${selectedAccountIsCancelled ? "bg-red-50 text-red-700 ring-red-200" : selectedAccount.paymentStatus === "paid" ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : "bg-amber-50 text-amber-700 ring-amber-200"}`}>
+                        {selectedAccountIsCancelled
+                          ? "Cancelled"
+                          : selectedAccount.paymentStatus === "paid"
                           ? "Paid"
                           : "Awaiting Payment"}
                       </div>
@@ -1988,7 +2044,10 @@ function CustomerBillsPage() {
                     Sessions
                   </h3>
                   <div className="space-y-2">
-                    {selectedAccount.gameCharges.map(
+                    {selectedGameLines
+                      .slice()
+                      .sort(compareChargeTimestamps)
+                      .map(
                       (charge, index) => (
                         <div
                           key={charge.id}
@@ -2002,25 +2061,26 @@ function CustomerBillsPage() {
                                   : `Game ${index + 1} · ${getChargeTypeLabel(charge.sessionType)}`}
                               </p>
                               <p className="mt-0.5 text-xs text-slate-500">
-                                {formatTime(
-                                  charge.startedAt
-                                )}{" "}
-                                –
-                                {formatTime(
-                                  charge.endedAt
-                                )}{" "}
-                                |{" "}
-                                {formatDuration(
+                                {formatChargeTimeRange(
                                   charge.startedAt,
                                   charge.endedAt,
-                                  charge.durationMinutes
-                                )}
+                                  selectedGameLines[0]?.startedAt
+                                )} · {formatChargeDuration(charge.startedAt, charge.endedAt)}
                               </p>
                               <p className="mt-0.5 text-xs font-medium text-slate-600">
-                                {charge.loserName
-                                  ? `${getBillPrimaryLabel(selectedAccount)} lost`
-                                  : getBillPrimaryLabel(selectedAccount)}
+                                Winner: {charge.winnerName ?? "—"}
                               </p>
+                              <p className="mt-0.5 text-xs font-medium text-slate-600">
+                                Loser: {charge.loserName ?? "—"}
+                              </p>
+                              <p className="mt-0.5 text-xs text-slate-500">
+                                Payer: {charge.payerName ?? "—"}
+                              </p>
+                              {charge.isFinal && (
+                                <span className="mt-1 inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700 ring-1 ring-amber-200">
+                                  Final {charge.finalGames ?? 1}
+                                </span>
+                              )}
                             </div>
                             <p className="shrink-0 font-bold text-slate-950">
                               {formatCurrency(charge.amount)}
@@ -2030,7 +2090,7 @@ function CustomerBillsPage() {
                       )
                     )}
 
-                    {selectedAccount.gameCharges
+                    {selectedGameLines
                       .length === 0 && (
                       <p className="text-sm text-slate-500">
                         No game charges.
@@ -2132,7 +2192,7 @@ function CustomerBillsPage() {
                       {formatCurrency(selectedTotals?.accessoryTotal ?? 0)}
                     </strong>
                   </div>
-                  {selectedAccount.paymentStatus === "unpaid" && (
+                  {paymentMode && selectedAccount.paymentStatus === "unpaid" && !selectedAccountIsCancelled ? (
                   <div className="rounded-lg border bg-emerald-50 p-2.5">
                     <div className="flex items-center justify-between text-sm text-slate-700">
                       <span>Advance Games</span>
@@ -2161,8 +2221,13 @@ function CustomerBillsPage() {
                       </div>
                     )}
                   </div>
+                  ) : (
+                    <div className="flex items-center justify-between gap-3">
+                      <span>Advance Games Applied</span>
+                      <strong>{selectedAccount.advanceGamesApplied ?? 0}</strong>
+                    </div>
                   )}
-                  {selectedAccount.paymentStatus === "unpaid" ? (
+                  {paymentMode && selectedAccount.paymentStatus === "unpaid" && !selectedAccountIsCancelled ? (
                   <div className="flex items-center justify-between gap-3">
                     <span>Discount</span>
                     <div className="flex items-center gap-2">
@@ -2208,7 +2273,13 @@ function CustomerBillsPage() {
                     </strong>
                   </div>
 
-                {selectedAccount.paymentStatus === "paid" ? (
+                {selectedAccountIsCancelled ? (
+                  <div className="mt-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                    <p className="font-bold">Bill cancelled</p>
+                    {selectedAccount.cancelledReason && <p className="mt-1">{selectedAccount.cancelledReason}</p>}
+                    {selectedAccount.cancelledNote && <p className="mt-1 text-red-700">{selectedAccount.cancelledNote}</p>}
+                  </div>
+                ) : selectedAccount.paymentStatus === "paid" ? (
                   <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
                     <div className="flex items-start justify-between gap-3">
                       <div>
@@ -2222,7 +2293,7 @@ function CustomerBillsPage() {
                             : ""}
                         </p>
                       </div>
-                      {!isEditingPaidPayment && (
+                      {canCorrectPayments && !isEditingPaidPayment && (
                         <Button
                           type="button"
                           size="sm"
@@ -2277,7 +2348,7 @@ function CustomerBillsPage() {
                       </div>
                     )}
                   </div>
-                ) : (
+                ) : paymentMode ? (
                 <div className="mt-2 rounded-lg border bg-slate-50 p-2">
                   {error && (
                     <p className="mb-3 rounded-lg bg-red-50 px-4 py-3 text-sm font-medium text-red-700 ring-1 ring-red-200">
@@ -2335,6 +2406,16 @@ function CustomerBillsPage() {
                     Move to Credit
                   </Button>
                 </div>
+                ) : (
+                  <Button
+                    className="mt-2 w-full"
+                    disabled={isSelectedBillStillRunning}
+                    onClick={() => navigate(`/operator/billing?customerBillId=${selectedAccount.id}`)}
+                  >
+                    {isSelectedBillStillRunning
+                      ? `Still Playing on ${selectedRunningTable?.name}`
+                      : "Go to Collect Payment"}
+                  </Button>
                 )}
               </div>
             </Card>

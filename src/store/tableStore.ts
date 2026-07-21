@@ -24,6 +24,7 @@ import { normalizePlayerName } from "@/features/cafe/utils/playerIdentity";
 import { useTableHistoryStore } from "@/features/table-history/store/tableHistoryStore";
 import { useAdvanceGamesStore } from "@/features/advance-games/store/advanceGamesStore";
 import { calculateFinalSettlement } from "@/features/advance-games/utils/finalSettlement";
+import { useClubSettingsStore } from "@/features/settings/store/clubSettingsStore";
 
 import type {
   CafeOrderItem,
@@ -196,17 +197,23 @@ function getChargeLineAmount({
   tableType,
   startedAt,
   endedAt,
+  unitRate,
 }: {
   type: TableChargeLineType;
   tableType: Table["type"];
   startedAt: Date;
   endedAt: Date;
+  unitRate?: number;
 }) {
-  if (type === "singleGame") return 300;
-  if (type === "doubleGame") return 600;
+  const settings = useClubSettingsStore.getState().settings;
+  if (type === "singleGame") return unitRate ?? settings.singleGameRate;
+  if (type === "doubleGame") return unitRate ?? settings.doubleGameRate;
 
   const rate =
-    tableType === "private-room" ? 25 : 20;
+    unitRate ??
+    (tableType === "private-room"
+      ? 25
+      : settings.tableBookingRatePerMinute);
   const minutes = Math.max(
     1,
     Math.ceil(
@@ -254,6 +261,15 @@ function createInitialChargeLine(
     sessionTypeToChargeLineType(sessionType);
   const endedAt =
     type === "tableBooking" ? undefined : startedAt;
+  const settings = useClubSettingsStore.getState().settings;
+  const unitRate =
+    type === "singleGame"
+      ? settings.singleGameRate
+      : type === "doubleGame"
+        ? settings.doubleGameRate
+        : tableType === "private-room"
+          ? 25
+          : settings.tableBookingRatePerMinute;
 
   return {
     id: `TCL-${sessionId}-${Date.now()}`,
@@ -272,7 +288,9 @@ function createInitialChargeLine(
             tableType,
             startedAt,
             endedAt: endedAt!,
+            unitRate,
           }),
+    unitRate,
     isFinal: Boolean(final?.isFinal),
     finalGames: final?.isFinal ? final.finalGames : undefined,
   };
@@ -307,9 +325,33 @@ function finalizeChargeLine(
             tableType,
             startedAt,
             endedAt,
+            unitRate: line.unitRate,
           })
         : line.amount,
   };
+}
+
+function getSettlementOwnerAmount(
+  owner: ReturnType<typeof calculateFinalSettlement>["owners"][number],
+  lines: TableChargeLine[]
+) {
+  return Math.max(
+    0,
+    lines.reduce((total, line) => {
+      const rate =
+        line.type === "doubleGame"
+          ? (line.unitRate ?? line.amount) / 2
+          : line.unitRate ?? line.amount;
+      const effect = line.settlement?.find(
+        (item) =>
+          (owner.customerId && item.customerId === owner.customerId) ||
+          item.customerId === owner.key ||
+          normalizePlayerName(item.customerName) ===
+            normalizePlayerName(owner.customerName)
+      );
+      return total + (effect?.payableGamesDelta ?? 0) * rate;
+    }, 0)
+  );
 }
 
 function getFinalTableChargeLines(
@@ -376,7 +418,11 @@ function createTableHistoryRecord(
       ? calculateFinalSettlement(session, tableChargeLines)
       : undefined;
   const settledTableAmount = gameSettlement
-    ? gameSettlement.owners.reduce((total, owner) => total + owner.payableGames * 300, 0)
+    ? gameSettlement.owners.reduce(
+        (total, owner) =>
+          total + getSettlementOwnerAmount(owner, gameSettlement.lines),
+        0
+      )
     : tableAmount;
   const bill = calculateBill({
     gameAmount: settledTableAmount,
@@ -552,6 +598,36 @@ function addSessionGameChargesToCustomers(
       }
 
       if (owner.payableGames > 0) {
+        const ownerAmount = getSettlementOwnerAmount(owner, settlement.lines);
+        const ownerLineCharges = settlement.lines.flatMap((line) => {
+          const effect = line.settlement?.find(
+            (item) =>
+              (owner.customerId && item.customerId === owner.customerId) ||
+              item.customerId === owner.key ||
+              normalizePlayerName(item.customerName) === normalizePlayerName(owner.customerName)
+          );
+          if (!effect) return [];
+          const rate = line.type === "doubleGame"
+            ? (line.unitRate ?? line.amount) / 2
+            : line.unitRate ?? line.amount;
+          return [{
+            id: line.id,
+            sessionId: session.id,
+            sessionType: line.type === "doubleGame" ? "double" as const : "single" as const,
+            startedAt: line.startedAt,
+            endedAt: line.endedAt,
+            durationMinutes: line.durationMinutes,
+            amount: effect.payableGamesDelta * rate,
+            winnerName: line.winnerName,
+            loserName: line.loserName,
+            payerName: line.payerName ?? owner.customerName,
+            payerCustomerId: line.payerCustomerId ?? customerId,
+            winningTeam: line.winningTeam,
+            losingTeam: line.losingTeam,
+            isFinal: line.isFinal,
+            finalGames: line.finalGames,
+          }];
+        });
         customerStore.addGameChargeToCustomer({
           customerName: owner.customerName,
           customerId,
@@ -568,11 +644,12 @@ function addSessionGameChargesToCustomers(
           winningTeam: session.winningTeam,
           losingTeam: session.losingTeam,
           payerName: owner.customerName,
-          amount: owner.payableGames * 300,
+          amount: ownerAmount,
           shareType: settlement.owners.filter((item) => item.payableGames > 0).length > 1 ? "split" : "full",
           gameCount: owner.payableGames,
-          originalAmount: owner.payableGames * 300,
+          originalAmount: ownerAmount,
           sourceFrameIds: owner.sourceFrameIds,
+          lineCharges: ownerLineCharges,
         });
       }
 
@@ -998,7 +1075,11 @@ export const useTableStore =
                 settlementId: `SETTLEMENT-${session.id}`,
                 originalGameCount: settlement.originalGameCount,
                 originalTableAmount: settlement.originalTableAmount,
-                settledTableAmount: settlement.owners.reduce((total, owner) => total + owner.payableGames * 300, 0),
+                settledTableAmount: settlement.owners.reduce(
+                  (total, owner) =>
+                    total + getSettlementOwnerAmount(owner, settlement.lines),
+                  0
+                ),
                 advanceGamesEarned: settlement.owners.reduce((total, owner) => total + owner.advanceGames, 0),
               };
             }
@@ -1264,7 +1345,11 @@ export const useTableStore =
             settlementId: settlement ? `SETTLEMENT-${table.session.id}` : undefined,
             originalGameCount: settlement?.originalGameCount,
             originalTableAmount: settlement?.originalTableAmount,
-            settledTableAmount: settlement?.owners.reduce((total, owner) => total + owner.payableGames * 300, 0),
+            settledTableAmount: settlement?.owners.reduce(
+              (total, owner) =>
+                total + getSettlementOwnerAmount(owner, settlement.lines),
+              0
+            ),
             advanceGamesEarned: settlement?.owners.reduce((total, owner) => total + owner.advanceGames, 0),
             winnerName,
             loserName,
@@ -1359,6 +1444,15 @@ export const useTableStore =
           });
           const endedAt =
             type === "tableBooking" ? undefined : now;
+          const settings = useClubSettingsStore.getState().settings;
+          const unitRate =
+            type === "singleGame"
+              ? settings.singleGameRate
+              : type === "doubleGame"
+                ? settings.doubleGameRate
+                : table.type === "private-room"
+                  ? 25
+                  : settings.tableBookingRatePerMinute;
           const nextLine: TableChargeLine = {
             id: `TCL-${table.session.id}-${Date.now()}`,
             sessionId: table.session.id,
@@ -1381,7 +1475,9 @@ export const useTableStore =
                     tableType: table.type,
                     startedAt: now,
                     endedAt: endedAt!,
+                    unitRate,
                   }),
+            unitRate,
             isFinal: Boolean(isFinal),
             finalGames: isFinal ? finalGames : undefined,
           };

@@ -7,6 +7,7 @@ import {
   ToggleRight,
   Trash2,
   X,
+  PackagePlus,
 } from "lucide-react";
 import {
   useMemo,
@@ -19,6 +20,7 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   useCafeStore,
   type MenuItemInput,
@@ -41,7 +43,13 @@ const emptyForm: MenuItemInput = {
   emoji: "",
   imageDataUrl: "",
   isAvailable: true,
+  trackStock: false,
+  currentStock: 0,
+  lowStockAlertQuantity: 0,
+  stockUnit: "pcs",
 };
+
+type StockFilter = "all" | "tracked" | "low" | "out" | "untracked";
 
 function MenuManagementPage() {
   const navigate = useNavigate();
@@ -51,6 +59,7 @@ function MenuManagementPage() {
     updateMenuItem,
     toggleMenuItemAvailability,
     deleteMenuItem,
+    adjustStock,
   } = useCafeStore();
 
   const [form, setForm] =
@@ -60,6 +69,12 @@ function MenuManagementPage() {
   const [message, setMessage] =
     useState("");
   const [error, setError] = useState("");
+  const [stockFilter, setStockFilter] = useState<StockFilter>("all");
+  const [stockItem, setStockItem] = useState<MenuItem | null>(null);
+  const [stockAction, setStockAction] = useState<"add" | "remove" | "set">("add");
+  const [stockQuantity, setStockQuantity] = useState("");
+  const [stockNote, setStockNote] = useState("");
+  const [stockError, setStockError] = useState("");
 
   const handlePhotoChange = async (
     event: ChangeEvent<HTMLInputElement>
@@ -123,13 +138,22 @@ function MenuManagementPage() {
 
   const sortedMenu = useMemo(
     () =>
-      [...menu].sort((a, b) =>
+      menu.filter((item) => {
+        const tracked = item.trackStock === true;
+        const stock = Math.max(0, item.currentStock ?? 0);
+        const low = tracked && stock > 0 && stock <= Math.max(0, item.lowStockAlertQuantity ?? 0);
+        if (stockFilter === "tracked") return tracked;
+        if (stockFilter === "untracked") return !tracked;
+        if (stockFilter === "low") return low;
+        if (stockFilter === "out") return tracked && stock === 0;
+        return true;
+      }).sort((a, b) =>
         a.name.localeCompare(b.name, undefined, {
           numeric: true,
           sensitivity: "base",
         })
       ),
-    [menu]
+    [menu, stockFilter]
   );
 
   const resetForm = () => {
@@ -158,6 +182,10 @@ function MenuManagementPage() {
 
     if (!form.price || form.price <= 0) {
       setError("Price must be greater than 0.");
+      return;
+    }
+    if (form.trackStock && (!Number.isInteger(form.currentStock) || form.currentStock < 0 || !Number.isInteger(form.lowStockAlertQuantity) || form.lowStockAlertQuantity < 0 || !form.stockUnit.trim())) {
+      setError("Tracked stock requires whole-number quantities and a unit.");
       return;
     }
 
@@ -189,9 +217,27 @@ function MenuManagementPage() {
       isAvailable:
         item.isAvailable ??
         item.available,
+      trackStock: item.trackStock ?? false,
+      currentStock: Math.max(0, item.currentStock ?? 0),
+      lowStockAlertQuantity: Math.max(0, item.lowStockAlertQuantity ?? 0),
+      stockUnit: item.stockUnit ?? "pcs",
     });
     setMessage("");
     setError("");
+  };
+
+  const submitStockAdjustment = () => {
+    if (!stockItem) return;
+    try {
+      adjustStock(stockItem.id, stockAction, Number(stockQuantity), stockNote);
+      setStockItem(null);
+      setStockQuantity("");
+      setStockNote("");
+      setStockError("");
+      setMessage("Stock updated.");
+    } catch (caught) {
+      setStockError(caught instanceof Error ? caught.message : "Stock could not be updated.");
+    }
   };
 
   const handleDelete = (item: MenuItem) => {
@@ -229,6 +275,7 @@ function MenuManagementPage() {
               Add items, change prices, and control availability.
             </p>
           </div>
+          <Button className="gap-2" onClick={() => navigate("/admin/menu/vendor-restocking")}><PackagePlus className="h-4 w-4" /> Vendor Restocking</Button>
         </div>
 
         <section className="mb-5 grid grid-cols-1 gap-4 md:grid-cols-4">
@@ -412,6 +459,20 @@ function MenuManagementPage() {
                 Available in Cafe POS
               </label>
 
+              <div className="rounded-lg border p-3">
+                <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                  <input type="checkbox" checked={form.trackStock} onChange={(event) => setForm({ ...form, trackStock: event.target.checked })} />
+                  Track Stock
+                </label>
+                {form.trackStock && (
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <div><label className="text-xs font-medium text-slate-600">Current Stock</label><Input className="mt-1" type="number" min={0} step={1} value={form.currentStock} disabled={Boolean(editingItem?.trackStock)} onChange={(event) => setForm({ ...form, currentStock: Number(event.target.value) })} />{editingItem?.trackStock && <p className="mt-1 text-xs text-slate-500">Use the Stock action to change quantity.</p>}</div>
+                    <div><label className="text-xs font-medium text-slate-600">Low Stock Alert At</label><Input className="mt-1" type="number" min={0} step={1} value={form.lowStockAlertQuantity} onChange={(event) => setForm({ ...form, lowStockAlertQuantity: Number(event.target.value) })} /></div>
+                    <div className="sm:col-span-2"><label className="text-xs font-medium text-slate-600">Unit</label><Input className="mt-1" value={form.stockUnit} onChange={(event) => setForm({ ...form, stockUnit: event.target.value })} placeholder="pcs, packs, bottles, cans, boxes" /></div>
+                  </div>
+                )}
+              </div>
+
               <div className="grid grid-cols-2 gap-2">
                 <Button type="submit">
                   <Plus className="h-4 w-4" />
@@ -429,6 +490,12 @@ function MenuManagementPage() {
           </Card>
 
           <Card className="overflow-hidden">
+            <div className="flex flex-wrap items-center gap-2 border-b p-3">
+              {([ ["all", "All"], ["tracked", "Stock Tracked"], ["low", "Low Stock"], ["out", "Out of Stock"], ["untracked", "Untracked"] ] as const).map(([value, label]) => (
+                <Button key={value} type="button" size="sm" variant={stockFilter === value ? "default" : "outline"} onClick={() => setStockFilter(value)}>{label}</Button>
+              ))}
+            </div>
+            <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead className="bg-slate-50 text-xs uppercase text-slate-500">
                 <tr>
@@ -436,6 +503,7 @@ function MenuManagementPage() {
                   <th className="px-4 py-3">Category</th>
                   <th className="px-4 py-3">Price</th>
                   <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3">Stock</th>
                   <th className="px-4 py-3 text-right">
                     Actions
                   </th>
@@ -446,6 +514,9 @@ function MenuManagementPage() {
                   const available =
                     item.isAvailable ??
                     item.available;
+                  const stock = Math.max(0, item.currentStock ?? 0);
+                  const tracked = item.trackStock === true;
+                  const lowStock = tracked && stock > 0 && stock <= Math.max(0, item.lowStockAlertQuantity ?? 0);
 
                   return (
                     <tr
@@ -467,6 +538,17 @@ function MenuManagementPage() {
                       <td className="px-4 py-3">
                         {item.category}
                       </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {!tracked ? (
+                          <span className="text-xs text-slate-500">Untracked</span>
+                        ) : stock === 0 ? (
+                          <span className="rounded-full bg-red-50 px-2 py-1 text-xs font-semibold text-red-700 ring-1 ring-red-200">Out of Stock</span>
+                        ) : lowStock ? (
+                          <span className="rounded-full bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700 ring-1 ring-amber-200">Low Stock · {stock} {item.stockUnit || "pcs"}</span>
+                        ) : (
+                          <span className="text-xs font-semibold text-emerald-700">{stock} {item.stockUnit || "pcs"}</span>
+                        )}
+                      </td>
                       <td className="px-4 py-3 font-bold">
                         Rs. {item.price}
                       </td>
@@ -485,6 +567,7 @@ function MenuManagementPage() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex justify-end gap-2">
+                          {tracked && <Button variant="outline" size="sm" onClick={() => { setStockItem(item); setStockAction("add"); setStockQuantity(""); setStockNote(""); setStockError(""); }}><PackagePlus className="h-4 w-4" /> Stock</Button>}
                           <Button
                             variant="outline"
                             size="sm"
@@ -530,9 +613,24 @@ function MenuManagementPage() {
                 })}
               </tbody>
             </table>
+            </div>
           </Card>
         </div>
       </div>
+
+      <Dialog open={Boolean(stockItem)} onOpenChange={(open) => !open && setStockItem(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader><DialogTitle>Adjust Stock - {stockItem?.name}</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-slate-500">Current stock: <strong>{Math.max(0, stockItem?.currentStock ?? 0)} {stockItem?.stockUnit || "pcs"}</strong></p>
+            <div><label className="text-sm font-medium">Action</label><select className="mt-1 h-10 w-full rounded-md border bg-white px-3 text-sm" value={stockAction} onChange={(event) => setStockAction(event.target.value as "add" | "remove" | "set")}><option value="add">Add Stock</option><option value="remove">Remove Stock</option><option value="set">Set Exact Quantity</option></select></div>
+            <div><label className="text-sm font-medium">Quantity</label><Input className="mt-1" type="number" min={0} step={1} value={stockQuantity} onChange={(event) => setStockQuantity(event.target.value)} /></div>
+            <div><label className="text-sm font-medium">Note</label><Input className="mt-1" value={stockNote} onChange={(event) => setStockNote(event.target.value)} placeholder="Vendor delivery, damaged, count correction" /></div>
+            {stockError && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{stockError}</p>}
+            <Button className="w-full" onClick={submitStockAdjustment}>Save Stock Adjustment</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </main>
   );
 }

@@ -14,11 +14,20 @@ import { useBusinessDayStore } from "@/features/business-day/store/businessDaySt
 import { useSalesStore } from "@/features/sales/store/salesStore";
 import { useAdvanceGamesStore } from "@/features/advance-games/store/advanceGamesStore";
 import { useCustomerAccountStore } from "@/features/customers/store/customerAccountStore";
+import { useTableHistoryStore } from "@/features/table-history/store/tableHistoryStore";
+import { getIndividualGameCharges } from "@/features/customers/utils/individualGameCharges";
 import type {
   PaymentMethod,
   SessionType,
 } from "@/types/session";
 import type { PaymentSplit } from "@/features/sales/types/sale";
+import {
+  compareChargeTimestamps,
+  formatAppDateTime,
+  formatChargeDuration,
+  formatChargeTimeRange,
+  useAppDateTimeFormats,
+} from "@/lib/dateTime";
 import {
   type CreditLedgerEntry,
   type CreditLedgerStatus,
@@ -36,8 +45,7 @@ function money(value: number) {
 }
 
 function formatDateTime(value?: string) {
-  if (!value) return "-";
-  return new Date(value).toLocaleString();
+  return formatAppDateTime(value);
 }
 
 function statusLabel(status: CreditLedgerStatus) {
@@ -47,6 +55,7 @@ function statusLabel(status: CreditLedgerStatus) {
 }
 
 function CreditLedgerPage() {
+  useAppDateTimeFormats();
   const navigate = useNavigate();
   const entries = useCreditLedgerStore(
     (state) => state.entries
@@ -70,6 +79,7 @@ function CreditLedgerPage() {
   const safeAdvanceTransactions = Array.isArray(advanceTransactions) ? advanceTransactions : [];
   const transferAdvanceGames = useAdvanceGamesStore((state) => state.transfer);
   const customerAccounts = useCustomerAccountStore((state) => state.accounts);
+  const tableHistoryRecords = useTableHistoryStore((state) => state.records);
 
   const [statusFilter, setStatusFilter] =
     useState<StatusFilter>("outstanding");
@@ -700,15 +710,26 @@ function CreditLedgerPage() {
                     {selectedEntry.gameCharges.length === 0 ? (
                       <p className="text-sm text-slate-500">None</p>
                     ) : (
-                      selectedEntry.gameCharges.map((charge) => (
+                      getIndividualGameCharges(selectedEntry.gameCharges, tableHistoryRecords)
+                        .slice()
+                        .sort(compareChargeTimestamps)
+                        .map((charge, index) => (
                         <div
                           key={charge.id}
-                          className="flex justify-between rounded-lg border bg-slate-50 px-3 py-2 text-sm"
+                          className="rounded-lg border bg-slate-50 px-3 py-2 text-sm"
                         >
-                          <span>
-                            {charge.tableName} - {charge.sessionType}
-                          </span>
-                          <strong>{money(charge.amount)}</strong>
+                          <div className="flex justify-between gap-3">
+                            <strong>
+                              {charge.sessionType === "time" ? "Time Charge" : `Game ${index + 1} · ${charge.sessionType === "single" ? "Single Game" : "Double Game"}`}
+                            </strong>
+                            <strong>{money(charge.amount)}</strong>
+                          </div>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {formatChargeTimeRange(charge.startedAt, charge.endedAt, selectedEntry.gameCharges[0]?.startedAt)} · {formatChargeDuration(charge.startedAt, charge.endedAt)}
+                          </p>
+                          <p className="mt-1 text-xs text-slate-600">
+                            Winner: {charge.winnerName ?? "—"} · Loser: {charge.loserName ?? "—"} · Payer: {charge.payerName ?? "—"}
+                          </p>
                         </div>
                       ))
                     )}

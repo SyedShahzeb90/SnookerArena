@@ -16,6 +16,9 @@ import { useCheckoutStore } from "@/features/billing/store/checkoutStore";
 import { useExpensesStore } from "@/features/expenses/store/expensesStore";
 import { useSalesStore } from "@/features/sales/store/salesStore";
 import { useOutsidePurchaseStore } from "@/features/outside-purchases/store/outsidePurchaseStore";
+import { useCafeStore } from "@/features/cafe/store/cafeStore";
+import { useClubSettingsStore } from "@/features/settings/store/clubSettingsStore";
+import { formatAppDateTime, useAppDateTimeFormats } from "@/lib/dateTime";
 
 import { useBusinessDayStore } from "../store/businessDayStore";
 import { calculateBusinessDaySummary } from "../utils/businessDaySummary";
@@ -25,16 +28,11 @@ function money(value: number) {
 }
 
 function dateTime(value: string) {
-  return new Date(value).toLocaleString(
-    "en-PK",
-    {
-      dateStyle: "medium",
-      timeStyle: "short",
-    }
-  );
+  return formatAppDateTime(value);
 }
 
 function BusinessDayCard() {
+  useAppDateTimeFormats();
   const navigate = useNavigate();
   const activeDay =
     useBusinessDayStore((state) =>
@@ -64,8 +62,16 @@ function BusinessDayCard() {
   const outsidePurchases = useOutsidePurchaseStore(
     (state) => state.purchases
   );
+  const vendorRestockingRecords = useCafeStore((state) => state.vendorRestockingRecords);
   const message = useBusinessDayStore(
     (state) => state.message
+  );
+  const operators = useClubSettingsStore(
+    (state) => state.settings.operators
+  );
+  const activeOperators = useMemo(
+    () => operators.filter((operator) => operator.isActive),
+    [operators]
   );
 
   const summary = useMemo(
@@ -77,16 +83,17 @@ function BusinessDayCard() {
             expenses,
             pendingBills,
             outsidePurchases,
+            vendorRestockingRecords,
           })
         : undefined,
-    [activeDay, sales, expenses, pendingBills, outsidePurchases]
+    [activeDay, sales, expenses, pendingBills, outsidePurchases, vendorRestockingRecords]
   );
 
   const [startOpen, setStartOpen] =
     useState(false);
   const [endOpen, setEndOpen] =
     useState(false);
-  const [operatorName, setOperatorName] =
+  const [operatorId, setOperatorId] =
     useState("");
   const [openingCash, setOpeningCash] =
     useState("");
@@ -114,7 +121,7 @@ function BusinessDayCard() {
     actualCashNumber - expectedCash;
 
   const openStart = (prefill?: number) => {
-    setOperatorName("");
+    setOperatorId(activeOperators[0]?.id ?? "");
     setOpeningCash(
       prefill !== undefined ? String(prefill) : ""
     );
@@ -125,9 +132,12 @@ function BusinessDayCard() {
 
   const handleStart = () => {
     const parsedCash = Number(openingCash);
+    const selectedOperator = activeOperators.find(
+      (operator) => operator.id === operatorId
+    );
 
-    if (!operatorName.trim()) {
-      setError("Operator Name is required.");
+    if (!selectedOperator) {
+      setError("Select an active operator. Add one in Club Settings if needed.");
       return;
     }
 
@@ -143,7 +153,8 @@ function BusinessDayCard() {
     }
 
     const day = startBusinessDay({
-      openedBy: operatorName.trim(),
+      openedBy: selectedOperator.name,
+      operatorId: selectedOperator.id,
       openingCash: parsedCash,
       openingNotes: openingNotes.trim(),
     });
@@ -391,7 +402,12 @@ function BusinessDayCard() {
                 </div>
               </div>
 
-              <div className="flex h-[144px] flex-col rounded-lg border border-amber-100 bg-amber-50/40 p-3.5 dark:!border-amber-800 dark:!bg-amber-950/55">
+              <button
+                type="button"
+                className="flex h-[144px] cursor-pointer flex-col rounded-lg border border-amber-100 bg-amber-50/40 p-3.5 text-left transition hover:border-amber-300 hover:bg-amber-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 dark:!border-amber-800 dark:!bg-amber-950/55"
+                onClick={() => navigate("/operator/customer-bills")}
+                aria-label="Open customer bills"
+              >
                 <p className="text-xs font-semibold text-slate-500">
                   Pending Bills
                 </p>
@@ -407,7 +423,7 @@ function BusinessDayCard() {
                 <p className="mt-1 text-xs text-slate-500">
                   Awaiting payment
                 </p>
-              </div>
+              </button>
 
               <div className="flex h-[144px] flex-col rounded-lg border border-red-100 bg-red-50/40 p-3.5 dark:!border-red-800 dark:!bg-red-950/55">
                 <p className="text-xs font-semibold text-slate-500">
@@ -441,23 +457,48 @@ function BusinessDayCard() {
           <DialogHeader>
             <DialogTitle>Start Day</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
+          <form
+            className="space-y-4"
+            autoComplete="off"
+            onSubmit={(event) => {
+              event.preventDefault();
+              handleStart();
+            }}
+          >
             <div>
-              <Label>Operator Name</Label>
-              <Input
-                value={operatorName}
-                onChange={(event) =>
-                  setOperatorName(
-                    event.target.value
-                  )
-                }
-              />
+              <Label htmlFor="start-day-operator">Operator Name</Label>
+              <select
+                id="start-day-operator"
+                name="start-day-operator"
+                autoComplete="off"
+                className="mt-1 h-10 w-full rounded-lg border border-input bg-background px-3 text-sm"
+                value={operatorId}
+                onChange={(event) => {
+                  setOperatorId(event.target.value);
+                  setError("");
+                }}
+              >
+                <option value="">Select operator</option>
+                {activeOperators.map((operator) => (
+                  <option key={operator.id} value={operator.id}>
+                    {operator.name}
+                  </option>
+                ))}
+              </select>
+              {activeOperators.length === 0 && (
+                <p className="mt-1 text-xs text-amber-700">
+                  No active operators. Add or enable an operator in Club Settings.
+                </p>
+              )}
             </div>
             <div>
-              <Label>Opening Cash</Label>
+              <Label htmlFor="start-day-opening-cash">Opening Cash</Label>
               <Input
+                id="start-day-opening-cash"
+                name="start-day-opening-cash"
                 type="number"
                 min="0"
+                autoComplete="off"
                 value={openingCash}
                 onChange={(event) =>
                   setOpeningCash(
@@ -467,8 +508,11 @@ function BusinessDayCard() {
               />
             </div>
             <div>
-              <Label>Opening Notes</Label>
+              <Label htmlFor="start-day-opening-notes">Opening Notes</Label>
               <Textarea
+                id="start-day-opening-notes"
+                name="start-day-opening-notes"
+                autoComplete="off"
                 value={openingNotes}
                 onChange={(event) =>
                   setOpeningNotes(
@@ -483,12 +527,12 @@ function BusinessDayCard() {
               </p>
             )}
             <Button
+              type="submit"
               className="w-full"
-              onClick={handleStart}
             >
               Start Day
             </Button>
-          </div>
+          </form>
         </DialogContent>
       </Dialog>
 
@@ -496,14 +540,14 @@ function BusinessDayCard() {
         open={endOpen}
         onOpenChange={setEndOpen}
       >
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="flex max-h-[90vh] w-[min(94vw,760px)] !max-w-[760px] flex-col overflow-hidden">
           <DialogHeader>
             <DialogTitle>
               End Day / Cash Handover
             </DialogTitle>
           </DialogHeader>
-          <div className="max-h-[75vh] space-y-4 overflow-y-auto pr-1">
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <div className="min-h-0 space-y-4 overflow-x-hidden overflow-y-auto pr-1 [scrollbar-color:#cbd5e1_transparent] [scrollbar-width:thin]">
+            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
               {[
                 [
                   "Total Sales",
@@ -556,12 +600,12 @@ function BusinessDayCard() {
               ].map(([label, value]) => (
                 <div
                   key={label}
-                  className="rounded-lg border p-3"
+                  className="min-w-0 rounded-lg border p-3"
                 >
-                  <p className="text-xs text-slate-500">
+                  <p className="break-words text-xs leading-4 text-slate-500">
                     {label}
                   </p>
-                  <p className="font-bold">
+                  <p className="mt-1 whitespace-nowrap font-bold tabular-nums">
                     {money(Number(value))}
                   </p>
                 </div>
@@ -662,7 +706,7 @@ function BusinessDayCard() {
             )}
 
             <Button
-              className="w-full bg-red-700 hover:bg-red-800"
+              className="w-full bg-red-700 font-semibold text-white hover:bg-red-800 hover:text-white disabled:text-white"
               onClick={handleEnd}
             >
               Close Business Day

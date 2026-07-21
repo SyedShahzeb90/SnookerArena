@@ -16,6 +16,7 @@ import { useBusinessDayStore } from "@/features/business-day/store/businessDaySt
 import { getWalkInDisplayName } from "@/features/sessions/utils/walkInLabel";
 
 import { useSalesStore } from "../store/salesStore";
+import { formatAppDateTime, useAppDateTimeFormats } from "@/lib/dateTime";
 import {
   calculatePaymentTotals,
   calculateSalesTotals,
@@ -56,10 +57,7 @@ function getPaymentLabel(
 type SortOrder = "newest" | "oldest";
 
 function formatDate(value: string) {
-  return new Date(value).toLocaleString([], {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
+  return formatAppDateTime(value);
 }
 
 type SalesHistorySale = ReturnType<
@@ -87,6 +85,7 @@ function getSalePlayersLabel(sale: SalesHistorySale) {
 }
 
 function SalesHistoryPage() {
+  useAppDateTimeFormats();
   const navigate = useNavigate();
   const sales = useSalesStore(
     (state) => state.sales

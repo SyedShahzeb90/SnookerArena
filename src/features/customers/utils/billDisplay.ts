@@ -4,6 +4,7 @@ import {
 } from "@/features/sessions/utils/walkInLabel";
 
 import type { CustomerAccount } from "../types/customerAccount";
+import { formatAppTime } from "@/lib/dateTime";
 
 function getChargeTableNames(account: CustomerAccount) {
   const tableNames = [
@@ -69,10 +70,7 @@ export function formatBillTime(account: CustomerAccount) {
   const value = account.openedAt || account.lastActivityAt;
   if (!value) return "";
 
-  return new Date(value).toLocaleTimeString([], {
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  return formatAppTime(value);
 }
 
 export function getBillTableLabel(account: CustomerAccount) {

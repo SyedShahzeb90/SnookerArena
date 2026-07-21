@@ -9,6 +9,7 @@ import {
   calculateDoubleGamePayerBreakdown,
 } from "@/features/sessions/utils/doubleGameBilling";
 import { getWalkInDisplayName } from "@/features/sessions/utils/walkInLabel";
+import { formatAppTime, useAppDateTimeFormats } from "@/lib/dateTime";
 
 interface Props {
   session: Session;
@@ -29,6 +30,7 @@ function BillingSummary({
   payerName,
   playerName,
 }: Props) {
+  const { timeFormat } = useAppDateTimeFormats();
   if (!session.endTime) return null;
 
   const pricing = calculateGamePrice({
@@ -208,19 +210,13 @@ function BillingSummary({
             <div>
               <p>In</p>
               <p className="mt-1 font-semibold text-slate-950">
-                {new Date(session.startTime).toLocaleTimeString([], {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
+                {formatAppTime(session.startTime, timeFormat)}
               </p>
             </div>
             <div>
               <p>Out</p>
               <p className="mt-1 font-semibold text-slate-950">
-                {new Date(session.endTime).toLocaleTimeString([], {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
+                {formatAppTime(session.endTime, timeFormat)}
               </p>
             </div>
             <div>

@@ -10,6 +10,7 @@ import {
   getBillPrimaryLabel,
 } from "@/features/customers/utils/billDisplay";
 import { isWalkInName } from "@/features/sessions/utils/walkInLabel";
+import { useClubSettingsStore } from "@/features/settings/store/clubSettingsStore";
 
 import type {
   Session,
@@ -116,6 +117,7 @@ function SessionForm({
   undoLastFrameBusy = false,
   onSubmit,
 }: Props) {
+  const settings = useClubSettingsStore((state) => state.settings);
   const [player1, setPlayer1] =
     useState("");
   const [player1CustomerId, setPlayer1CustomerId] =
@@ -541,11 +543,11 @@ function SessionForm({
       : [];
   const priceText =
     sessionType === "single"
-      ? "Price: Rs. 300 fixed"
+      ? `Price: Rs. ${settings.singleGameRate.toLocaleString()} fixed`
       : sessionType === "double"
-        ? "Price: Rs. 600 fixed"
+        ? `Price: Rs. ${settings.doubleGameRate.toLocaleString()} fixed`
         : sessionType === "time"
-          ? "Booking Rate: Rs. 1200/hour or Rs. 20/min"
+          ? `Booking Rate: Rs. ${(settings.tableBookingRatePerMinute * 60).toLocaleString()}/hour or Rs. ${settings.tableBookingRatePerMinute.toLocaleString()}/min`
           : "Booking Rate: Rs. 1500/hour or Rs. 25/min";
 
   const updateExtraPlayer = (

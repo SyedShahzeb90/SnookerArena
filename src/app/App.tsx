@@ -20,6 +20,12 @@ import DeveloperToolsPage from "@/features/admin/DeveloperToolsPage";
 import CustomerBillsPage from "@/features/customers/pages/CustomerBillsPage";
 import CreditLedgerPage from "@/features/credit-ledger/pages/CreditLedgerPage";
 import OperatorShell from "@/features/dashboard/components/OperatorShell";
+import BackupRestorePage from "@/features/backup/pages/BackupRestorePage";
+import ClubSettingsPage from "@/features/settings/pages/ClubSettingsPage";
+import VendorRestockingPage from "@/features/cafe/pages/VendorRestockingPage";
+import CanteenProfitReportPage from "@/features/reports/pages/CanteenProfitReportPage";
+import RequirePermission from "@/features/admin-mode/RequirePermission";
+import AccessoriesManagementPage from "@/features/accessories/pages/AccessoriesManagementPage";
 
 function App() {
   return (
@@ -55,17 +61,27 @@ function App() {
 
           <Route
             path="/operator/credit-ledger"
-            element={<CreditLedgerPage />}
+            element={<RequirePermission permission="view_management_reports"><CreditLedgerPage /></RequirePermission>}
           />
 
           <Route
             path="/operator/expenses"
-            element={<ExpensesPage />}
+            element={<RequirePermission permission="view_management_reports"><ExpensesPage /></RequirePermission>}
           />
 
           <Route
             path="/operator/table-history"
-            element={<TableHistoryPage />}
+            element={<RequirePermission permission="view_management_reports"><TableHistoryPage /></RequirePermission>}
+          />
+
+          <Route
+            path="/operator/backup-restore"
+            element={<RequirePermission permission="manage_backups"><BackupRestorePage /></RequirePermission>}
+          />
+
+          <Route
+            path="/operator/club-settings"
+            element={<RequirePermission permission="manage_settings" allowPinSetup><ClubSettingsPage /></RequirePermission>}
           />
 
           <Route
@@ -75,47 +91,62 @@ function App() {
 
           <Route
             path="/admin"
-            element={<AdminDashboard />}
+            element={<RequirePermission permission="view_management_reports"><AdminDashboard /></RequirePermission>}
           />
 
           <Route
             path="/admin/sales"
-            element={<SalesHistoryPage />}
+            element={<RequirePermission permission="view_management_reports"><SalesHistoryPage /></RequirePermission>}
           />
 
           <Route
             path="/admin/customer-bills"
-            element={<CustomerBillsPage />}
+            element={<RequirePermission permission="view_management_reports"><CustomerBillsPage /></RequirePermission>}
           />
 
           <Route
             path="/admin/profit-loss"
-            element={<ProfitLossPage />}
+            element={<RequirePermission permission="view_management_reports"><ProfitLossPage /></RequirePermission>}
+          />
+
+          <Route
+            path="/admin/canteen-profit"
+            element={<RequirePermission permission="view_management_reports"><CanteenProfitReportPage /></RequirePermission>}
           />
 
           <Route
             path="/admin/expenses"
-            element={<ExpensesPage />}
+            element={<RequirePermission permission="view_management_reports"><ExpensesPage /></RequirePermission>}
           />
 
           <Route
             path="/admin/menu"
-            element={<MenuManagementPage />}
+            element={<RequirePermission permission="manage_canteen"><MenuManagementPage /></RequirePermission>}
+          />
+
+          <Route
+            path="/admin/menu/vendor-restocking"
+            element={<RequirePermission permission="manage_vendor_restocking"><VendorRestockingPage /></RequirePermission>}
+          />
+
+          <Route
+            path="/admin/accessories"
+            element={<RequirePermission permission="manage_inventory"><AccessoriesManagementPage /></RequirePermission>}
           />
 
           <Route
             path="/admin/table-history"
-            element={<TableHistoryPage />}
+            element={<RequirePermission permission="view_management_reports"><TableHistoryPage /></RequirePermission>}
           />
 
           <Route
             path="/admin/day-history"
-            element={<DayHistoryPage />}
+            element={<RequirePermission permission="view_management_reports"><DayHistoryPage /></RequirePermission>}
           />
 
           <Route
             path="/admin/developer-tools"
-            element={<DeveloperToolsPage />}
+            element={<RequirePermission permission="manage_settings"><DeveloperToolsPage /></RequirePermission>}
           />
         </Route>
 

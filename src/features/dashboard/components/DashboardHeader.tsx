@@ -4,11 +4,17 @@ import {
 } from "lucide-react";
 
 import useCurrentTime from "../hooks/useCurrentTime";
+import { useClubSettingsStore } from "@/features/settings/store/clubSettingsStore";
+import { formatAppDate, formatAppTime } from "@/lib/dateTime";
 
 export type DashboardView = "grid" | "floor-plan";
 
 function DashboardHeader() {
   const now = useCurrentTime();
+  const clubName = useClubSettingsStore((state) => state.settings.clubName);
+  const tagline = useClubSettingsStore((state) => state.settings.tagline);
+  const dateFormat = useClubSettingsStore((state) => state.settings.dateFormat);
+  const timeFormat = useClubSettingsStore((state) => state.settings.timeFormat);
 
   return (
     <header className="border-b bg-white">
@@ -20,11 +26,11 @@ function DashboardHeader() {
 
           <div className="flex min-w-0 flex-col justify-center gap-0.5">
             <h1 className="text-xl font-extrabold leading-tight tracking-normal text-slate-900 dark:text-slate-100">
-              Snooker Arena
+              {clubName}
             </h1>
 
             <p className="text-xs font-medium leading-4 text-slate-500 dark:text-slate-400">
-              Club Management System
+              {tagline}
             </p>
           </div>
         </div>
@@ -33,14 +39,11 @@ function DashboardHeader() {
           <div className="flex items-center gap-3 rounded-lg border bg-slate-50 px-4 py-2 text-sm text-slate-600">
             <Clock className="h-4 w-4" />
             <span className="font-medium">
-              {now.toLocaleDateString()}
+              {formatAppDate(now, dateFormat)}
             </span>
             <span className="text-slate-300">|</span>
             <span className="font-semibold text-slate-950">
-              {now.toLocaleTimeString([], {
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
+              {formatAppTime(now, timeFormat)}
             </span>
           </div>
         </div>

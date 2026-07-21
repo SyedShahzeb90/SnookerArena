@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { useExpensesStore } from "@/features/expenses/store/expensesStore";
 import { expenseCategories } from "@/features/expenses/types/expense";
 import { useSalesStore } from "@/features/sales/store/salesStore";
+import { formatAppDate, useAppDateTimeFormats } from "@/lib/dateTime";
 
 import ProfitLossSummaryCards from "../components/ProfitLossSummaryCards";
 import {
@@ -38,9 +39,7 @@ const paymentLabels = {
 };
 
 function formatDate(value: string) {
-  return new Date(value).toLocaleDateString([], {
-    dateStyle: "medium",
-  });
+  return formatAppDate(value);
 }
 
 function formatProfit(value: number) {
@@ -50,6 +49,7 @@ function formatProfit(value: number) {
 }
 
 function ProfitLossPage() {
+  useAppDateTimeFormats();
   const navigate = useNavigate();
   const sales = useSalesStore((state) => state.sales);
   const expenses = useExpensesStore((state) => state.expenses);

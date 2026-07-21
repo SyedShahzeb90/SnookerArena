@@ -42,6 +42,7 @@ import EditSessionDialog from "./EditSessionDialog";
 import EndSessionDialog from "./EndSessionDialog";
 import TableStatusBadge from "./TableStatusBadge";
 import OutsidePurchaseDialog from "@/features/outside-purchases/components/OutsidePurchaseDialog";
+import { useClubSettingsStore } from "@/features/settings/store/clubSettingsStore";
 import type { OutsidePurchaseOwner } from "@/features/outside-purchases/components/OutsidePurchaseDialog";
 
 type Props = {
@@ -141,6 +142,21 @@ const TableCard = forwardRef<TableCardHandle, Props>(function TableCard({
   onAccessoriesClick,
 }, ref) {
   const now = useCurrentTime();
+  const frameWarningMinutes = useClubSettingsStore(
+    (state) => state.settings.frameWarningMinutes
+  );
+  const frameDangerMinutes = useClubSettingsStore(
+    (state) => state.settings.frameDangerMinutes
+  );
+  const singleGameRate = useClubSettingsStore(
+    (state) => state.settings.singleGameRate
+  );
+  const doubleGameRate = useClubSettingsStore(
+    (state) => state.settings.doubleGameRate
+  );
+  const tableBookingRate = useClubSettingsStore(
+    (state) => state.settings.tableBookingRatePerMinute
+  );
   const cardRef = useRef<HTMLDivElement>(null);
 
   const [editOpen, setEditOpen] =
@@ -236,11 +252,11 @@ const TableCard = forwardRef<TableCardHandle, Props>(function TableCard({
   const runningTimeWarningClass =
     table.status === "running" &&
     usesFrameTimeWarning &&
-    frameElapsedMinutes >= 30
+    frameElapsedMinutes >= frameDangerMinutes
       ? "border-red-300 bg-red-50 shadow-red-100 hover:shadow-red-200"
       : table.status === "running" &&
           usesFrameTimeWarning &&
-          frameElapsedMinutes >= 25
+          frameElapsedMinutes >= frameWarningMinutes
         ? "border-amber-300 bg-amber-50 shadow-amber-100 hover:shadow-amber-200"
         : table.status === "running"
           ? "border-red-200 bg-white"
@@ -954,13 +970,13 @@ const TableCard = forwardRef<TableCardHandle, Props>(function TableCard({
                     disabled={table.type === "private-room"}
                   >
                     <option value="singleGame">
-                      Single Game - Rs. 300
+                      Single Game - Rs. {singleGameRate.toLocaleString()}
                     </option>
                     <option value="doubleGame">
-                      Double Game - Rs. 600
+                      Double Game - Rs. {doubleGameRate.toLocaleString()}
                     </option>
                     <option value="tableBooking">
-                      Table Booking / Time
+                      Table Booking - Rs. {tableBookingRate.toLocaleString()}/min
                     </option>
                   </select>
                 </label>

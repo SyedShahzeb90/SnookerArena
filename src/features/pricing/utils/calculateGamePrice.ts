@@ -1,6 +1,6 @@
 import { calculateDuration } from "@/features/pricing/utils/calculateDuration";
 
-import type { SessionType } from "@/types/session";
+import type { Session, SessionType } from "@/types/session";
 import type { Table } from "@/types/table";
 
 const SINGLE_FRAME_PRICE = 300;
@@ -64,4 +64,35 @@ export function calculateGamePrice({
     duration,
     gameAmount,
   };
+}
+
+export function getStoredSessionGameAmount(
+  session: Session,
+  tableType: Table["type"],
+  endTime = session.endTime ? new Date(session.endTime) : new Date()
+) {
+  if (session.settledTableAmount !== undefined) {
+    return session.settledTableAmount;
+  }
+  const lines = session.tableChargeLines ?? [];
+  if (lines.length > 0) {
+    return lines.reduce((total, line) => {
+      if (line.type !== "tableBooking" || line.endedAt) {
+        return total + line.amount;
+      }
+      const minutes = Math.max(
+        1,
+        Math.ceil(
+          (endTime.getTime() - new Date(line.startedAt).getTime()) / 60000
+        )
+      );
+      return total + minutes * (line.unitRate ?? (tableType === "private-room" ? 25 : 20));
+    }, 0);
+  }
+  return calculateGamePrice({
+    sessionType: session.sessionType,
+    tableType,
+    startTime: new Date(session.startTime),
+    endTime,
+  }).gameAmount;
 }

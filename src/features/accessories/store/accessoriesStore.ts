@@ -19,6 +19,7 @@ interface AccessoryStore {
     input: Omit<AccessoryItem, "id">
   ) => void;
   toggleItem: (id: string) => void;
+  deleteItem: (id: string) => void;
 }
 
 const defaultItems: AccessoryItem[] = [
@@ -91,6 +92,11 @@ export const useAccessoriesStore =
                   }
                 : item
             ),
+          })),
+
+        deleteItem: (id) =>
+          set((state) => ({
+            items: state.items.filter((item) => item.id !== id),
           })),
       }),
       {

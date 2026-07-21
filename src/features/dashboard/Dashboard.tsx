@@ -155,11 +155,13 @@ function OperatorDashboard() {
           </div>
         )}
 
-        <BusinessDayCard />
+        <section id="business-day" className="scroll-mt-4">
+          <BusinessDayCard />
+        </section>
 
         <DashboardStats />
 
-        <section>
+        <section id="tables-and-rooms" className="scroll-mt-4">
           <div className="mb-4 flex flex-col gap-3 border-b border-slate-200 pb-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h2 className="text-lg font-bold text-slate-950">

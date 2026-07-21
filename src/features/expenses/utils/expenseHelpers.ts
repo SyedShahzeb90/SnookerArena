@@ -1,4 +1,5 @@
 import type { PaymentMethod } from "@/types/session";
+import { formatAppDate, formatAppTime } from "@/lib/dateTime";
 
 import type {
   Expense,
@@ -32,11 +33,7 @@ export function formatExpenseDate(expense: Expense) {
 
   if (!date) return "—";
 
-  return date.toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
+  return formatAppDate(date);
 }
 
 export function formatExpenseTime(expense: Expense) {
@@ -44,10 +41,7 @@ export function formatExpenseTime(expense: Expense) {
 
   if (!date) return "";
 
-  return date.toLocaleTimeString(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  return formatAppTime(date);
 }
 
 export function getPaymentMethodLabel(

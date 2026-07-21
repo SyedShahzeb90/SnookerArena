@@ -1,5 +1,5 @@
 import { calculateBill } from "@/features/pricing/utils/calculateBill";
-import { calculateGamePrice } from "@/features/pricing/utils/calculateGamePrice";
+import { calculateGamePrice, getStoredSessionGameAmount } from "@/features/pricing/utils/calculateGamePrice";
 import { calculateDuration } from "@/features/pricing/utils/calculateDuration";
 import type {
   CafeOrderItem,
@@ -65,7 +65,7 @@ export function createSaleFromTable({
   );
 
   const bill = calculateBill({
-    gameAmount: session.settledTableAmount ?? pricing.gameAmount,
+    gameAmount: getStoredSessionGameAmount(session, table.type, endedAt),
     cafeAmount: session.cafeAmount,
     discount: session.discount,
   });

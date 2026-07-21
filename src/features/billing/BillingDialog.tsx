@@ -15,6 +15,7 @@ import type {
 import BillingSummary from "./components/BillingSummary";
 import PaymentMethodSelector from "./components/PaymentMethodSelector";
 import PaymentActions from "./components/PaymentActions";
+import { useClubSettingsStore } from "@/features/settings/store/clubSettingsStore";
 
 interface Props {
   open: boolean;
@@ -32,7 +33,9 @@ function BillingDialog({
   onReceivePayment,
 }: Props) {
   const [paymentMethod, setPaymentMethod] =
-    useState<PaymentMethod>("cash");
+    useState<PaymentMethod>(() =>
+      useClubSettingsStore.getState().settings.defaultPaymentMethod
+    );
 
   return (
     <Dialog

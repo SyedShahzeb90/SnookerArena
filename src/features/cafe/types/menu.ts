@@ -18,9 +18,19 @@ export interface MenuItem {
   createdAt?: string;
 
   updatedAt?: string;
+
+  trackStock?: boolean;
+
+  currentStock?: number;
+
+  lowStockAlertQuantity?: number;
+
+  stockUnit?: string;
 }
 
 export interface OrderItem {
+  lineId?: string;
+
   menuItemId: string;
 
   name: string;

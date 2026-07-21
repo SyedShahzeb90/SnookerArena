@@ -37,6 +37,8 @@ import {
 import { normalizePlayerName } from "./utils/playerIdentity";
 import { useSalesStore } from "@/features/sales/store/salesStore";
 import { useBusinessDayStore } from "@/features/business-day/store/businessDayStore";
+import { useClubSettingsStore } from "@/features/settings/store/clubSettingsStore";
+import { formatAppDate, formatAppTime } from "@/lib/dateTime";
 import { useCustomerAccountStore } from "@/features/customers/store/customerAccountStore";
 import {
   getBillPrimaryLabel,
@@ -134,6 +136,12 @@ function CafePage() {
     useState<number | null>(null);
   const [paymentMethod, setPaymentMethod] =
     useState<PaymentMethod | "">("");
+  const defaultPaymentMethod = useClubSettingsStore(
+    (state) => state.settings.defaultPaymentMethod
+  );
+  const clubSettings = useClubSettingsStore(
+    (state) => state.settings
+  );
   const [
     openBillsExpanded,
     setOpenBillsExpanded,
@@ -649,10 +657,21 @@ function CafePage() {
         )
       : undefined;
 
+  const canAddTrackedItem = (menuItemId: string) => {
+    const item = useCafeStore.getState().menu.find((menuItem) => menuItem.id === menuItemId);
+    if (!item?.trackStock) return true;
+    const available = Math.max(0, item.currentStock ?? 0);
+    const cartQuantity = selectedOrder?.orderItems.find((line) => line.menuItemId === menuItemId)?.quantity ?? 0;
+    if (cartQuantity < available) return true;
+    setOrderError(available === 0 ? `${item.name} is out of stock.` : `Only ${available} ${item.stockUnit || "pcs"} of ${item.name} are available.`);
+    return false;
+  };
+
   const handleIncrease = (
     menuItemId: string
   ) => {
     if (!selectedTarget) return;
+    if (!canAddTrackedItem(menuItemId)) return;
 
     if (selectedTarget.type === "runningTable") {
       increasePlayerItem(
@@ -699,6 +718,7 @@ function CafePage() {
           : [
               ...cart,
               {
+                lineId: `CAFE-LINE-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
                 menuItemId: item.id,
                 name: item.name,
                 price: item.price,
@@ -783,6 +803,7 @@ function CafePage() {
     menuItemId: string
   ) => {
     if (!selectedTarget) return;
+    if (!canAddTrackedItem(menuItemId)) return;
 
     const item = useCafeStore
       .getState()
@@ -842,6 +863,7 @@ function CafePage() {
         : [
             ...cart,
             {
+              lineId: `CAFE-LINE-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
               menuItemId: item.id,
               name: item.name,
               price: item.price,
@@ -1179,13 +1201,18 @@ function CafePage() {
           return;
         }
 
+        const sourceOrderId = `CAFE-BILL-${account.id}-${Date.now()}`;
+        useCafeStore
+          .getState()
+          .confirmStockForCharge(sourceOrderId, currentItems);
+
         useCustomerAccountStore
           .getState()
           .replaceCafeChargesForOrder({
             customerId: account.id,
             customerName: account.customerName,
             customerNote: account.customerNote,
-            sourceOrderId: `CAFE-BILL-${account.id}-${Date.now()}`,
+            sourceOrderId,
             charges: currentItems.map((item) => ({
               itemId: item.menuItemId,
               name: item.name,
@@ -1317,7 +1344,9 @@ function CafePage() {
     } catch (error) {
       console.error(error);
       setOrderError(
-        "Order could not be saved. Please try again."
+        error instanceof Error
+          ? error.message
+          : "Order could not be saved. Please try again."
       );
     }
   };
@@ -1340,7 +1369,7 @@ function CafePage() {
       return;
     }
 
-    setPaymentMethod("");
+    setPaymentMethod(defaultPaymentMethod);
     setPaymentDialogOpen(true);
   };
 
@@ -1446,7 +1475,7 @@ function CafePage() {
     setSelectedTarget(null);
     setLastSavedTotal(null);
     setPaymentDialogOpen(false);
-    setPaymentMethod("");
+    setPaymentMethod(defaultPaymentMethod);
   };
 
   const handleAttachWaitingOrder = () => {
@@ -1656,17 +1685,17 @@ function CafePage() {
               Cafe POS
             </h1>
             <p className="text-gray-500">
-              Snooker Arena Management System
+              {clubSettings.tagline}
             </p>
           </div>
 
           <div className="flex items-center gap-6">
             <div className="text-right">
               <p className="font-semibold">
-                {new Date().toLocaleDateString()}
+                {formatAppDate(new Date(), clubSettings.dateFormat)}
               </p>
               <p className="text-sm text-gray-500">
-                {new Date().toLocaleTimeString()}
+                {formatAppTime(new Date(), clubSettings.timeFormat)}
               </p>
             </div>
 
@@ -2264,7 +2293,7 @@ function CafePage() {
                           variant="outline"
                           onClick={() => {
                             setPaymentDialogOpen(false);
-                            setPaymentMethod("");
+                            setPaymentMethod(defaultPaymentMethod);
                           }}
                         >
                           Cancel
@@ -2371,13 +2400,13 @@ function CafePage() {
                             }
                           >
                             <option value="single">
-                              Single Game - Rs. 300
+                              Single Game - Rs. {clubSettings.singleGameRate.toLocaleString()}
                             </option>
                             <option value="double">
-                              Double Game - Rs. 600
+                              Double Game - Rs. {clubSettings.doubleGameRate.toLocaleString()}
                             </option>
                             <option value="time">
-                              Table Booking - Rs. 20/min
+                              Table Booking - Rs. {clubSettings.tableBookingRatePerMinute.toLocaleString()}/min
                             </option>
                             <option value="private">
                               Private Room - Rs. 25/min

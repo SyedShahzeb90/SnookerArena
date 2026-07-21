@@ -94,6 +94,7 @@ export const useBusinessDayStore =
             startedAt: now.toISOString(),
             status: "active",
             openedBy: input.openedBy,
+            openedByOperatorId: input.operatorId,
             openingCash: input.openingCash,
             openingNotes:
               input.openingNotes,

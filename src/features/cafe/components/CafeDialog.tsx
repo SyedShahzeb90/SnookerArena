@@ -82,6 +82,16 @@ function CafeDialog({
     setSelectedWaitingCustomer("");
   };
 
+  const runCafeAction = (action: () => void) => {
+    try {
+      action();
+      return true;
+    } catch (caught) {
+      window.alert(caught instanceof Error ? caught.message : "The Cafe action could not be completed.");
+      return false;
+    }
+  };
+
   const currentPlayerOrder =
     playerOrders.find(
       (p) =>
@@ -312,6 +322,7 @@ function CafeDialog({
               ?.orderItems ?? []
       }
       onAdd={(item) => {
+        runCafeAction(() => {
         if (
           selectedPlayer &&
           selectedTable
@@ -334,8 +345,10 @@ function CafeDialog({
             item
           );
         }
+        });
       }}
       onIncrease={(menuItemId) => {
+        runCafeAction(() => {
         if (
           selectedPlayer &&
           selectedTable
@@ -353,6 +366,7 @@ function CafeDialog({
             menuItemId
           );
         }
+        });
       }}
       onDecrease={(menuItemId) => {
         if (
@@ -388,7 +402,7 @@ function CafeDialog({
             : currentWaitingCustomer
                 ?.orderItems ?? [];
 
-        saveOrder(
+        const saved = runCafeAction(() => saveOrder(
           {
             tableId:
               selectedTableRecord?.id,
@@ -403,7 +417,9 @@ function CafeDialog({
               "Customer",
             orderItems,
           }
-        );
+        ));
+
+        if (!saved) return;
 
         onOpenChange(false);
 

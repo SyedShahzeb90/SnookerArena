@@ -15,6 +15,7 @@ import { useCustomerAccountStore } from "@/features/customers/store/customerAcco
 import type { CustomerAccount } from "@/features/customers/types/customerAccount";
 import { getRunningBillTotals } from "@/features/dashboard/utils/runningBillTotals";
 import { getDoubleGameTeams } from "@/features/sessions/utils/doubleGameBilling";
+import { formatAppTime, useAppDateTimeFormats } from "@/lib/dateTime";
 
 interface Props {
   session: Session;
@@ -35,6 +36,7 @@ function TableInfo({
   onCafeBillClick,
   onAccessoriesClick,
 }: Props) {
+  const { timeFormat } = useAppDateTimeFormats();
   const getGameCountLabel = () => {
     const chargeLines = (session.tableChargeLines ?? []).filter(
       (line) =>
@@ -281,9 +283,10 @@ function TableInfo({
               !line.endedAt
             ) {
               const rate =
-                tableType === "private-room"
+                line.unitRate ??
+                (tableType === "private-room"
                   ? 25
-                  : 20;
+                  : 20);
               const startedAt = new Date(
                 line.startedAt
               );
@@ -346,10 +349,7 @@ function TableInfo({
             Started
           </div>
           <p className="font-semibold text-slate-950">
-            {new Date(session.startTime).toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
+            {formatAppTime(session.startTime, timeFormat)}
           </p>
           <p className="text-sm capitalize text-slate-500">
             {getGameCountLabel() ?? session.sessionType}
@@ -456,12 +456,7 @@ function TableInfo({
         </div>
 
         <p className="font-semibold text-slate-950">
-          {new Date(
-            session.startTime
-          ).toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
+          {formatAppTime(session.startTime, timeFormat)}
         </p>
 
       </div>

@@ -75,6 +75,11 @@ interface CustomerAccountStore {
     >
   ) => void;
   closeCustomerAccount: (id: string) => void;
+  cancelCustomerAccount: (input: {
+    id: string;
+    reason: string;
+    note?: string;
+  }) => void;
   deleteCustomerAccount: (id: string) => void;
   removeSessionCharges: (
     sessionId: string
@@ -251,6 +256,28 @@ function withTotals(
   };
 }
 
+function getChargeGameCount(charge: CustomerGameCharge) {
+  return charge.gameCount ?? Math.max(
+    1,
+    Math.round((charge.originalAmount ?? charge.amount) / 300)
+  );
+}
+
+function getAdvanceReduction(
+  charges: CustomerGameCharge[],
+  games: number
+) {
+  let remaining = games;
+  return charges.reduce((total, charge) => {
+    if (remaining <= 0) return total;
+    const gameCount = getChargeGameCount(charge);
+    const applied = Math.min(remaining, gameCount);
+    remaining -= applied;
+    return total +
+      ((charge.originalAmount ?? charge.amount) / gameCount) * applied;
+  }, 0);
+}
+
 function findAccountForOrderInput(
   accounts: CustomerAccount[],
   input: ReplaceCafeChargesInput
@@ -387,6 +414,23 @@ export const useCustomerAccountStore =
                     }
                   : account
             ),
+          })),
+
+        cancelCustomerAccount: ({ id, reason, note }) =>
+          set((state) => ({
+            accounts: state.accounts.map((account) => {
+              if (account.id !== id) return account;
+              const now = new Date().toISOString();
+              return {
+                ...account,
+                status: "closed",
+                closedAt: now,
+                cancelledAt: now,
+                cancelledReason: reason,
+                cancelledNote: note || undefined,
+                updatedAt: now,
+              };
+            }),
           })),
 
         deleteCustomerAccount: (id) =>
@@ -866,8 +910,9 @@ export const useCustomerAccountStore =
           const account = get().accounts.find((item) => item.id === customerId);
           if (!account || account.status !== "active" || account.paymentStatus !== "unpaid") return false;
           if (account.advanceApplicationId || !Number.isInteger(games) || games < 1) return false;
-          const eligibleGames = Math.floor(
-            account.gameCharges.reduce((sum, charge) => sum + (charge.originalAmount ?? charge.amount), 0) / 300
+          const eligibleGames = account.gameCharges.reduce(
+            (sum, charge) => sum + getChargeGameCount(charge),
+            0
           );
           if (games > eligibleGames) return false;
           set((state) => ({
@@ -875,7 +920,7 @@ export const useCustomerAccountStore =
               ? withTotals({
                   ...item,
                   advanceGamesApplied: games,
-                  advanceReduction: games * 300,
+                  advanceReduction: getAdvanceReduction(item.gameCharges, games),
                   advanceApplicationId: applicationId,
                   updatedAt: new Date().toISOString(),
                 })

@@ -22,26 +22,12 @@ import { useCreditLedgerStore } from "@/features/credit-ledger/store/creditLedge
 import { useAdvanceGamesStore } from "@/features/advance-games/store/advanceGamesStore";
 import { useTableStore } from "@/store/tableStore";
 import { useOutsidePurchaseStore } from "@/features/outside-purchases/store/outsidePurchaseStore";
+import { SNOOKER_ARENA_LOCAL_STORAGE_KEYS } from "@/features/backup/storageOwnership";
 
 type ResetMode = "test-data" | "full";
 
-const storageKeys = [
-  "snooker-arena-sales",
-  "snooker-arena-checkout",
-  "snooker-arena-cafe",
-  "snooker-arena-expenses",
-  "snooker-arena-table-history",
-  "snooker-arena-business-day",
-  "snooker-arena-customer-accounts",
-  "snooker-arena-credit-ledger",
-  "snooker-arena-advance-games",
-  "snooker-arena-outside-purchases",
-  "snooker-arena-floor-plan-positions",
-  "snooker-arena-floor-plan-zones",
-];
-
 function clearKnownStorage() {
-  storageKeys.forEach((key) => {
+  SNOOKER_ARENA_LOCAL_STORAGE_KEYS.forEach((key) => {
     window.localStorage.removeItem(key);
   });
 }

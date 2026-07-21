@@ -16,6 +16,7 @@ import { calculateBill } from "@/features/pricing/utils/calculateBill";
 import { calculateGamePrice } from "@/features/pricing/utils/calculateGamePrice";
 import type { Table } from "@/types/table";
 import { getSessionPlayers } from "@/features/sessions/utils/sessionPlayers";
+import { useClubSettingsStore } from "@/features/settings/store/clubSettingsStore";
 
 import type { FloorPlanPosition } from "./useFloorPlanStore";
 
@@ -103,6 +104,12 @@ function FloorPlanTable({
   onClick,
   onPointerDown,
 }: Props) {
+  const frameWarningMinutes = useClubSettingsStore(
+    (state) => state.settings.frameWarningMinutes
+  );
+  const frameDangerMinutes = useClubSettingsStore(
+    (state) => state.settings.frameDangerMinutes
+  );
   const elapsed = useMemo(() => {
     if (!table.session) return "00:00:00";
 
@@ -140,8 +147,29 @@ function FloorPlanTable({
         now,
     });
 
+    const lines = table.session.tableChargeLines ?? [];
+    const gameAmount = lines.length > 0
+      ? lines.reduce((total, line) => {
+          if (line.type !== "tableBooking" || line.endedAt) {
+            return total + line.amount;
+          }
+          const endTime = table.session?.pausedAt
+            ? new Date(table.session.pausedAt)
+            : now;
+          const minutes = Math.max(
+            1,
+            Math.ceil(
+              (endTime.getTime() - new Date(line.startedAt).getTime()) /
+                60000
+            )
+          );
+          const rate = line.unitRate ?? (table.type === "private-room" ? 25 : 20);
+          return total + minutes * rate;
+        }, 0)
+      : pricing.gameAmount;
+
     return calculateBill({
-      gameAmount: pricing.gameAmount,
+      gameAmount,
       cafeAmount,
       discount: table.session.discount,
     }).total;
@@ -185,14 +213,14 @@ function FloorPlanTable({
   const timeWarningStyle =
     table.status === "running" &&
     usesFrameWarning &&
-    frameElapsedMinutes >= 30
+    frameElapsedMinutes >= frameDangerMinutes
       ? {
           border: "border-red-300",
           card: "bg-red-50",
         }
       : table.status === "running" &&
           usesFrameWarning &&
-          frameElapsedMinutes >= 25
+          frameElapsedMinutes >= frameWarningMinutes
         ? {
             border: "border-amber-300",
             card: "bg-amber-50",

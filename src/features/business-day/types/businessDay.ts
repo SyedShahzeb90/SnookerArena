@@ -16,6 +16,9 @@ export interface BusinessDaySummary {
   totalExpenses: number;
   cashExpenses: number;
   expenseCount: number;
+  inventoryPurchasesTotal?: number;
+  cashInventoryPurchases?: number;
+  cashInventoryPurchaseRestored?: number;
   outsidePurchasesPaidFromDrawer?: number;
   outsidePurchaseCashRestored?: number;
   cashCustomerReimbursements?: number;
@@ -38,6 +41,7 @@ export interface BusinessDay
   endedAt?: string;
   status: BusinessDayStatus;
   openedBy: string;
+  openedByOperatorId?: string;
   closedBy?: string;
   openingCash: number;
   actualCashCounted?: number;
@@ -52,6 +56,7 @@ export interface BusinessDay
 
 export interface StartBusinessDayInput {
   openedBy: string;
+  operatorId: string;
   openingCash: number;
   openingNotes?: string;
 }

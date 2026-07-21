@@ -17,6 +17,8 @@ import { useCheckoutStore } from "@/features/billing/store/checkoutStore";
 import { useExpensesStore } from "@/features/expenses/store/expensesStore";
 import { useSalesStore } from "@/features/sales/store/salesStore";
 import { useOutsidePurchaseStore } from "@/features/outside-purchases/store/outsidePurchaseStore";
+import { useCafeStore } from "@/features/cafe/store/cafeStore";
+import { formatAppDateTime, useAppDateTimeFormats } from "@/lib/dateTime";
 
 import { useBusinessDayStore } from "../store/businessDayStore";
 import { calculateBusinessDaySummary } from "../utils/businessDaySummary";
@@ -37,15 +39,7 @@ function money(value: number) {
 }
 
 function formatDate(value?: string) {
-  if (!value) return "-";
-
-  return new Date(value).toLocaleString(
-    "en-PK",
-    {
-      dateStyle: "medium",
-      timeStyle: "short",
-    }
-  );
+  return formatAppDateTime(value);
 }
 
 function startOfDay(date: Date) {
@@ -114,6 +108,7 @@ function getDateRange(
 }
 
 function DayHistoryPage() {
+  useAppDateTimeFormats();
   const navigate = useNavigate();
   const location = useLocation();
   const isAdmin =
@@ -137,6 +132,7 @@ function DayHistoryPage() {
   const outsidePurchases = useOutsidePurchaseStore(
     (state) => state.purchases
   );
+  const vendorRestockingRecords = useCafeStore((state) => state.vendorRestockingRecords);
 
   const [dateFilter, setDateFilter] =
     useState<DateFilter>("this-month");
@@ -370,6 +366,7 @@ function DayHistoryPage() {
                           expenses,
                           pendingBills,
                           outsidePurchases,
+                          vendorRestockingRecords,
                         })
                       : day;
 

@@ -9,6 +9,7 @@ import { calculateBill } from "@/features/pricing/utils/calculateBill";
 import { calculateGamePrice } from "@/features/pricing/utils/calculateGamePrice";
 import type { Sale } from "@/features/sales/types/sale";
 import type { OutsidePurchase } from "@/features/outside-purchases/types/outsidePurchase";
+import type { VendorRestockingRecord } from "@/features/cafe/store/cafeStore";
 
 import type {
   BusinessDay,
@@ -76,12 +77,14 @@ export function calculateBusinessDaySummary({
   expenses,
   pendingBills,
   outsidePurchases = [],
+  vendorRestockingRecords = [],
 }: {
   day: BusinessDay;
   sales: Sale[];
   expenses: Expense[];
   pendingBills: PendingBill[];
   outsidePurchases?: OutsidePurchase[];
+  vendorRestockingRecords?: VendorRestockingRecord[];
 }): BusinessDaySummary {
   const daySales = sales.filter(
     (sale) =>
@@ -242,17 +245,40 @@ export function calculateBusinessDaySummary({
           : purchase.outstandingAmount),
       0
     );
+  const activeInventoryPurchases = vendorRestockingRecords.filter(
+    (record) => record.businessDayId === day.id && record.status === "active"
+  );
+  const inventoryPurchasesTotal = activeInventoryPurchases.reduce(
+    (total, record) => total + record.totalCost,
+    0
+  );
+  const cashInventoryPurchases = vendorRestockingRecords
+    .filter((record) =>
+      (record.businessDayId === day.id && record.paymentSource === "cash_drawer") ||
+      (record.creditPaidBusinessDayId === day.id && record.creditPaymentSource === "cash_drawer")
+    )
+    .reduce((total, record) => total + record.totalCost, 0);
+  const cashInventoryPurchaseRestored = vendorRestockingRecords
+    .filter((record) => record.status === "cancelled" && record.cancelledBusinessDayId === day.id && (record.paymentSource === "cash_drawer" || record.creditPaymentSource === "cash_drawer"))
+    .reduce((total, record) => total + record.totalCost, 0);
   const expectedCash =
     day.openingCash +
     salesTotals.cashSales +
     reimbursementTotals.cash -
     expenseTotals.cashExpenses -
     outsidePurchasesPaidFromDrawer +
-    outsidePurchaseCashRestored;
+    outsidePurchaseCashRestored -
+    cashInventoryPurchases +
+    cashInventoryPurchaseRestored;
 
   return {
     ...salesTotals,
     ...expenseTotals,
+    totalExpenses: expenseTotals.totalExpenses + inventoryPurchasesTotal,
+    expenseCount: expenseTotals.expenseCount + activeInventoryPurchases.length,
+    inventoryPurchasesTotal,
+    cashInventoryPurchases,
+    cashInventoryPurchaseRestored,
     outsidePurchasesPaidFromDrawer,
     outsidePurchaseCashRestored,
     cashCustomerReimbursements:
@@ -273,6 +299,7 @@ export function calculateBusinessDaySummary({
     expectedCash,
     netProfit:
       salesTotals.totalSales -
-      expenseTotals.totalExpenses,
+      expenseTotals.totalExpenses -
+      inventoryPurchasesTotal,
   };
 }

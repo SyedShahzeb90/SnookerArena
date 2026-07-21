@@ -1,6 +1,6 @@
 import { ArrowLeft, ReceiptText, Search, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -30,10 +30,14 @@ import {
   formatCustomerDisplayLabel,
 } from "@/features/customers/utils/billDisplay";
 import { normalizePlayerName } from "@/features/cafe/utils/playerIdentity";
+import { useCafeStore } from "@/features/cafe/store/cafeStore";
 import {
   getPlayerCafeAmount,
   hasPlayerName,
 } from "../utils/playerBillIdentity";
+import { formatAppDate, formatAppTime, useAppDateTimeFormats } from "@/lib/dateTime";
+import CustomerBillsPage from "@/features/customers/pages/CustomerBillsPage";
+import { useAdminModeStore } from "@/features/admin-mode/adminModeStore";
 type StatusFilter = "pending" | "paid" | "cancelled";
 type ViewFilter = StatusFilter | "all";
 type DateFilter =
@@ -187,15 +191,8 @@ function formatDateTimeLines(value?: string | Date) {
   }
 
   return {
-    date: date.toLocaleDateString(undefined, {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    }),
-    time: date.toLocaleTimeString(undefined, {
-      hour: "numeric",
-      minute: "2-digit",
-    }),
+    date: formatAppDate(date),
+    time: formatAppTime(date),
   };
 }
 
@@ -799,7 +796,7 @@ function getCheckoutRowBillLabel(row: CheckoutRow, account?: CustomerAccount) {
 function getCheckoutRowTypeLabel(row: CheckoutRow) {
   if (row.type === "pending") {
     if (row.snookerAmount <= 0) {
-      return "Cafe Only";
+      return "Canteen Only";
     }
 
     const gameCount = Math.max(
@@ -833,11 +830,11 @@ function getCheckoutRowTypeLabel(row: CheckoutRow) {
     ) {
       return "Accessories Only";
     }
-    return "Cafe Only";
+    return "Canteen Only";
   }
   const saleType = row.sale.saleType;
   if (saleType === "cafe-only" || saleType === "cafe_only") {
-    return "Cafe Only";
+    return "Canteen Only";
   }
   if (saleType === "customer_bill") {
     return "Customer Bill";
@@ -980,7 +977,10 @@ function isCheckoutPaidSale(sale: Sale) {
   return sale.paymentStatus === "paid";
 }
 function CheckoutPage() {
+  useAppDateTimeFormats();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const selectedCustomerBillId = searchParams.get("customerBillId");
   const pendingBills = useCheckoutStore((state) => state.pendingBills);
   const receivePendingBillPayment = useCheckoutStore(
     (state) => state.receivePendingBillPayment,
@@ -1003,8 +1003,9 @@ function CheckoutPage() {
     state.getActiveBusinessDay(),
   );
   const customerAccounts = useCustomerAccountStore((state) => state.accounts);
-  const closeCustomerAccount = useCustomerAccountStore(
-    (state) => state.closeCustomerAccount
+  const canCancelBills = useAdminModeStore((state) => state.can("cancel_bills"));
+  const cancelCustomerAccount = useCustomerAccountStore(
+    (state) => state.cancelCustomerAccount
   );
   const [selectedBill, setSelectedBill] = useState<PendingBill | null>(null);
   const [selectedPlayerName, setSelectedPlayerName] = useState<
@@ -1489,12 +1490,20 @@ function CheckoutPage() {
     });
   };
   const handleCancelPendingBill = (bill: PendingBill) => {
+    if (!useAdminModeStore.getState().can("cancel_bills")) {
+      setMessage("Admin Mode is required to cancel a bill.");
+      return;
+    }
     setBillToCancel(bill);
     setCancelReason("");
     setCancelNote("");
     setCancelError("");
   };
   const confirmCancelPendingBill = () => {
+    if (!useAdminModeStore.getState().can("cancel_bills")) {
+      setCancelError("Admin Mode is required to cancel a bill.");
+      return;
+    }
     if (!billToCancel) return;
     const reason = cancelReason.trim();
     const note = cancelNote.trim();
@@ -1506,6 +1515,22 @@ function CheckoutPage() {
       setCancelError("Please enter a note for Other.");
       return;
     }
+    const cancelledSourceIds = new Set(
+      useCustomerAccountStore
+        .getState()
+        .accounts.flatMap((account) =>
+          account.cafeCharges
+            .filter((charge) => charge.sessionId === billToCancel.session.id)
+            .map((charge) => charge.sourceOrderId)
+        )
+        .filter((sourceOrderId): sourceOrderId is string => Boolean(sourceOrderId))
+    );
+    cancelledSourceIds.forEach((sourceOrderId) => {
+      useCafeStore.getState().reverseStockForCharge(
+        sourceOrderId,
+        `Cancelled bill ${billToCancel.staffBillNumber ?? billToCancel.id}`
+      );
+    });
     cancelPendingBill({ billId: billToCancel.id, reason, note });
     useCustomerAccountStore
       .getState()
@@ -1520,12 +1545,20 @@ function CheckoutPage() {
     setBillToCancel(null);
   };
   const handleCancelAccountBill = (account: CustomerAccount) => {
+    if (!useAdminModeStore.getState().can("cancel_bills")) {
+      setMessage("Admin Mode is required to cancel a bill.");
+      return;
+    }
     setAccountToCancel(account);
     setCancelReason("");
     setCancelNote("");
     setCancelError("");
   };
   const confirmCancelAccountBill = () => {
+    if (!useAdminModeStore.getState().can("cancel_bills")) {
+      setCancelError("Admin Mode is required to cancel a bill.");
+      return;
+    }
     if (!accountToCancel) return;
     const reason = cancelReason.trim();
     const note = cancelNote.trim();
@@ -1538,13 +1571,17 @@ function CheckoutPage() {
       return;
     }
 
-    closeCustomerAccount(accountToCancel.id);
+    cancelCustomerAccount({ id: accountToCancel.id, reason, note });
     setMessage(
       `Cancelled bill ${getBillPrimaryLabel(accountToCancel)}.`
     );
     setAccountToCancel(null);
   };
   const handleDeleteSale = (sale: Sale) => {
+    if (!useAdminModeStore.getState().can("cancel_bills")) {
+      setMessage("Admin Mode is required to delete a paid bill.");
+      return;
+    }
     const confirmed = window.confirm(
       `Delete paid bill ${sale.invoiceNumber}? This is for removing mistaken test bills.`,
     );
@@ -1554,7 +1591,7 @@ function CheckoutPage() {
   };
   const openCheckoutRow = (row: CheckoutRow) => {
     if (row.type === "account") {
-      navigate(`/operator/customer-bills?customerBillId=${row.account.id}`);
+      navigate(`/operator/billing?customerBillId=${row.account.id}`);
       return;
     }
 
@@ -1565,7 +1602,7 @@ function CheckoutPage() {
 
       if (account) {
         navigate(
-          `/operator/customer-bills?customerBillId=${account.id}`
+          `/operator/billing?customerBillId=${account.id}`
         );
         return;
       }
@@ -1616,10 +1653,14 @@ function CheckoutPage() {
       setSelectedPlayerName(row.playerName);
     }
   };
+  if (selectedCustomerBillId) {
+    return <CustomerBillsPage paymentMode />;
+  }
+
   return (
-    <main className="min-h-screen bg-slate-100 px-6 py-6">
+    <main className="min-h-screen bg-slate-100 px-4 py-5 sm:px-5 lg:px-6">
       {" "}
-      <div className="mx-auto max-w-[1600px]">
+      <div className="mx-auto max-w-[1440px]">
         {" "}
         <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           {" "}
@@ -1643,49 +1684,53 @@ function CheckoutPage() {
                 {" "}
                 <h1 className="text-2xl font-bold text-slate-950">
                   {" "}
-                  Customer Bills / Checkout{" "}
+                  Collect Payment{" "}
                 </h1>{" "}
                 <p className="text-sm text-slate-500">
                   {" "}
-                  Ended game bills waiting for payment.{" "}
+                  Collect payment for ended sessions and open bills.{" "}
                 </p>{" "}
               </div>{" "}
             </div>{" "}
           </div>{" "}
         </div>{" "}
-        <section className="grid grid-cols-1 gap-4 md:grid-cols-4">
+        <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           {" "}
-          <Card className="p-4">
+          <Card className="flex min-h-[104px] flex-col justify-between p-3.5">
             {" "}
-            <p className="text-sm text-slate-500"> Open Bills </p>{" "}
-            <p className="mt-1 text-2xl font-bold">
+            <p className="text-xs font-medium text-slate-500"> Open Bills </p>{" "}
+            <p className="mt-1 text-xl font-bold text-slate-950">
               {" "}
-              {openBillsCount.toLocaleString()} bills{" "}
+              {openBillsCount.toLocaleString()}{" "}
             </p>{" "}
+            <p className="text-xs text-slate-500">Awaiting payment</p>
           </Card>{" "}
-          <Card className="p-4">
+          <Card className="flex min-h-[104px] flex-col justify-between p-3.5">
             {" "}
-            <p className="text-sm text-slate-500"> Outstanding Amount </p>{" "}
-            <p className="mt-1 text-2xl font-bold">
+            <p className="text-xs font-medium text-slate-500"> Outstanding Amount </p>{" "}
+            <p className="mt-1 text-xl font-bold text-amber-700">
               {" "}
               {formatCurrency(openAmount)}{" "}
             </p>{" "}
+            <p className="text-xs text-slate-500">Pending collection</p>
           </Card>{" "}
-          <Card className="p-4">
+          <Card className="flex min-h-[104px] flex-col justify-between p-3.5">
             {" "}
-            <p className="text-sm text-slate-500"> Paid Bills Today </p>{" "}
-            <p className="mt-1 text-2xl font-bold">
+            <p className="text-xs font-medium text-slate-500"> Paid Bills Today </p>{" "}
+            <p className="mt-1 text-xl font-bold text-slate-950">
               {" "}
               {todaySales.length.toLocaleString()}{" "}
             </p>{" "}
+            <p className="text-xs text-slate-500">Completed today</p>
           </Card>{" "}
-          <Card className="p-4">
+          <Card className="flex min-h-[104px] flex-col justify-between p-3.5">
             {" "}
-            <p className="text-sm text-slate-500"> Amount Received Today </p>{" "}
-            <p className="mt-1 text-2xl font-bold">
+            <p className="text-xs font-medium text-slate-500"> Amount Received Today </p>{" "}
+            <p className="mt-1 text-xl font-bold text-emerald-700">
               {" "}
               {formatCurrency(totalReceivedToday)}{" "}
             </p>{" "}
+            <p className="text-xs text-slate-500">All payment methods</p>
           </Card>{" "}
         </section>{" "}
         {message && (
@@ -1696,7 +1741,7 @@ function CheckoutPage() {
         )}{" "}
         <Card className="mt-5 overflow-hidden">
           {" "}
-          <div className="grid gap-3 border-b p-4">
+          <div className="grid gap-3 border-b p-3.5 sm:p-4">
             {" "}
             <div className="flex items-center gap-2">
               {" "}
@@ -1707,7 +1752,7 @@ function CheckoutPage() {
                 onChange={(event) => setSearch(event.target.value)}
               />{" "}
             </div>{" "}
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap items-end gap-2.5">
               {" "}
               <div className="flex rounded-lg border bg-white p-1">
                 {" "}
@@ -1752,42 +1797,45 @@ function CheckoutPage() {
                   </Button>
                 ))}{" "}
               </div>{" "}
-              <select
-                className="h-10 rounded-md border bg-white px-3 text-sm"
-                value={paymentMethodFilter}
-                onChange={(event) =>
-                  setPaymentMethodFilter(
-                    event.target.value as PaymentMethodFilter,
-                  )
-                }
-              >
-                {" "}
-                <option value="all"> All Payments </option>{" "}
-                <option value="cash">Cash</option>{" "}
-                <option value="card">Card</option>{" "}
-                <option value="jazzcash"> JazzCash </option>{" "}
-                <option value="easypaisa"> Easypaisa </option>{" "}
-              </select>{" "}
-              <select
-                className="h-10 rounded-md border bg-white px-3 text-sm"
-                value={tableFilter}
-                onChange={(event) =>
-                  setTableFilter(
-                    event.target.value === "all"
-                      ? "all"
-                      : Number(event.target.value),
-                  )
-                }
-              >
-                {" "}
-                <option value="all"> All Tables </option>{" "}
-                {tableOptions.map((table) => (
-                  <option key={table.id} value={table.id}>
-                    {" "}
-                    {table.name}{" "}
-                  </option>
-                ))}{" "}
-              </select>{" "}
+              <label className="grid gap-1 text-xs font-semibold text-slate-500">
+                Payment
+                <select
+                  className="h-10 rounded-md border bg-white px-3 text-sm font-normal text-slate-900"
+                  value={paymentMethodFilter}
+                  onChange={(event) =>
+                    setPaymentMethodFilter(
+                      event.target.value as PaymentMethodFilter,
+                    )
+                  }
+                >
+                  <option value="all">All Payments</option>
+                  <option value="cash">Cash</option>
+                  <option value="card">Card</option>
+                  <option value="jazzcash">JazzCash</option>
+                  <option value="easypaisa">Easypaisa</option>
+                </select>
+              </label>
+              <label className="grid gap-1 text-xs font-semibold text-slate-500">
+                Table
+                <select
+                  className="h-10 rounded-md border bg-white px-3 text-sm font-normal text-slate-900"
+                  value={tableFilter}
+                  onChange={(event) =>
+                    setTableFilter(
+                      event.target.value === "all"
+                        ? "all"
+                        : Number(event.target.value),
+                    )
+                  }
+                >
+                  <option value="all">All Tables</option>
+                  {tableOptions.map((table) => (
+                    <option key={table.id} value={table.id}>
+                      {table.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>{" "}
             {dateFilter === "custom" && (
               <div className="grid gap-3 sm:grid-cols-2">
@@ -1804,10 +1852,10 @@ function CheckoutPage() {
                 />{" "}
               </div>
             )}{" "}
-            <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-slate-50 px-3 py-2 text-sm">
               <div>
                 <p className="font-medium text-slate-600">{resultSummary}</p>
-                <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
+                <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
                   <span>
                     {statusFilter === "pending"
                       ? "Outstanding in current view"
@@ -1828,7 +1876,7 @@ function CheckoutPage() {
                     </strong>
                   </span>
                   <span>
-                    Cafe{" "}
+                    Canteen{" "}
                     <strong className="text-slate-700">
                       {formatCurrency(filteredTotals.cafe)}
                     </strong>
@@ -1853,62 +1901,56 @@ function CheckoutPage() {
               )}
             </div>
           </div>{" "}
-          <div className="max-h-[calc(100vh-23rem)] min-h-[220px] w-full overflow-auto pb-2">
+          <div className="max-h-[calc(100vh-22rem)] min-h-[220px] w-full overflow-auto pb-2">
             {" "}
             <table
               className={`${
                 showPaymentColumn && showStatusColumn
-                  ? "w-[1600px]"
+                  ? "min-w-[1360px]"
                   : showPaymentColumn
-                    ? "w-[1470px]"
-                    : "w-[1450px]"
-              } table-fixed text-left text-sm`}
+                    ? "min-w-[1270px]"
+                    : "min-w-[1200px]"
+              } w-full table-fixed text-left text-sm`}
             >
               <colgroup>
-                <col className="w-[7rem]" />
+                <col className="w-[8.5rem]" />
                 <col className="w-[8rem]" />
                 <col className="w-[8rem]" />
                 <col className="w-[5.75rem]" />
-                <col className="w-[11.5rem]" />
-                <col className="w-[6.5rem]" />
-                <col className="w-[6.5rem]" />
-                <col className="w-[7rem]" />
-                <col className="w-[6.5rem]" />
-                {showStatusColumn && <col className="w-[10rem]" />}
-                {showPaymentColumn && <col className="w-[9.5rem]" />}
                 <col className="w-[12rem]" />
+                <col className="w-[6rem]" />
+                <col className="w-[6rem]" />
+                <col className="w-[6.5rem]" />
+                <col className="w-[6.5rem]" />
+                {showStatusColumn && <col className="w-[9rem]" />}
+                {showPaymentColumn && <col className="w-[8.5rem]" />}
+                <col className="w-[10.5rem]" />
               </colgroup>
-              {" "}
               <thead className="sticky top-0 z-10 bg-slate-50 text-xs uppercase text-slate-500 shadow-sm">
-                {" "}
                 <tr>
-                  {" "}
                   <th className="whitespace-nowrap px-3 py-2.5">
-                    {" "}
-                    Bill No{" "}
-                  </th>{" "}
+                    Bill No
+                  </th>
                   <th className="whitespace-nowrap px-3 py-2.5">
-                    {" "}
-                    Ended At{" "}
-                  </th>{" "}
-                  <th className="whitespace-nowrap px-3 py-2.5"> Type </th>{" "}
-                  <th className="whitespace-nowrap px-3 py-2.5"> Table </th>{" "}
-                  <th className="whitespace-nowrap px-3 py-2.5"> Customer / Players </th>{" "}
-                  <th className="whitespace-nowrap px-3 py-2.5 text-right"> Table Bill </th>{" "}
-                  <th className="whitespace-nowrap px-3 py-2.5 text-right"> Cafe Bill </th>{" "}
+                    Ended At
+                  </th>
+                  <th className="whitespace-nowrap px-3 py-2.5">Type</th>
+                  <th className="whitespace-nowrap px-3 py-2.5">Table</th>
+                  <th className="whitespace-nowrap px-3 py-2.5">Customer / Players</th>
+                  <th className="whitespace-nowrap px-3 py-3 text-right">Table</th>
+                  <th className="whitespace-nowrap px-3 py-3 text-right">Canteen</th>
                   {showAccessoriesColumn && (
-                    <th className="whitespace-nowrap px-3 py-2.5 text-right"> Accessories </th>
-                  )}{" "}
-                  <th className="whitespace-nowrap px-3 py-2.5 text-right"> Total </th>{" "}
-                  {showStatusColumn && <th className="whitespace-nowrap px-3 py-2.5"> Status </th>}{" "}
+                    <th className="whitespace-nowrap px-3 py-2.5 text-right">Accessories</th>
+                  )}
+                  <th className="whitespace-nowrap px-3 py-2.5 text-right">Total</th>
+                  {showStatusColumn && <th className="whitespace-nowrap px-3 py-2.5">Status</th>}
                   {showPaymentColumn && (
-                    <th className="whitespace-nowrap px-3 py-2.5"> Payment Method </th>
-                  )}{" "}
-                  <th className="whitespace-nowrap px-3 py-2.5 text-right"> Action </th>{" "}
-                </tr>{" "}
-              </thead>{" "}
+                    <th className="whitespace-nowrap px-3 py-2.5">Payment Method</th>
+                  )}
+                  <th className="whitespace-nowrap px-3 py-2.5 text-right">Action</th>
+                </tr>
+              </thead>
               <tbody>
-                {" "}
                 {checkoutRows.map((row) => {
                   const account =
                     row.type === "account"
@@ -1930,6 +1972,8 @@ function CheckoutPage() {
                     row.type === "pending" || row.type === "account"
                       ? getPendingAge(getRowTime(row))
                       : "";
+                  const rowIsSelected =
+                    row.type === "pending" && selectedBill?.id === row.bill.id;
                   return (
                     <tr
                       key={
@@ -1946,14 +1990,21 @@ function CheckoutPage() {
                           openCheckoutRow(row);
                         }
                       }}
-                      className="group cursor-pointer border-t bg-white transition hover:bg-amber-50/40 focus:bg-amber-50/40 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-amber-300"
+                      className={`group cursor-pointer border-t transition focus:outline-none focus:ring-2 focus:ring-inset focus:ring-amber-300 ${
+                        rowIsSelected
+                          ? "bg-amber-50 ring-1 ring-inset ring-amber-200"
+                          : "bg-white hover:bg-slate-50"
+                      }`}
                     >
-                      {" "}
-                      <td className="whitespace-nowrap px-3 py-2 align-middle font-mono text-sm font-semibold text-slate-900">
-                        {" "}
-                        {getCheckoutRowBillLabel(row, account)}{" "}
-                      </td>{" "}
-                      <td className="px-3 py-2 align-middle text-slate-700">
+                      <td className="px-3 py-3 align-middle font-mono text-sm font-semibold text-slate-900">
+                        <span
+                          className="block truncate whitespace-nowrap"
+                          title={getCheckoutRowBillLabel(row, account)}
+                        >
+                          {getCheckoutRowBillLabel(row, account)}
+                        </span>
+                      </td>
+                      <td className="px-3 py-3 align-middle text-slate-700">
                         <span className="block whitespace-nowrap font-medium text-slate-700">
                           {endedAt.date}
                         </span>
@@ -1967,42 +2018,40 @@ function CheckoutPage() {
                             Paid {paidAt.time}
                           </span>
                         )}
-                      </td>{" "}
-                      <td className="whitespace-nowrap px-3 py-2 align-middle">
-                        {" "}
-                        {getCheckoutRowTypeLabel(row)}{" "}
-                      </td>{" "}
-                      <td className="whitespace-nowrap px-3 py-2 align-middle">
-                        {" "}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-3 align-middle">
+                        {getCheckoutRowTypeLabel(row)}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-3 align-middle">
                         {row.type === "pending"
                           ? row.bill.tableName
                           : row.type === "account"
                             ? getBillTableLabel(row.account) || "-"
-                            : row.sale.tableName}{" "}
-                      </td>{" "}
-                      <td className="px-3 py-2 align-middle">
-                        {" "}
-                        {getCheckoutRowPlayersLabel(row, account)}{" "}
-                      </td>{" "}
-                      <td className="px-3 py-2 text-right align-middle tabular-nums">
+                            : row.sale.tableName}
+                      </td>
+                      <td className="px-3 py-3 align-middle">
+                        <span className="block truncate" title={getCheckoutRowPlayersLabel(row, account)}>
+                          {getCheckoutRowPlayersLabel(row, account)}
+                        </span>
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-3 text-right align-middle tabular-nums">
                         {formatAmountOrDash(getCheckoutRowTableAmount(row))}
-                      </td>{" "}
-                      <td className="px-3 py-2 text-right align-middle tabular-nums">
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-3 text-right align-middle tabular-nums">
                         {formatAmountOrDash(getCheckoutRowCafeAmount(row))}
-                      </td>{" "}
+                      </td>
                       {showAccessoriesColumn && (
-                        <td className="px-3 py-2 text-right align-middle tabular-nums">
+                        <td className="whitespace-nowrap px-3 py-3 text-right align-middle tabular-nums">
                           {formatAmountOrDash(
                             getCheckoutRowAccessoryAmount(row),
                           )}
                         </td>
-                      )}{" "}
-                      <td className="px-3 py-2 text-right align-middle font-bold tabular-nums text-slate-950">
+                      )}
+                      <td className="whitespace-nowrap px-3 py-3 text-right align-middle font-bold tabular-nums text-slate-950">
                         {formatCurrency(getCheckoutRowTotal(row))}
-                      </td>{" "}
+                      </td>
                       {showStatusColumn && (
-                        <td className="px-3 py-2 align-middle">
-                          {" "}
+                        <td className="px-3 py-3 align-middle">
                           <span
                             className={
                               row.type === "pending" &&
@@ -2015,27 +2064,24 @@ function CheckoutPage() {
                             }
                           >
                             {statusLabel}
-                          </span>{" "}
+                          </span>
                           {pendingAge && (
                             <p className="mt-0.5 text-xs leading-tight text-slate-500">
                               {pendingAge}
                             </p>
                           )}
                         </td>
-                      )}{" "}
+                      )}
                       {showPaymentColumn && (
-                        <td className="px-3 py-2">
-                          {" "}
+                        <td className="px-3 py-3">
                           {row.type === "pending" || row.type === "account"
                             ? "-"
-                            : getSalePaymentLabel(row.sale)}{" "}
+                            : getSalePaymentLabel(row.sale)}
                         </td>
-                      )}{" "}
-                      <td className="px-3 py-2 text-right align-middle">
-                        {" "}
+                      )}
+                      <td className="px-3 py-3 text-right align-middle">
                         {row.type === "pending" || row.type === "account" ? (
                           <div className="flex flex-wrap justify-end gap-2">
-                            {" "}
                             <Button
                               size="sm"
                               className="h-8 whitespace-nowrap px-3"
@@ -2050,13 +2096,12 @@ function CheckoutPage() {
                                 openCheckoutRow(row);
                               }}
                             >
-                              {" "}
                               {row.type === "pending" &&
                               row.bill.status === "cancelled"
                                 ? "View Details"
-                                : "View & Pay"}{" "}
-                            </Button>{" "}
-                            {row.type === "pending" &&
+                                : "View & Pay"}
+                            </Button>
+                            {canCancelBills && row.type === "pending" &&
                               row.bill.status !== "cancelled" && (
                                 <Button
                                   type="button"
@@ -2068,12 +2113,10 @@ function CheckoutPage() {
                                     handleCancelPendingBill(row.bill);
                                   }}
                                 >
-                                  {" "}
-                                  <Trash2 className="h-3.5 w-3.5" /> Cancel
-                                  Bill{" "}
+                                  <Trash2 className="h-3.5 w-3.5" /> Cancel Bill
                                 </Button>
-                              )}{" "}
-                            {row.type === "account" && (
+                              )}
+                            {canCancelBills && row.type === "account" && (
                               <Button
                                 type="button"
                                 variant="outline"
@@ -2086,13 +2129,11 @@ function CheckoutPage() {
                                   );
                                 }}
                               >
-                                {" "}
-                                <Trash2 className="h-3.5 w-3.5" /> Cancel
-                                Bill{" "}
+                                <Trash2 className="h-3.5 w-3.5" /> Cancel Bill
                               </Button>
-                            )}{" "}
+                            )}
                           </div>
-                        ) : (
+                        ) : canCancelBills ? (
                           <Button
                             type="button"
                             variant="outline"
@@ -2103,39 +2144,28 @@ function CheckoutPage() {
                               handleDeleteSale(row.sale);
                             }}
                           >
-                            {" "}
-                            <Trash2 className="h-3.5 w-3.5" /> Delete{" "}
+                            <Trash2 className="h-3.5 w-3.5" /> Delete
                           </Button>
-                        )}{" "}
-                      </td>{" "}
+                        ) : null}
+                      </td>
                     </tr>
                   );
-                })}{" "}
+                })}
                 {checkoutRows.length === 0 && (
                   <tr>
-                    {" "}
                     <td
                       colSpan={emptyColumnCount}
                       className="px-4 py-10 text-center text-slate-500"
                     >
-                      {" "}
-                      {statusFilter === "pending"
-                        ? "No pending bills found."
-                        : statusFilter === "paid"
-                          ? dateFilter === "all"
-                            ? "No paid bills found."
-                            : "No paid bills found for this date range."
-                          : statusFilter === "cancelled"
-                            ? "No cancelled bills found."
-                            : "No bills found."}{" "}
-                    </td>{" "}
+                      No bills found for the selected filters.
+                    </td>
                   </tr>
-                )}{" "}
-              </tbody>{" "}
-            </table>{" "}
-          </div>{" "}
-        </Card>{" "}
-      </div>{" "}
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      </div>
       {selectedBill && (
         <BillingDialog
           open={!!selectedBill}
@@ -2169,7 +2199,7 @@ function CheckoutPage() {
           onReceivePlayerBill={handleReceivePlayerBill}
         />
       )}{" "}
-      {(billToCancel || accountToCancel) && (
+      {canCancelBills && (billToCancel || accountToCancel) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4">
           {" "}
           <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl">

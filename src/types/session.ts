@@ -24,6 +24,7 @@ export interface TableChargeLine {
   endedAt?: string;
   durationMinutes?: number;
   amount: number;
+  unitRate?: number;
   payerName?: string;
   payerCustomerId?: string;
   loserName?: string;
@@ -46,6 +47,8 @@ export interface FrameSettlementEffect {
 }
 
 export interface CafeOrderItem {
+  lineId?: string;
+
   menuItemId: string;
 
   name: string;

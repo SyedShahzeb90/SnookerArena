@@ -1,6 +1,7 @@
 import {
   CircleDollarSign,
   Coffee,
+  DatabaseBackup,
   History,
   LayoutDashboard,
   Menu,
@@ -8,8 +9,15 @@ import {
   Package,
   ReceiptText,
   Settings,
+  SlidersHorizontal,
   Sun,
   WalletCards,
+  BarChart3,
+  ShieldCheck,
+  CreditCard,
+  CalendarClock,
+  UserRound,
+  PackagePlus,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -43,13 +51,21 @@ import {
   useCreditLedgerStore,
 } from "@/features/credit-ledger/store/creditLedgerStore";
 import { useOutsidePurchaseStore } from "@/features/outside-purchases/store/outsidePurchaseStore";
+import { useAdminModeStore } from "@/features/admin-mode/adminModeStore";
+import type { AppPermission } from "@/features/admin-mode/permissions";
+import AdminModeDialog from "@/features/admin-mode/AdminModeDialog";
+import { useClubSettingsStore } from "@/features/settings/store/clubSettingsStore";
+import { useBusinessDayStore } from "@/features/business-day/store/businessDayStore";
 
 interface NavigationItem {
   label: string;
   path: string;
   icon: LucideIcon;
   exact?: boolean;
-  badge?: "customer-bills" | "credit-ledger" | "outside-purchases";
+  badge?: "collect-payment" | "credit-ledger" | "outside-purchases";
+  permission?: AppPermission;
+  allowWithoutPin?: boolean;
+  hash?: string;
 }
 
 interface NavigationGroup {
@@ -59,36 +75,34 @@ interface NavigationGroup {
 
 const navigationGroups: NavigationGroup[] = [
   {
-    label: "Main",
+    label: "Daily Work",
     items: [
       {
-        label: "Floor Overview",
+        label: "Dashboard",
         path: "/operator",
         icon: LayoutDashboard,
         exact: true,
       },
-    ],
-  },
-  {
-    label: "Operations",
-    items: [
-      { label: "Customer Bills", path: "/operator/customer-bills", icon: ReceiptText, badge: "customer-bills" },
-      { label: "Credit Ledger", path: "/operator/credit-ledger", icon: WalletCards, badge: "credit-ledger" },
-      { label: "Expenses", path: "/operator/expenses", icon: CircleDollarSign, badge: "outside-purchases" },
-    ],
-  },
-  {
-    label: "POS",
-    items: [
-      { label: "Cafe POS", path: "/operator/cafe", icon: Coffee },
+      { label: "Canteen POS", path: "/operator/cafe", icon: Coffee },
       { label: "Accessories POS", path: "/operator/accessories", icon: Package },
+      { label: "Customer Bills", path: "/operator/customer-bills", icon: ReceiptText },
+      { label: "Collect Payment", path: "/operator/billing", icon: CreditCard, badge: "collect-payment" },
+      { label: "Business Day", path: "/operator", hash: "#business-day", icon: CalendarClock },
     ],
   },
   {
-    label: "Reports / Management",
+    label: "Management",
     items: [
-      { label: "Table History", path: "/operator/table-history", icon: History },
-      { label: "Admin", path: "/admin", icon: Settings },
+      { label: "Admin Dashboard", path: "/admin", icon: Settings, exact: true, permission: "view_management_reports" },
+      { label: "Credit Ledger", path: "/operator/credit-ledger", icon: WalletCards, badge: "credit-ledger", permission: "view_management_reports" },
+      { label: "Expenses", path: "/operator/expenses", icon: CircleDollarSign, badge: "outside-purchases", permission: "view_management_reports" },
+      { label: "Table History", path: "/operator/table-history", icon: History, permission: "view_management_reports" },
+      { label: "Canteen Profit Report", path: "/admin/canteen-profit", icon: BarChart3, permission: "view_management_reports" },
+      { label: "Menu Management", path: "/admin/menu", icon: SlidersHorizontal, exact: true, permission: "manage_canteen" },
+      { label: "Vendor Restocking", path: "/admin/menu/vendor-restocking", icon: PackagePlus, permission: "manage_vendor_restocking" },
+      { label: "Accessories Management", path: "/admin/accessories", icon: Package, permission: "manage_inventory" },
+      { label: "Club Settings", path: "/operator/club-settings", icon: SlidersHorizontal, permission: "manage_settings", allowWithoutPin: true },
+      { label: "Backup & Restore", path: "/operator/backup-restore", icon: DatabaseBackup, permission: "manage_backups" },
     ],
   },
 ];
@@ -157,29 +171,38 @@ function SidebarNavigation({ onSelect }: { onSelect?: () => void }) {
       (item) => item.status === "pending" || item.status === "partial"
     ).length
   );
+  const isAdminMode = useAdminModeStore((state) => state.isAdminMode);
+  const hasPin = useClubSettingsStore((state) => Boolean(state.settings.adminPinHash));
 
   return (
-    <nav className="space-y-4 p-2.5" aria-label="Operator navigation">
-      {navigationGroups.map((group) => (
-        <div
+    <nav className="space-y-5 px-3 py-3" aria-label="Operator navigation">
+      {navigationGroups.map((group) => {
+        const visibleItems = group.items.filter((item) =>
+          !item.permission || isAdminMode || (item.allowWithoutPin && !hasPin)
+        );
+        if (visibleItems.length === 0) return null;
+
+        return <div
           key={group.label}
           className={
-            group.label === "Reports / Management"
+            group.label === "Management"
               ? "border-t border-slate-200 pt-4"
               : undefined
           }
         >
-          <p className="mb-1 px-2 text-xs font-semibold uppercase text-slate-400">
+          <p className="mb-1.5 px-2 text-[11px] font-bold uppercase tracking-wide text-slate-400">
             {group.label}
           </p>
-          <div className="space-y-1">
-            {group.items.map((item) => {
-              const active = item.exact
-                ? location.pathname === item.path
-                : location.pathname.startsWith(item.path);
+          <div className="space-y-0.5">
+            {visibleItems.map((item) => {
+              const active = item.hash
+                ? location.pathname === item.path && location.hash === item.hash
+                : item.exact
+                  ? location.pathname === item.path && !location.hash
+                  : location.pathname.startsWith(item.path);
               const Icon = item.icon;
               const count =
-                item.badge === "customer-bills"
+                item.badge === "collect-payment"
                   ? openBillCount
                   : item.badge === "credit-ledger"
                     ? outstandingCreditCount
@@ -189,31 +212,32 @@ function SidebarNavigation({ onSelect }: { onSelect?: () => void }) {
 
               return (
                 <button
-                  key={item.path}
+                  key={`${item.path}${item.hash ?? ""}`}
                   type="button"
                   className={`flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 ${
                     active
-                      ? "bg-slate-800 text-white"
+                      ? "bg-slate-800 text-white shadow-sm"
                       : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"
                   }`}
+                  title={item.label}
                   aria-current={active ? "page" : undefined}
                   onClick={() => {
-                    navigate(item.path);
+                    navigate(`${item.path}${item.hash ?? ""}`);
                     onSelect?.();
                   }}
                 >
                   <Icon className="h-4 w-4 shrink-0" />
-                  <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                  <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{item.label}</span>
                   {count > 0 && (
                     <span
-                      className={`ml-auto inline-flex h-6 min-w-6 shrink-0 items-center justify-center rounded-full px-2 text-xs font-bold tabular-nums ${
+                      className={`ml-auto inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] font-bold tabular-nums ${
                         active
                           ? "bg-white/15 text-white"
                           : "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200"
                       }`}
                       aria-label={`${count} ${
-                        item.badge === "customer-bills"
-                          ? "open customer bills"
+                        item.badge === "collect-payment"
+                          ? "bills awaiting payment"
                           : item.badge === "credit-ledger"
                             ? "outstanding credit records"
                             : "outside purchases awaiting reimbursement"
@@ -226,8 +250,8 @@ function SidebarNavigation({ onSelect }: { onSelect?: () => void }) {
               );
             })}
           </div>
-        </div>
-      ))}
+        </div>;
+      })}
     </nav>
   );
 }
@@ -235,13 +259,66 @@ function SidebarNavigation({ onSelect }: { onSelect?: () => void }) {
 function SidebarContent({ onSelect }: { onSelect?: () => void }) {
   const { resolvedTheme, toggleTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
+  const navigate = useNavigate();
+  const isAdminMode = useAdminModeStore((state) => state.isAdminMode);
+  const requestAdminMode = useAdminModeStore((state) => state.requestAdminMode);
+  const exitAdminMode = useAdminModeStore((state) => state.exitAdminMode);
+  const hasPin = useClubSettingsStore((state) => Boolean(state.settings.adminPinHash));
+  const activeOperator = useBusinessDayStore(
+    (state) => state.getActiveBusinessDay()?.openedBy
+  );
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden [scrollbar-color:#cbd5e1_transparent] [scrollbar-width:thin]">
         <SidebarNavigation onSelect={onSelect} />
       </div>
-      <div className="border-t border-slate-200 p-2.5">
+      <div className="shrink-0 border-t border-slate-200 px-3 py-2.5">
+        {activeOperator && (
+          <div className="mb-2 rounded-md bg-slate-50 px-2.5 py-1.5">
+            <p className="flex items-center gap-2 text-[11px] font-medium text-slate-500">
+              <UserRound className="h-3.5 w-3.5 shrink-0" /> Active operator
+            </p>
+            <p className="mt-0.5 truncate pl-5.5 text-sm font-semibold text-slate-900" title={activeOperator}>
+              {activeOperator}
+            </p>
+          </div>
+        )}
+        {isAdminMode ? (
+          <div className="mb-1 flex h-9 items-center justify-between gap-2 rounded-md bg-emerald-50 px-2.5">
+            <span className="inline-flex min-w-0 items-center gap-1.5 text-xs font-bold text-emerald-700">
+              <ShieldCheck className="h-3.5 w-3.5 shrink-0" /> Admin Mode
+            </span>
+            <button
+              type="button"
+              className="shrink-0 text-xs font-semibold text-emerald-800 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+              onClick={() => {
+                exitAdminMode();
+                navigate("/operator");
+                onSelect?.();
+              }}
+            >
+              Exit
+            </button>
+          </div>
+        ) : (
+          <Button
+            type="button"
+            variant="ghost"
+            className="mb-1 h-9 w-full justify-start gap-2.5 px-2.5 text-slate-600"
+            onClick={() => {
+              if (hasPin) {
+                requestAdminMode();
+              } else {
+                navigate("/operator/club-settings");
+              }
+              onSelect?.();
+            }}
+          >
+            <ShieldCheck className="h-4 w-4 shrink-0" />
+            <span>Enter Admin Mode</span>
+          </Button>
+        )}
         <Button
           type="button"
           variant="ghost"
@@ -281,7 +358,7 @@ function OperatorShell() {
       </div>
 
       <div className="flex min-w-0 items-start">
-        <aside className="sticky top-0 hidden h-[calc(100vh-89px)] w-[188px] shrink-0 border-r border-slate-200 bg-white lg:block">
+        <aside className="sticky top-0 hidden h-[calc(100vh-89px)] w-[224px] shrink-0 border-r border-slate-200 bg-white lg:block">
           <SidebarContent />
         </aside>
 
@@ -291,7 +368,7 @@ function OperatorShell() {
       </div>
 
       <Dialog open={mobileOpen} onOpenChange={setMobileOpen}>
-        <DialogContent className="left-0 top-0 flex h-dvh w-[248px] max-w-[calc(100%-3rem)] translate-x-0 translate-y-0 flex-col gap-0 rounded-none p-0 sm:max-w-[248px]">
+        <DialogContent className="left-0 top-0 flex h-dvh w-[264px] max-w-[calc(100%-3rem)] translate-x-0 translate-y-0 flex-col gap-0 rounded-none p-0 sm:max-w-[264px]">
           <DialogHeader className="border-b px-4 py-4">
             <DialogTitle>Operator Menu</DialogTitle>
           </DialogHeader>
@@ -300,6 +377,7 @@ function OperatorShell() {
           </div>
         </DialogContent>
       </Dialog>
+      <AdminModeDialog />
     </div>
   );
 }

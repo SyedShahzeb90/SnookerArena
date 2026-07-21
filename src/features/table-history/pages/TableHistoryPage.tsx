@@ -26,6 +26,15 @@ import { useTableStore } from "@/store/tableStore";
 import { useTableHistoryStore } from "../store/tableHistoryStore";
 import type { TableHistoryRecord } from "../types/tableHistory";
 import type { TableChargeLine } from "@/types/session";
+import {
+  compareChargeTimestamps,
+  formatAppDate,
+  formatAppDateTime,
+  formatAppTime,
+  formatChargeDuration,
+  formatChargeTimeRange,
+  useAppDateTimeFormats,
+} from "@/lib/dateTime";
 
 type DateFilter =
   | "today"
@@ -49,32 +58,15 @@ function formatCurrency(amount: number) {
 }
 
 function formatDateTime(value: string) {
-  return new Date(value).toLocaleString(
-    "en-PK",
-    {
-      dateStyle: "medium",
-      timeStyle: "short",
-    }
-  );
+  return formatAppDateTime(value);
 }
 
 function formatDate(value: string) {
-  return new Date(value).toLocaleDateString(
-    "en-PK",
-    {
-      dateStyle: "medium",
-    }
-  );
+  return formatAppDate(value);
 }
 
 function formatTime(value: string) {
-  return new Date(value).toLocaleTimeString(
-    "en-PK",
-    {
-      hour: "numeric",
-      minute: "2-digit",
-    }
-  );
+  return formatAppTime(value);
 }
 
 function getRecordTypeLabel(record: TableHistoryRecord) {
@@ -299,6 +291,7 @@ function matchesSearch(
 }
 
 function TableHistoryPage() {
+  useAppDateTimeFormats();
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
@@ -1230,11 +1223,7 @@ function TableHistoryPage() {
               <div className="mt-3 space-y-3">
                 {getRecordChargeLines(selectedRecord)
                   .slice()
-                  .sort(
-                    (a, b) =>
-                      new Date(a.startedAt).getTime() -
-                      new Date(b.startedAt).getTime()
-                  )
+                  .sort(compareChargeTimestamps)
                   .map((line, index) => (
                       <div
                         key={line.id}
@@ -1244,15 +1233,15 @@ function TableHistoryPage() {
                           <strong className="text-slate-950">
                             {line.type === "tableBooking"
                               ? `Booking charge ${index + 1}`
-                              : `Frame ${index + 1}`}: {getChargeLineTypeLabel(line, selectedRecord)}
+                              : `Game ${index + 1}`} · {getChargeLineTypeLabel(line, selectedRecord)}
                           </strong>
                           <span className="text-slate-500">
-                            {formatTime(line.startedAt)} - {formatTime(line.endedAt ?? selectedRecord.endedAt)}
+                            {formatChargeTimeRange(line.startedAt, line.endedAt, selectedRecord.startedAt)} · {formatChargeDuration(line.startedAt, line.endedAt)}
                           </span>
                         </div>
                         <div className="mt-2 flex justify-between border-t pt-2 text-slate-600">
                           <span>
-                            Duration: {formatDuration(line.durationMinutes ?? 0)}
+                            {line.loserName ? `${line.loserName} lost` : line.winnerName ? `${line.winnerName} won` : "—"}
                           </span>
                           <strong className="text-emerald-700">
                             {formatCurrency(line.amount)}

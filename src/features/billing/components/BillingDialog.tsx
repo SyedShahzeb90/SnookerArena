@@ -18,6 +18,8 @@ import type {
 import type { PaymentSplit } from "@/features/sales/types/sale";
 import type { Table } from "@/types/table";
 import { getSessionPlayers } from "@/features/sessions/utils/sessionPlayers";
+import { useClubSettingsStore } from "@/features/settings/store/clubSettingsStore";
+import { formatAppDateTime, useAppDateTimeFormats } from "@/lib/dateTime";
 
 import BillingSummary from "./BillingSummary";
 import PaymentMethodSelector from "./PaymentMethodSelector";
@@ -98,8 +100,11 @@ function BillingDialog({
   onReceivePayment,
   onReceivePlayerBill,
 }: Props) {
+  useAppDateTimeFormats();
   const [paymentMethod, setPaymentMethod] =
-    useState<PaymentMethod>("cash");
+    useState<PaymentMethod>(() =>
+      useClubSettingsStore.getState().settings.defaultPaymentMethod
+    );
   const [paymentSplits, setPaymentSplits] =
     useState<PaymentSplit[]>([]);
   const [paymentError, setPaymentError] =
@@ -417,12 +422,7 @@ function BillingDialog({
                   {cancelledAt && (
                     <p className="mt-2">
                       Cancelled At:{" "}
-                      {new Date(
-                        cancelledAt
-                      ).toLocaleString([], {
-                        dateStyle: "medium",
-                        timeStyle: "short",
-                      })}
+                      {formatAppDateTime(cancelledAt)}
                     </p>
                   )}
                   {cancelledReason && (
@@ -570,7 +570,7 @@ function BillingDialog({
                           )} bill`}
                     </span>
                     <span className="text-xs font-normal opacity-80">
-                      Snooker Rs. {bill.tableAmount} | Cafe Rs. {bill.cafeAmount}
+                      Snooker Rs. {bill.tableAmount} | Canteen Rs. {bill.cafeAmount}
                     </span>
                   </span>
                   <span className="shrink-0 text-base font-bold">

@@ -37,6 +37,25 @@ export interface CustomerGameCharge {
   isFinal?: boolean;
   finalGames?: number;
   sourceFrameIds?: string[];
+  lineCharges?: CustomerGameChargeLine[];
+}
+
+export interface CustomerGameChargeLine {
+  id: string;
+  sessionId: string;
+  sessionType: SessionType;
+  startedAt: string;
+  endedAt?: string;
+  durationMinutes?: number;
+  amount: number;
+  winnerName?: string;
+  loserName?: string;
+  payerName?: string;
+  payerCustomerId?: string;
+  winningTeam?: "A" | "B";
+  losingTeam?: "A" | "B";
+  isFinal?: boolean;
+  finalGames?: number;
 }
 
 export interface CustomerCafeCharge {
@@ -82,6 +101,9 @@ export interface CustomerAccount {
   paymentStatus: CustomerPaymentStatus;
   paymentMethod?: PaymentMethod;
   paidAt?: string;
+  cancelledAt?: string;
+  cancelledReason?: string;
+  cancelledNote?: string;
   activeBusinessDayId?: string;
   saleId?: string;
   advanceGamesApplied?: number;

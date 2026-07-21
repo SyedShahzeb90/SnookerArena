@@ -1,4 +1,4 @@
-import { PackagePlus } from "lucide-react";
+import { ShoppingCart, Trash2 } from "lucide-react";
 import {
   useEffect,
   useMemo,
@@ -14,13 +14,11 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import type { PaymentMethod } from "@/types/session";
 import { useBusinessDayStore } from "@/features/business-day/store/businessDayStore";
+import { useClubSettingsStore } from "@/features/settings/store/clubSettingsStore";
 import { useCustomerAccountStore } from "@/features/customers/store/customerAccountStore";
 import {
   getBillPrimaryLabel,
-  getBillCustomerLabel,
-  getBillSearchText,
   getBillSecondaryLabel,
-  getBillTableLabel,
 } from "@/features/customers/utils/billDisplay";
 import { useSalesStore } from "@/features/sales/store/salesStore";
 import {
@@ -87,9 +85,6 @@ function AccessoriesPage() {
   const items = useAccessoriesStore(
     (state) => state.items
   );
-  const addItem = useAccessoriesStore(
-    (state) => state.addItem
-  );
   const tables = useTableStore(
     (state) => state.tables
   );
@@ -106,9 +101,6 @@ function AccessoriesPage() {
       (state) =>
         state.replaceAccessoryChargesForOrder
     );
-  const updateItem = useAccessoriesStore(
-    (state) => state.updateItem
-  );
   const activeBusinessDay =
     useBusinessDayStore((state) =>
       state.getActiveBusinessDay()
@@ -122,20 +114,12 @@ function AccessoriesPage() {
   const [selectedTarget, setSelectedTarget] =
     useState<SelectedTarget>(null);
   const [paymentMethod, setPaymentMethod] =
-    useState<PaymentMethod>("cash");
-  const [name, setName] = useState("");
-  const [price, setPrice] = useState("");
-  const [newCategory, setNewCategory] =
-    useState<AccessoryItem["category"]>("Other");
-  const [editingItemId, setEditingItemId] =
-    useState<string | null>(null);
+    useState<PaymentMethod>(() =>
+      useClubSettingsStore.getState().settings.defaultPaymentMethod
+    );
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [billSaved, setBillSaved] = useState(false);
-  const [
-    openBillsExpanded,
-    setOpenBillsExpanded,
-  ] = useState(true);
 
   const runningTables = useMemo(
     () =>
@@ -154,18 +138,6 @@ function AccessoriesPage() {
       ),
     [customerAccounts]
   );
-
-  const filteredOpenCustomerBills =
-    useMemo(() => {
-      const query = search.toLowerCase();
-
-      return openCustomerBills.filter(
-        (account) =>
-          getBillSearchText(account).includes(
-            query
-          )
-      );
-    }, [openCustomerBills, search]);
 
   const selectedBillAccount =
     selectedTarget?.type === "bill"
@@ -285,6 +257,63 @@ function AccessoriesPage() {
     setError("");
   };
 
+  const targetOptions = useMemo(() => {
+    const tableOptions = runningTables.flatMap((table) => {
+      const session = table.session!;
+      return getSessionPlayerEntries(session).map((player) => ({
+        value: `table:${table.id}:${player.customerId ?? player.slot}`,
+        label: `${table.name} - ${getWalkInDisplayName({
+          name: player.name,
+          tableId: table.id,
+          tableName: table.name,
+          tableType: table.type,
+          time: session.startTime,
+        })}`,
+        target: {
+          type: "table" as const,
+          tableId: table.id,
+          tableName: table.name,
+          sessionId: session.id,
+          customerName: player.name,
+          customerId: player.customerId,
+        },
+      }));
+    });
+    const billOptions = openCustomerBills.map((account) => ({
+      value: `bill:${account.id}`,
+      label: `${getBillPrimaryLabel(account)} - Rs. ${account.grandTotal.toLocaleString()}`,
+      target: {
+        type: "bill" as const,
+        customerId: account.id,
+        customerName: account.customerName,
+        customerToken: account.customerToken,
+      },
+    }));
+    return { tableOptions, billOptions, all: [...tableOptions, ...billOptions] };
+  }, [runningTables, openCustomerBills]);
+
+  const selectedTargetValue = selectedTarget
+    ? targetOptions.all.find((option) =>
+        option.target.type === selectedTarget.type &&
+        (selectedTarget.type === "bill"
+          ? option.target.type === "bill" && option.target.customerId === selectedTarget.customerId
+          : option.target.type === "table" &&
+            option.target.tableId === selectedTarget.tableId &&
+            (selectedTarget.customerId
+              ? option.target.customerId === selectedTarget.customerId
+              : option.target.customerName === selectedTarget.customerName))
+      )?.value ?? "walkin"
+    : "walkin";
+
+  const chooseTarget = (value: string) => {
+    if (value === "walkin") {
+      selectTarget(null);
+      return;
+    }
+    const option = targetOptions.all.find((item) => item.value === value);
+    if (option) selectTarget(option.target);
+  };
+
   useEffect(() => {
     const customerBillId =
       searchParams.get("customerBillId");
@@ -398,40 +427,6 @@ function AccessoriesPage() {
         )
         .filter((item) => item.quantity > 0)
     );
-  };
-
-  const handleAddItem = () => {
-    setMessage("");
-    setError("");
-
-    const amount = Number(price);
-
-    if (!name.trim() || amount <= 0) {
-      setError(
-        "Enter accessory name and valid price."
-      );
-      return;
-    }
-
-    const payload = {
-      name: name.trim(),
-      price: amount,
-      category: newCategory,
-      available: true,
-    };
-
-    if (editingItemId) {
-      updateItem(editingItemId, payload);
-      setMessage("Accessory updated.");
-    } else {
-      addItem(payload);
-      setMessage("Accessory added.");
-    }
-
-    setName("");
-    setPrice("");
-    setNewCategory("Other");
-    setEditingItemId(null);
   };
 
   const saveToBill = ({
@@ -639,500 +634,123 @@ function AccessoriesPage() {
   };
 
   return (
-    <main className="min-h-screen bg-slate-100 p-6">
+    <main className="min-h-screen bg-slate-100 px-4 py-5 sm:px-6">
       <div className="mx-auto max-w-7xl">
-        <header className="mb-5 flex items-center justify-between gap-4">
+        <header className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-slate-950">
-              Accessories POS
-            </h1>
-            <p className="text-slate-500">
-              Sell now, add to a running table, or add to an existing customer bill.
-            </p>
+            <h1 className="text-2xl font-bold text-slate-950">Accessories POS</h1>
+            <p className="text-sm text-slate-500">Sell accessories or add them to a table or customer bill.</p>
           </div>
-          <Button
-            variant="outline"
-            onClick={() => navigate("/operator")}
-          >
-            Back to Dashboard
-          </Button>
+          <Button variant="outline" onClick={() => navigate("/operator")}>Back to Dashboard</Button>
         </header>
 
-        <div className="mb-4 min-h-[44px]">
-          {message && (
-            <p className="rounded-lg bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
-              {message}
-            </p>
-          )}
-          {error && (
-            <p className="rounded-lg bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
-              {error}
-            </p>
-          )}
-        </div>
+        {(message || error) && (
+          <div className="mb-4">
+            {message && <p className="rounded-lg bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">{message}</p>}
+            {error && <p className="rounded-lg bg-red-50 px-4 py-3 text-sm font-medium text-red-700">{error}</p>}
+          </div>
+        )}
 
-        <div className="grid gap-5 lg:grid-cols-[260px_1fr_380px]">
-          <aside className="space-y-4">
-            <Card className="p-4">
-              <h2 className="font-bold">
-                Running Tables
-              </h2>
-              <div className="mt-3 space-y-2">
-                {runningTables.map((table) => {
-                  const session = table.session!;
-                  const players =
-                    getSessionPlayerEntries(session);
-
-                  return (
-                    <div
-                      key={table.id}
-                      className="rounded-lg border bg-white p-2"
-                    >
-                      <p className="px-2 pb-2 text-sm font-bold">
-                        {table.name}
-                      </p>
-                      <div className="space-y-2">
-                        {players.map((player) => (
-                          <Button
-                            key={`${player.slot}-${player.customerId ?? player.name}`}
-                            variant={
-                              selectedTarget?.type ===
-                                "table" &&
-                              selectedTarget.tableId ===
-                                table.id &&
-                              (player.customerId
-                                ? selectedTarget.customerId === player.customerId
-                                : selectedTarget.customerName === player.name)
-                                ? "default"
-                                : "secondary"
-                            }
-                            className="h-auto w-full justify-start py-2 text-left"
-                            onClick={() =>
-                              selectTarget({
-                                type: "table",
-                                tableId: table.id,
-                                tableName: table.name,
-                                sessionId: session.id,
-                                customerName: player.name,
-                                customerId: player.customerId,
-                              })
-                            }
-                          >
-                            {getWalkInDisplayName({
-                              name: player.name,
-                              tableId: table.id,
-                              tableName: table.name,
-                              tableType: table.type,
-                              time: session.startTime,
-                            })}
-                          </Button>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </Card>
-
-            <Card className="p-4">
-              <div className="flex items-center justify-between gap-2">
-                <h2 className="font-bold">
-                  Open Bills
-                </h2>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() =>
-                    setOpenBillsExpanded(
-                      (expanded) => !expanded
-                    )
-                  }
-                >
-                  {openBillsExpanded
-                    ? "Hide"
-                    : "Show"}{" "}
-                  ({filteredOpenCustomerBills.length})
-                </Button>
-              </div>
-              {openBillsExpanded && (
-                <div className="mt-3 space-y-2">
-                  {filteredOpenCustomerBills.map(
-                    (account) => (
-                      <Button
-                        key={account.id}
-                        variant={
-                          selectedTarget?.type ===
-                            "bill" &&
-                          selectedTarget.customerId ===
-                            account.id
-                            ? "default"
-                            : "secondary"
-                        }
-                        className="h-auto w-full justify-between gap-2 py-3 text-left"
-                        onClick={() =>
-                          selectTarget({
-                            type: "bill",
-                            customerId: account.id,
-                            customerName:
-                              account.customerName,
-                            customerToken:
-                              account.customerToken,
-                          })
-                        }
-                      >
-                        <span className="min-w-0">
-                          <span className="block truncate font-semibold">
-                            {getBillPrimaryLabel(
-                              account
-                            )}
-                          </span>
-                          <span className="block truncate text-xs opacity-75">
-                            {getBillSecondaryLabel(
-                              account
-                            )}
-                          </span>
-                        </span>
-                        <span className="shrink-0 text-xs font-bold">
-                          Rs. {account.grandTotal}
-                        </span>
-                      </Button>
-                    )
-                  )}
-
-                  {filteredOpenCustomerBills.length ===
-                    0 && (
-                    <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-500">
-                      No open bills.
-                    </p>
-                  )}
-                </div>
+        <Card className="mb-4 p-4">
+          <div className="grid gap-2 md:grid-cols-[180px_minmax(0,1fr)] md:items-center">
+            <div>
+              <p className="text-xs font-semibold uppercase text-slate-500">Current Target</p>
+              <p className="font-bold text-slate-950">
+                {selectedBillAccount?.customerToken ?? selectedTarget?.customerName ?? "Walk-in Sale"}
+              </p>
+            </div>
+            <select
+              aria-label="Choose sale target"
+              className="h-10 w-full rounded-md border bg-white px-3 text-sm"
+              value={selectedTargetValue}
+              onChange={(event) => chooseTarget(event.target.value)}
+            >
+              <option value="walkin">Walk-in Sale</option>
+              {targetOptions.tableOptions.length > 0 && (
+                <optgroup label="Running Tables">
+                  {targetOptions.tableOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </optgroup>
               )}
-            </Card>
-          </aside>
+              {targetOptions.billOptions.length > 0 && (
+                <optgroup label="Open Customer Bills">
+                  {targetOptions.billOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </optgroup>
+              )}
+            </select>
+          </div>
+        </Card>
 
-          <section className="space-y-4">
+        <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
+          <section className="min-w-0 space-y-4">
             <Card className="p-4">
-              <div className="grid gap-3 md:grid-cols-[1fr_auto]">
-                <Input
-                  placeholder="Search accessories..."
-                  value={search}
-                  onChange={(event) =>
-                    setSearch(event.target.value)
-                  }
-                />
-                <div className="flex flex-wrap gap-2">
-                  {categories.map((item) => (
-                    <Button
-                      key={item}
-                      size="sm"
-                      variant={
-                        category === item
-                          ? "default"
-                          : "secondary"
-                      }
-                      onClick={() =>
-                        setCategory(item)
-                      }
-                    >
-                      {item}
-                    </Button>
-                  ))}
-                </div>
+              <Input placeholder="Search accessories..." value={search} onChange={(event) => setSearch(event.target.value)} />
+              <div className="mt-3 flex flex-wrap gap-2">
+                {categories.map((item) => (
+                  <Button key={item} size="sm" variant={category === item ? "default" : "secondary"} onClick={() => setCategory(item)}>{item}</Button>
+                ))}
               </div>
             </Card>
 
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {filteredItems.map((item) => (
-                <Card
-                  key={item.id}
-                  className="p-4"
-                >
-                  <p className="text-sm font-medium text-slate-500">
-                    {item.category}
-                  </p>
-                  <h2 className="mt-2 text-xl font-bold text-slate-950">
-                    {item.name}
-                  </h2>
-                  <p className="mt-4 text-2xl font-bold text-emerald-700">
-                    Rs. {item.price}
-                  </p>
-                  <div className="mt-5 grid grid-cols-2 gap-2">
-                  <Button
-                    className="mt-5 w-full"
-                    onClick={() => addToCart(item)}
-                  >
-                    Add
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="mt-5 w-full"
-                    onClick={() => {
-                      setEditingItemId(item.id);
-                      setName(item.name);
-                      setPrice(String(item.price));
-                      setNewCategory(item.category);
-                    }}
-                  >
-                    Edit
-                  </Button>
-                  </div>
+                <Card key={item.id} className="flex min-h-[164px] flex-col p-4">
+                  <p className="text-xs font-medium text-slate-500">{item.category}</p>
+                  <h2 className="mt-1 font-bold text-slate-950">{item.name}</h2>
+                  <p className="mt-2 text-lg font-bold text-emerald-700">Rs. {item.price.toLocaleString()}</p>
+                  <Button className="mt-auto w-full" onClick={() => addToCart(item)}>Add</Button>
                 </Card>
               ))}
+              {filteredItems.length === 0 && (
+                <p className="col-span-full rounded-lg border bg-white px-4 py-8 text-center text-sm text-slate-500">No accessories match this search.</p>
+              )}
             </div>
           </section>
 
-          <aside className="space-y-4">
-            <Card className="p-4">
-              <div className="mb-3 flex items-center gap-2">
-                <PackagePlus className="h-5 w-5" />
-                <h2 className="font-bold">
-                  Add Accessory
-                </h2>
-              </div>
-              <div className="grid gap-2">
-                <Input
-                  placeholder="Name e.g. Tip"
-                  value={name}
-                  onChange={(event) =>
-                    setName(event.target.value)
-                  }
-                />
-                <Input
-                  type="number"
-                  min={0}
-                  placeholder="Price"
-                  value={price}
-                  onChange={(event) =>
-                    setPrice(event.target.value)
-                  }
-                />
-                <select
-                  className="rounded-md border bg-white p-2"
-                  value={newCategory}
-                  onChange={(event) =>
-                    setNewCategory(
-                      event.target
-                        .value as AccessoryItem["category"]
-                    )
-                  }
-                >
-                  {categories
-                    .filter((item) => item !== "All")
-                    .map((item) => (
-                      <option
-                        key={item}
-                        value={item}
-                      >
-                        {item}
-                      </option>
-                    ))}
-                </select>
-                <Button onClick={handleAddItem}>
-                  {editingItemId
-                    ? "Update Accessory"
-                    : "Save Accessory"}
-                </Button>
-                {editingItemId && (
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      setEditingItemId(null);
-                      setName("");
-                      setPrice("");
-                      setNewCategory("Other");
-                    }}
-                  >
-                    Cancel Edit
-                  </Button>
-                )}
-              </div>
-            </Card>
-
-            <Card className="p-4">
-              <p className="text-sm font-medium text-slate-500">
-                Current Target
-              </p>
-              <h2 className="mt-1 text-xl font-bold">
-                {selectedBillAccount
-                  ? selectedBillAccount.customerToken
-                  : selectedTarget
-                  ? selectedTarget.customerName
-                  : "Walk-in Sale"}
-              </h2>
-              {selectedTarget && (
-                <p className="text-sm text-slate-500">
-                  {selectedBillAccount
-                    ? getBillSecondaryLabel(
-                        selectedBillAccount
-                      )
-                    : selectedTarget.type === "table"
-                    ? selectedTarget.tableName
-                    : selectedTarget.customerToken}
-                </p>
-              )}
-              {selectedBillAccount && (
-                <div className="mt-3 grid gap-1 rounded-lg bg-slate-50 p-3 text-sm">
-                  <div className="flex justify-between gap-3">
-                    <span className="text-slate-500">
-                      Customer
-                    </span>
-                    <strong className="text-right">
-                      {getBillCustomerLabel(
-                        selectedBillAccount
-                      )}
-                    </strong>
-                  </div>
-                  <div className="flex justify-between gap-3">
-                    <span className="text-slate-500">
-                      Table
-                    </span>
-                    <strong className="text-right">
-                      {getBillTableLabel(
-                        selectedBillAccount
-                      ) || "-"}
-                    </strong>
-                  </div>
-                  <div className="flex justify-between gap-3">
-                    <span className="text-slate-500">
-                      Previous Bill
-                    </span>
-                    <strong>
-                      Rs.{" "}
-                      {
-                        selectedBillAccount.grandTotal
-                      }
-                    </strong>
-                  </div>
+          <aside className="lg:sticky lg:top-4">
+            <Card className="flex max-h-[calc(100vh-120px)] flex-col p-4">
+              <div className="flex items-center gap-2 border-b pb-3">
+                <ShoppingCart className="h-5 w-5" />
+                <div>
+                  <p className="text-xs text-slate-500">Current Order</p>
+                  <h2 className="font-bold text-slate-950">
+                    {selectedBillAccount?.customerToken ?? selectedTarget?.customerName ?? "Walk-in Sale"}
+                  </h2>
+                  {selectedTarget && <p className="text-xs text-slate-500">{selectedTarget.type === "table" ? selectedTarget.tableName : selectedBillAccount ? getBillSecondaryLabel(selectedBillAccount) : selectedTarget.customerToken}</p>}
                 </div>
-              )}
+              </div>
 
-              <div className="mt-4 space-y-3">
+              <div className="min-h-0 flex-1 space-y-3 overflow-y-auto py-3 pr-1">
                 {cart.map((item) => (
-                  <div
-                    key={item.id}
-                    className="rounded-lg border p-3"
-                  >
+                  <div key={item.id} className="rounded-lg border p-3">
                     <div className="flex justify-between gap-3">
-                      <div>
-                        <p className="font-semibold">
-                          {item.name}
-                        </p>
-                        <p className="text-sm text-slate-500">
-                          Rs. {item.price} each
-                        </p>
-                      </div>
-                      <strong>
-                        Rs.{" "}
-                        {item.price *
-                          item.quantity}
-                      </strong>
+                      <div><p className="font-semibold">{item.name}</p><p className="text-xs text-slate-500">Rs. {item.price.toLocaleString()} each</p></div>
+                      <strong>Rs. {(item.price * item.quantity).toLocaleString()}</strong>
                     </div>
                     <div className="mt-3 flex items-center gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() =>
-                          changeQuantity(
-                            item.id,
-                            -1
-                          )
-                        }
-                      >
-                        -
-                      </Button>
-                      <span className="w-8 text-center font-bold">
-                        {item.quantity}
-                      </span>
-                      <Button
-                        size="sm"
-                        onClick={() =>
-                          changeQuantity(
-                            item.id,
-                            1
-                          )
-                        }
-                      >
-                        +
-                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => changeQuantity(item.id, -1)}>-</Button>
+                      <span className="w-7 text-center font-bold">{item.quantity}</span>
+                      <Button size="sm" onClick={() => changeQuantity(item.id, 1)}>+</Button>
+                      <Button size="sm" variant="ghost" className="ml-auto gap-1 text-red-700" onClick={() => { setBillSaved(false); setCart((current) => current.filter((cartItem) => cartItem.id !== item.id)); }}><Trash2 className="h-3.5 w-3.5" /> Remove</Button>
                     </div>
                   </div>
                 ))}
-
-                {cart.length === 0 && (
-                  <p className="rounded-lg bg-slate-50 p-4 text-center text-sm text-slate-500">
-                    No accessories added.
-                  </p>
-                )}
+                {cart.length === 0 && <p className="rounded-lg bg-slate-50 p-4 text-center text-sm text-slate-500">No accessories added.</p>}
               </div>
 
-              <div className="mt-5 border-t pt-4">
-                <div className="mb-3 flex justify-between text-xl font-bold">
-                  <span>Total</span>
-                  <span className="text-emerald-700">
-                    Rs. {total}
-                  </span>
-                </div>
-                <div className="mb-3 grid gap-2 sm:grid-cols-2">
-                  <Button
-                    className="w-full"
-                    variant="outline"
-                    disabled={
-                      !selectedTarget ||
-                      cart.length === 0
-                    }
-                    onClick={() => saveToBill()}
-                  >
-                    {billSaved ? "Saved" : "Save"}
-                  </Button>
-                  <Button
-                    className="w-full"
-                    disabled={
-                      !selectedTarget ||
-                      cart.length === 0
-                    }
-                    onClick={() =>
-                      saveToBill({
-                        returnToDashboard: true,
-                      })
-                    }
-                  >
-                    Save & Return
-                  </Button>
-                </div>
-                {billSaved && (
-                  <p className="mb-3 rounded-md bg-emerald-50 px-3 py-2 text-center text-sm font-semibold text-emerald-700">
-                    Saved
-                  </p>
+              <div className="border-t pt-4">
+                <div className="mb-3 flex justify-between text-xl font-bold"><span>Total</span><span className="text-emerald-700">Rs. {total.toLocaleString()}</span></div>
+                {selectedTarget && (
+                  <div className="mb-3 grid grid-cols-2 gap-2">
+                    <Button variant="outline" disabled={cart.length === 0} onClick={() => saveToBill()}>{billSaved ? "Saved" : "Save"}</Button>
+                    <Button disabled={cart.length === 0} onClick={() => saveToBill({ returnToDashboard: true })}>Save & Return</Button>
+                  </div>
                 )}
-                <select
-                  className="mb-3 w-full rounded-md border bg-white p-2"
-                  value={paymentMethod}
-                  onChange={(event) =>
-                    setPaymentMethod(
-                      event.target
-                        .value as PaymentMethod
-                    )
-                  }
-                >
-                  <option value="cash">Cash</option>
-                  <option value="card">Card</option>
-                  <option value="jazzcash">
-                    JazzCash
-                  </option>
-                  <option value="easypaisa">
-                    Easypaisa
-                  </option>
+                {billSaved && <p className="mb-3 rounded-md bg-emerald-50 px-3 py-2 text-center text-sm font-semibold text-emerald-700">Saved</p>}
+                <label className="mb-1 block text-xs font-semibold text-slate-500" htmlFor="accessory-payment-method">Payment Method</label>
+                <select id="accessory-payment-method" className="mb-3 h-10 w-full rounded-md border bg-white px-3 text-sm" value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as PaymentMethod)} disabled={selectedTarget !== null}>
+                  <option value="cash">Cash</option><option value="card">Card</option><option value="jazzcash">JazzCash</option><option value="easypaisa">Easypaisa</option>
                 </select>
-                <Button
-                  className="w-full"
-                  disabled={
-                    selectedTarget !== null ||
-                    cart.length === 0
-                  }
-                  onClick={completeSale}
-                >
-                  Complete Sale
-                </Button>
+                <Button className="w-full" disabled={selectedTarget !== null || cart.length === 0} onClick={completeSale}>Complete Sale</Button>
               </div>
             </Card>
           </aside>

@@ -19,6 +19,7 @@ import { calculateBusinessDaySummary } from "@/features/business-day/utils/busin
 import { useSalesStore } from "@/features/sales/store/salesStore";
 import { useExpensesStore } from "@/features/expenses/store/expensesStore";
 import { useOutsidePurchaseStore } from "@/features/outside-purchases/store/outsidePurchaseStore";
+import { useCafeStore } from "@/features/cafe/store/cafeStore";
 
 function AdminDashboard() {
   const navigate = useNavigate();
@@ -47,6 +48,7 @@ function AdminDashboard() {
   const outsidePurchases = useOutsidePurchaseStore(
     (state) => state.purchases
   );
+  const vendorRestockingRecords = useCafeStore((state) => state.vendorRestockingRecords);
   const daySummary = activeDay
     ? calculateBusinessDaySummary({
         day: activeDay,
@@ -54,6 +56,7 @@ function AdminDashboard() {
         expenses,
         pendingBills,
         outsidePurchases,
+        vendorRestockingRecords,
       })
     : undefined;
 
@@ -93,6 +96,16 @@ function AdminDashboard() {
             >
               <BarChart3 className="h-4 w-4" />
               Profit / Loss
+            </Button>
+
+            <Button
+              variant="outline"
+              className="gap-2"
+              size="lg"
+              onClick={() => navigate("/admin/canteen-profit")}
+            >
+              <Coffee className="h-4 w-4" />
+              Canteen Profit Report
             </Button>
 
             <Button
