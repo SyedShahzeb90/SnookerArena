@@ -68,7 +68,7 @@ export const useOutsidePurchaseStore =
 
         createOutsidePurchase: (input) => {
           if (get().purchases.some((item) => item.id === input.id)) {
-            return { ok: false, error: "This outside purchase was already recorded." };
+            return { ok: false, error: "This customer outside purchase was already recorded." };
           }
 
           const amount = money(input.amountPaidFromDrawer);
@@ -95,7 +95,7 @@ export const useOutsidePurchaseStore =
 
         recordReimbursement: (input) => {
           const purchase = get().purchases.find((item) => item.id === input.purchaseId);
-          if (!purchase) return { ok: false, error: "Outside purchase not found." };
+          if (!purchase) return { ok: false, error: "Customer outside purchase not found." };
           if (purchase.status === "cancelled" || purchase.status === "reimbursed") {
             return { ok: false, error: "This record cannot receive another reimbursement." };
           }
@@ -139,7 +139,7 @@ export const useOutsidePurchaseStore =
 
         voidOutsidePurchase: (input) => {
           const purchase = get().purchases.find((item) => item.id === input.purchaseId);
-          if (!purchase) return { ok: false, error: "Outside purchase not found." };
+          if (!purchase) return { ok: false, error: "Customer outside purchase not found." };
           if (purchase.status !== "pending" || purchase.totalReimbursed > 0) {
             return { ok: false, error: "Only an unreimbursed pending record can be voided." };
           }

@@ -44,7 +44,7 @@ function BillingDialog({
         if (!value) onClose();
       }}
     >
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-h-[90vh] w-[min(96vw,960px)] !max-w-[960px] overflow-y-auto border-slate-300 shadow-2xl dark:border-slate-700">
         <DialogHeader>
           <DialogTitle>
             Billing

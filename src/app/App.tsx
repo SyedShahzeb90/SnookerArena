@@ -61,7 +61,7 @@ function App() {
 
           <Route
             path="/operator/credit-ledger"
-            element={<RequirePermission permission="view_management_reports"><CreditLedgerPage /></RequirePermission>}
+            element={<CreditLedgerPage />}
           />
 
           <Route

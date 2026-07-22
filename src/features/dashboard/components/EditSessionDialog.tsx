@@ -10,8 +10,10 @@ import {
 import { useTableStore } from "@/store/tableStore";
 import { useCustomerAccountStore } from "@/features/customers/store/customerAccountStore";
 import { isWalkInName } from "@/features/sessions/utils/walkInLabel";
+import { useClubSettingsStore } from "@/features/settings/store/clubSettingsStore";
 
 import type { Table } from "@/types/table";
+import type { TableChargeLine } from "@/types/session";
 
 import SessionForm from "./SessionForm";
 
@@ -34,6 +36,10 @@ function EditSessionDialog({
   const createCustomerAccount =
     useCustomerAccountStore(
       (state) => state.createCustomerAccount
+    );
+  const updateCustomerAccount =
+    useCustomerAccountStore(
+      (state) => state.updateCustomerAccount
     );
   const getOrCreateActiveCustomerByIdOrName =
     useCustomerAccountStore(
@@ -178,6 +184,68 @@ function EditSessionDialog({
           }
           undoLastFrameBusy={undoBusy}
           onSubmit={(data) => {
+            const settings =
+              useClubSettingsStore.getState().settings;
+            const nextGameLineType =
+              data.sessionType === "double"
+                ? "doubleGame"
+                : data.sessionType === "single"
+                  ? "singleGame"
+                  : undefined;
+            const existingChargeLines =
+              session.tableChargeLines ?? [];
+            const isSwitchingToTableBooking =
+              (data.sessionType === "time" ||
+                data.sessionType === "private") &&
+              !existingChargeLines.some(
+                (line) =>
+                  line.type === "tableBooking" &&
+                  !line.endedAt
+              );
+            const nextTableChargeLines: TableChargeLine[] =
+              isSwitchingToTableBooking
+                ? [
+                    ...existingChargeLines,
+                    {
+                      id: `TCL-${session.id}-${Date.now()}`,
+                      sessionId: session.id,
+                      type: "tableBooking" as const,
+                      label:
+                        table.type === "private-room"
+                          ? "Private Room"
+                          : "Table Booking",
+                      startedAt: new Date().toISOString(),
+                      amount: 0,
+                      unitRate:
+                        table.type === "private-room"
+                          ? 25
+                          : settings.tableBookingRatePerMinute,
+                    },
+                  ]
+                : existingChargeLines.map((line, index, lines) =>
+                    index === lines.length - 1 &&
+                    nextGameLineType &&
+                    (line.type === "singleGame" || line.type === "doubleGame")
+                      ? {
+                          ...line,
+                          type: nextGameLineType,
+                          label:
+                            nextGameLineType === "doubleGame"
+                              ? "Double Game"
+                              : "Single Game",
+                          unitRate:
+                            nextGameLineType === "doubleGame"
+                              ? settings.doubleGameRate
+                              : settings.singleGameRate,
+                          amount:
+                            nextGameLineType === "doubleGame"
+                              ? settings.doubleGameRate
+                              : settings.singleGameRate,
+                          isFinal: data.isFinal,
+                          finalGames: data.isFinal ? data.finalGames : undefined,
+                        }
+                      : line
+                  );
             const player1Name =
               data.player1.trim() ||
               "Walk-in Customer";
@@ -212,6 +280,34 @@ function EditSessionDialog({
                   )
                 : undefined;
 
+            const updateLinkedCustomerName = (
+              customerId: string | undefined,
+              name: string
+            ) => {
+              const customerName = name.trim();
+              if (!customerId || !customerName) return;
+              updateCustomerAccount(customerId, {
+                customerName,
+              });
+            };
+
+            updateLinkedCustomerName(
+              player1CustomerId,
+              player1Name
+            );
+            updateLinkedCustomerName(
+              player2CustomerId,
+              data.player2
+            );
+            updateLinkedCustomerName(
+              player3CustomerId,
+              data.player3
+            );
+            updateLinkedCustomerName(
+              player4CustomerId,
+              data.player4
+            );
+
             updateSession({
               tableId: table.id,
               player1: player1Name,
@@ -233,17 +329,7 @@ function EditSessionDialog({
               teamBBillOwnerName: undefined,
               sessionType: data.sessionType,
               startTime: data.startTime,
-              tableChargeLines:
-                session.tableChargeLines?.map((line, index, lines) =>
-                  index === lines.length - 1 &&
-                  (line.type === "singleGame" || line.type === "doubleGame")
-                    ? {
-                        ...line,
-                        isFinal: data.isFinal,
-                        finalGames: data.isFinal ? data.finalGames : undefined,
-                      }
-                    : line
-                ),
+              tableChargeLines: nextTableChargeLines,
             });
 
             onOpenChange(false);

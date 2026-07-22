@@ -1,26 +1,20 @@
 import {
-  CircleDollarSign,
   Coffee,
-  DatabaseBackup,
-  History,
-  LayoutDashboard,
+  CalendarClock,
   Menu,
   Moon,
   Package,
   ReceiptText,
   Settings,
-  SlidersHorizontal,
   Sun,
+  Trophy,
   WalletCards,
-  BarChart3,
   ShieldCheck,
   CreditCard,
-  CalendarClock,
   UserRound,
-  PackagePlus,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Outlet,
   useLocation,
@@ -78,33 +72,34 @@ const navigationGroups: NavigationGroup[] = [
     label: "Daily Work",
     items: [
       {
-        label: "Dashboard",
+        label: "Business Day",
         path: "/operator",
-        icon: LayoutDashboard,
+        icon: CalendarClock,
         exact: true,
       },
       { label: "Canteen POS", path: "/operator/cafe", icon: Coffee },
       { label: "Accessories POS", path: "/operator/accessories", icon: Package },
       { label: "Customer Bills", path: "/operator/customer-bills", icon: ReceiptText },
       { label: "Collect Payment", path: "/operator/billing", icon: CreditCard, badge: "collect-payment" },
-      { label: "Business Day", path: "/operator", hash: "#business-day", icon: CalendarClock },
+      { label: "Credit Ledger", path: "/operator/credit-ledger", icon: WalletCards, exact: true, badge: "credit-ledger" },
+      { label: "Advance Games", path: "/operator/credit-ledger", hash: "#advance-games", icon: Trophy },
     ],
   },
   {
     label: "Management",
     items: [
       { label: "Admin Dashboard", path: "/admin", icon: Settings, exact: true, permission: "view_management_reports" },
-      { label: "Credit Ledger", path: "/operator/credit-ledger", icon: WalletCards, badge: "credit-ledger", permission: "view_management_reports" },
-      { label: "Expenses", path: "/operator/expenses", icon: CircleDollarSign, badge: "outside-purchases", permission: "view_management_reports" },
-      { label: "Table History", path: "/operator/table-history", icon: History, permission: "view_management_reports" },
-      { label: "Canteen Profit Report", path: "/admin/canteen-profit", icon: BarChart3, permission: "view_management_reports" },
-      { label: "Menu Management", path: "/admin/menu", icon: SlidersHorizontal, exact: true, permission: "manage_canteen" },
-      { label: "Vendor Restocking", path: "/admin/menu/vendor-restocking", icon: PackagePlus, permission: "manage_vendor_restocking" },
-      { label: "Accessories Management", path: "/admin/accessories", icon: Package, permission: "manage_inventory" },
-      { label: "Club Settings", path: "/operator/club-settings", icon: SlidersHorizontal, permission: "manage_settings", allowWithoutPin: true },
-      { label: "Backup & Restore", path: "/operator/backup-restore", icon: DatabaseBackup, permission: "manage_backups" },
     ],
   },
+];
+
+const managementPaths = [
+  "/admin",
+  "/operator/expenses",
+  "/operator/table-history",
+  "/operator/day-history",
+  "/operator/club-settings",
+  "/operator/backup-restore",
 ];
 
 function SidebarNavigation({ onSelect }: { onSelect?: () => void }) {
@@ -113,6 +108,12 @@ function SidebarNavigation({ onSelect }: { onSelect?: () => void }) {
   const customerAccounts = useCustomerAccountStore(
     (state) => state.accounts
   );
+  const mergeDuplicateWalkInSessionBills = useCustomerAccountStore(
+    (state) => state.mergeDuplicateWalkInSessionBills
+  );
+  useEffect(() => {
+    mergeDuplicateWalkInSessionBills();
+  }, [mergeDuplicateWalkInSessionBills]);
   const tables = useTableStore((state) => state.tables);
   const openBillCount = useMemo(() => {
     const runningSessions = tables
@@ -195,7 +196,13 @@ function SidebarNavigation({ onSelect }: { onSelect?: () => void }) {
           </p>
           <div className="space-y-0.5">
             {visibleItems.map((item) => {
-              const active = item.hash
+              const active = item.path === "/admin"
+                ? managementPaths.some((path) =>
+                    path === "/admin"
+                      ? location.pathname.startsWith("/admin")
+                      : location.pathname.startsWith(path)
+                  )
+                : item.hash
                 ? location.pathname === item.path && location.hash === item.hash
                 : item.exact
                   ? location.pathname === item.path && !location.hash
@@ -240,7 +247,7 @@ function SidebarNavigation({ onSelect }: { onSelect?: () => void }) {
                           ? "bills awaiting payment"
                           : item.badge === "credit-ledger"
                             ? "outstanding credit records"
-                            : "outside purchases awaiting reimbursement"
+                            : "customer outside purchases awaiting reimbursement"
                       }`}
                     >
                       {count > 99 ? "99+" : count}

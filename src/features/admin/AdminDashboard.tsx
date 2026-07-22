@@ -3,9 +3,13 @@ import {
   BarChart3,
   CalendarDays,
   Coffee,
+  DatabaseBackup,
   History,
+  Package,
+  PackagePlus,
   ReceiptText,
   Settings,
+  SlidersHorizontal,
   WalletCards,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -142,6 +146,54 @@ function AdminDashboard() {
             >
               <Coffee className="h-4 w-4" />
               Menu Management
+            </Button>
+
+            <Button
+              variant="outline"
+              className="gap-2"
+              size="lg"
+              onClick={() =>
+                navigate("/admin/menu/vendor-restocking")
+              }
+            >
+              <PackagePlus className="h-4 w-4" />
+              Vendor Restocking
+            </Button>
+
+            <Button
+              variant="outline"
+              className="gap-2"
+              size="lg"
+              onClick={() =>
+                navigate("/admin/accessories")
+              }
+            >
+              <Package className="h-4 w-4" />
+              Accessories Management
+            </Button>
+
+            <Button
+              variant="outline"
+              className="gap-2"
+              size="lg"
+              onClick={() =>
+                navigate("/operator/club-settings")
+              }
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+              Club Settings
+            </Button>
+
+            <Button
+              variant="outline"
+              className="gap-2"
+              size="lg"
+              onClick={() =>
+                navigate("/operator/backup-restore")
+              }
+            >
+              <DatabaseBackup className="h-4 w-4" />
+              Backup & Restore
             </Button>
 
             <Button

@@ -46,7 +46,9 @@ interface EarnInput {
 
 interface AdvanceGamesStore {
   transactions: AdvanceGameTransaction[];
+  customersInClub: Record<string, boolean>;
   getBalance: (customerId: string) => number;
+  setCustomerInClub: (customerId: string, isInClub: boolean) => void;
   earn: (input: EarnInput) => boolean;
   recordSessionOffset: (input: EarnInput) => boolean;
   applyToBill: (input: {
@@ -91,10 +93,18 @@ export const useAdvanceGamesStore = create<AdvanceGamesStore>()(
   persist(
     (set, get) => ({
       transactions: [],
+      customersInClub: {},
       getBalance: (customerId) =>
         safeTransactions(get().transactions)
           .filter((item) => item.customerId === customerId)
           .reduce((total, item) => total + item.balanceDelta, 0),
+      setCustomerInClub: (customerId, isInClub) =>
+        set((state) => ({
+          customersInClub: {
+            ...(state.customersInClub ?? {}),
+            [customerId]: isInClub,
+          },
+        })),
       earn: (input) => {
         if (!wholePositive(input.games)) return false;
         if (safeTransactions(get().transactions).some((item) => item.id === input.transactionId)) return false;
@@ -188,7 +198,10 @@ export const useAdvanceGamesStore = create<AdvanceGamesStore>()(
         ] }));
         return true;
       },
-      resetAdvanceGamesStore: () => set({ transactions: [] }),
+      resetAdvanceGamesStore: () => set({
+        transactions: [],
+        customersInClub: {},
+      }),
     }),
     { name: "snooker-arena-advance-games" }
   )

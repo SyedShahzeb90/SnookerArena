@@ -115,7 +115,6 @@ function TableInfo({
   const activeSessionAccounts =
     customerAccounts.filter(
       (account) =>
-        account.status === "active" &&
         account.paymentStatus === "unpaid" &&
         accountBelongsToSession(account)
     );
@@ -323,6 +322,12 @@ function TableInfo({
     currentSessionBilledAccessoriesTotal,
     openBillIncludesBilledTotals: true,
   }).currentBill;
+  const displayedTableTotal = hasSeparatePlayerBills
+    ? tableBill
+    : Math.max(
+        0,
+        currentBill - cafeTotal - accessoriesTotal
+      );
 
   if (!compactRunning) {
     return (
@@ -488,7 +493,7 @@ function TableInfo({
           </p>
         </div>
         <div className="mt-2 grid grid-cols-3 gap-2 border-t pt-2 text-sm text-slate-500">
-          <span className="min-w-0">Table <strong className="block truncate text-base font-bold tabular-nums text-slate-800">Rs. {Math.round(tableBill).toLocaleString()}</strong></span>
+          <span className="min-w-0">Table <strong className="block truncate text-base font-bold tabular-nums text-slate-800">Rs. {Math.round(displayedTableTotal).toLocaleString()}</strong></span>
           <span className="min-w-0">Cafe <strong className="block truncate text-base font-bold tabular-nums text-slate-800">Rs. {Math.round(cafeTotal).toLocaleString()}</strong></span>
           <span className="min-w-0">Accessories <strong className="block truncate text-base font-bold tabular-nums text-slate-800">Rs. {Math.round(accessoriesTotal).toLocaleString()}</strong></span>
         </div>

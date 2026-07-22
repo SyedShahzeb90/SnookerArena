@@ -333,7 +333,7 @@ function DayHistoryPage() {
                     "Table Sales",
                     "Cafe Sales",
                     "Expenses",
-                    "Outside Purchases",
+                    "Customer Outside Purchases",
                     "Cash Reimbursements",
                     "Digital Reimbursements",
                     "Outstanding Reimbursements",

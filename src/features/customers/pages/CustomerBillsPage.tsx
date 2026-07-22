@@ -456,7 +456,7 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
   const defaultPaymentMethod = useClubSettingsStore(
     (state) => state.settings.defaultPaymentMethod
   );
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const accounts = useCustomerAccountStore(
     (state) => state.accounts
   );
@@ -515,6 +515,9 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
   );
   const undoAdvanceGamesFromBill = useCustomerAccountStore(
     (state) => state.undoAdvanceGamesFromBill
+  );
+  const markCustomerBillSettledByAdvance = useCustomerAccountStore(
+    (state) => state.markCustomerBillSettledByAdvance
   );
   const removePendingBill = useCheckoutStore(
     (state) => state.removePendingBill
@@ -576,6 +579,10 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
     useState(false);
   const [creditNote, setCreditNote] =
     useState("");
+  const [isPartialCreditDialogOpen, setIsPartialCreditDialogOpen] =
+    useState(false);
+  const [partialPaymentText, setPartialPaymentText] =
+    useState("");
   const [advanceGamesText, setAdvanceGamesText] =
     useState("1");
 
@@ -585,6 +592,32 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
   }, [
     splitGenericWalkInBills,
     mergeDuplicateWalkInSessionBills,
+  ]);
+
+  useEffect(() => {
+    accounts.forEach((account) => {
+      if (
+        account.paymentStatus !== "unpaid" ||
+        !account.advanceGamesApplied ||
+        getBillTotals(account).grandTotal > 0
+      ) {
+        return;
+      }
+
+      markCustomerBillSettledByAdvance(
+        account.id,
+        activeBusinessDay?.id
+      );
+
+      getAccountSessionIds(account).forEach((sessionId) => {
+        removePendingBill(`BILL-${sessionId}`);
+      });
+    });
+  }, [
+    accounts,
+    activeBusinessDay?.id,
+    markCustomerBillSettledByAdvance,
+    removePendingBill,
   ]);
 
   const baseOpenAccounts = useMemo(
@@ -746,14 +779,23 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
 
     if (
       customerBillId &&
-      openAccounts.some(
+      accounts.some(
         (account) =>
           account.id === customerBillId
       )
     ) {
       setSelectedId(customerBillId);
+      if (!paymentMode) {
+        const nextSearchParams = new URLSearchParams(
+          searchParams
+        );
+        nextSearchParams.delete("customerBillId");
+        setSearchParams(nextSearchParams, {
+          replace: true,
+        });
+      }
     }
-  }, [searchParams, openAccounts]);
+  }, [accounts, paymentMode, searchParams, setSearchParams]);
 
   const selectedAccount =
     selectedId
@@ -1037,6 +1079,40 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
       setError("Advance games could not be applied to this bill.");
       return;
     }
+
+    const updatedAccount = useCustomerAccountStore
+      .getState()
+      .getCustomerById(selectedAccount.id);
+
+    if (updatedAccount && updatedAccount.grandTotal <= 0) {
+      markCustomerBillSettledByAdvance(
+        updatedAccount.id,
+        activeBusinessDay?.id
+      );
+
+      new Set(
+        [
+          ...updatedAccount.gameCharges,
+          ...updatedAccount.cafeCharges,
+          ...(updatedAccount.accessoryCharges ?? []),
+        ]
+          .map((charge) => charge.sessionId)
+          .filter((sessionId): sessionId is string => Boolean(sessionId))
+      ).forEach((sessionId) => {
+        removePendingBill(`BILL-${sessionId}`);
+      });
+
+      setSelectedId(null);
+      setError("");
+      setMessage(
+        `${games} advance game${games === 1 ? "" : "s"} applied. Bill settled with no cash payment.`
+      );
+      if (paymentMode) {
+        navigate("/operator/billing", { replace: true });
+      }
+      return;
+    }
+
     setError("");
     setMessage(`${games} advance game${games === 1 ? "" : "s"} applied.`);
   };
@@ -1065,7 +1141,10 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
     setMessage("Advance games restored to the customer balance.");
   };
 
-  const handleReceivePayment = () => {
+  const handleReceivePayment = (partialCredit?: {
+    paidAmount: number;
+    creditNote: string;
+  }) => {
     setMessage("");
     setError("");
 
@@ -1116,6 +1195,21 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
       return;
     }
 
+    const billTotal = selectedTotals?.grandTotal ?? 0;
+    const receivedAmount = partialCredit?.paidAmount ?? billTotal;
+    const creditAmount = Math.max(0, billTotal - receivedAmount);
+
+    if (
+      !Number.isFinite(receivedAmount) ||
+      receivedAmount <= 0 ||
+      receivedAmount > billTotal ||
+      (partialCredit && creditAmount <= 0)
+    ) {
+      setError("Enter a payment amount greater than zero and less than the bill total.");
+      setPayingCustomerId(null);
+      return;
+    }
+
     const cleanedSplits =
       paymentSplits.filter(
         (split) => split.amount > 0
@@ -1130,10 +1224,10 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
     if (
       cleanedSplits.length > 0 &&
       splitTotal !==
-        selectedTotals?.grandTotal
+        receivedAmount
     ) {
       setError(
-        `Split payment total must be Rs. ${selectedTotals?.grandTotal}.`
+        `Split payment total must be Rs. ${receivedAmount}.`
       );
       setPayingCustomerId(null);
       return;
@@ -1143,6 +1237,28 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
     const invoiceNumber =
       salesStore.getNextInvoiceNumber();
     const saleId = `SALE-${invoiceNumber}-CUSTOMER`;
+    const netTableAmount = Math.max(
+      0,
+      selectedAccount.totalGameAmount -
+        Math.min(selectedAccount.discount, selectedAccount.totalGameAmount)
+    );
+    const discountAfterTable = Math.max(
+      0,
+      selectedAccount.discount - selectedAccount.totalGameAmount
+    );
+    const netCafeAmount = Math.max(
+      0,
+      (selectedTotals?.cafeTotal ?? 0) - discountAfterTable
+    );
+    const paidTableAmount = Math.min(receivedAmount, netTableAmount);
+    const paidCafeAmount = Math.min(
+      Math.max(0, receivedAmount - paidTableAmount),
+      netCafeAmount
+    );
+    const paidAccessoryAmount = Math.min(
+      Math.max(0, receivedAmount - paidTableAmount - paidCafeAmount),
+      selectedTotals?.accessoryTotal ?? 0
+    );
 
     salesStore.addSale({
       id: saleId,
@@ -1167,16 +1283,18 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
       createdAt: now,
       paidAt: now,
       tableAmount:
-        selectedAccount.totalGameAmount,
+        partialCredit ? paidTableAmount : selectedAccount.totalGameAmount,
       cafeAmount:
-        selectedTotals?.cafeTotal ?? 0,
+        partialCredit ? paidCafeAmount : selectedTotals?.cafeTotal ?? 0,
       subtotal:
-        selectedAccount.totalGameAmount +
-        (selectedTotals?.cafeTotal ?? 0) +
-        (selectedTotals?.accessoryTotal ?? 0),
-      discount: selectedAccount.discount,
+        partialCredit
+          ? receivedAmount
+          : selectedAccount.totalGameAmount +
+            (selectedTotals?.cafeTotal ?? 0) +
+            (selectedTotals?.accessoryTotal ?? 0),
+      discount: partialCredit ? 0 : selectedAccount.discount,
       grandTotal:
-        selectedTotals?.grandTotal ?? 0,
+        receivedAmount,
       originalTableAmount:
         selectedAccount.gameCharges.reduce(
           (total, charge) => total + (charge.originalAmount ?? charge.amount),
@@ -1225,12 +1343,14 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
           playerName:
             selectedAccount.customerName,
           tableAmountShare:
-            selectedAccount.totalGameAmount,
+            partialCredit ? paidTableAmount : selectedAccount.totalGameAmount,
           cafeAmount:
-            selectedAccount.totalCafeAmount +
-            (selectedTotals?.accessoryTotal ?? 0),
+            partialCredit
+              ? paidCafeAmount + paidAccessoryAmount
+              : selectedAccount.totalCafeAmount +
+                (selectedTotals?.accessoryTotal ?? 0),
           totalAmount:
-            selectedTotals?.grandTotal ?? 0,
+            receivedAmount,
           cafeItems:
             [
               ...selectedAccount.cafeCharges,
@@ -1269,13 +1389,38 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
         selectedAccount.cafeCharges,
     });
 
-    markCustomerBillPaid({
-      customerId: selectedAccount.id,
-      paymentMethod,
-      activeBusinessDayId:
-        activeBusinessDay.id,
-      saleId,
-    });
+    if (partialCredit) {
+      const entry = addCreditFromCustomerBill({
+        account: selectedAccount,
+        originalBillNumber: getBillPrimaryLabel(selectedAccount),
+        tableName: getBillTableLabel(selectedAccount),
+        tableTotal: Math.max(0, netTableAmount - paidTableAmount),
+        cafeTotal: Math.max(0, netCafeAmount - paidCafeAmount),
+        accessoryTotal: Math.max(
+          0,
+          (selectedTotals?.accessoryTotal ?? 0) - paidAccessoryAmount
+        ),
+        discount: 0,
+        finalAmount: creditAmount,
+        creditNote: partialCredit.creditNote,
+        businessDayId: activeBusinessDay.id,
+      });
+
+      if (!entry) {
+        setError("This bill is already in the Credit Ledger.");
+        setPayingCustomerId(null);
+        return;
+      }
+
+      markCustomerBillCredited(selectedAccount.id);
+    } else {
+      markCustomerBillPaid({
+        customerId: selectedAccount.id,
+        paymentMethod,
+        activeBusinessDayId: activeBusinessDay.id,
+        saleId,
+      });
+    }
 
     const paidSessionIds = new Set(
       [
@@ -1294,12 +1439,19 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
     });
 
     setMessage(
-      `Payment received for ${selectedAccount.customerName}.`
+      partialCredit
+        ? `${formatCurrency(receivedAmount)} received and ${formatCurrency(creditAmount)} moved to Credit Ledger.`
+        : `Payment received for ${selectedAccount.customerName}.`
     );
     setSelectedId(null);
     setPaymentMethod(defaultPaymentMethod);
     setPaymentSplits([]);
     setPayingCustomerId(null);
+    setIsPartialCreditDialogOpen(false);
+    setPartialPaymentText("");
+    if (paymentMode) {
+      navigate("/operator/billing", { replace: true });
+    }
   };
 
   const handleOpenCreditDialog = () => {
@@ -1343,6 +1495,42 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
 
     setCreditNote("");
     setIsCreditDialogOpen(true);
+  };
+
+  const handleOpenPartialCreditDialog = () => {
+    setMessage("");
+    setError("");
+
+    if (!selectedAccount || !selectedTotals) return;
+
+    if (isSelectedBillStillRunning) {
+      setError(
+        `${selectedAccount.customerName} is still playing on ${selectedRunningTable?.name}. End the table before receiving this bill.`
+      );
+      return;
+    }
+
+    if (!hasMeaningfulCreditCustomerName(selectedAccount)) {
+      setError("Enter a proper customer name before giving partial credit.");
+      return;
+    }
+
+    const existingCredit = useCreditLedgerStore
+      .getState()
+      .entries.some(
+        (entry) =>
+          entry.sourceCustomerAccountId === selectedAccount.id &&
+          entry.status !== "cancelled"
+      );
+
+    if (existingCredit) {
+      setError("This bill is already in the Credit Ledger.");
+      return;
+    }
+
+    setPartialPaymentText("");
+    setCreditNote("");
+    setIsPartialCreditDialogOpen(true);
   };
 
   const handleMoveToCredit = () => {
@@ -1408,6 +1596,9 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
     setPaymentSplits([]);
     setCreditNote("");
     setIsCreditDialogOpen(false);
+    if (paymentMode) {
+      navigate("/operator/billing", { replace: true });
+    }
   };
 
   return (
@@ -1472,13 +1663,7 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
           </p>
         )}
 
-        <div
-          className={`grid gap-5 ${
-            selectedAccount
-              ? "lg:grid-cols-[minmax(0,1fr)_minmax(580px,0.78fr)]"
-              : "lg:grid-cols-1"
-          }`}
-        >
+        <div className="grid gap-5">
           <Card className="overflow-hidden">
             <div className="space-y-3 border-b p-4">
               <div className="grid gap-1.5">
@@ -1791,7 +1976,25 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
           </Card>
 
           {selectedAccount && (
-            <Card className="flex flex-col overflow-hidden p-0 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:min-h-[calc(100vh-2rem)]">
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-3 backdrop-blur-[1px] sm:p-6"
+              role="dialog"
+              aria-modal="true"
+              aria-label={`Bill details for ${getBillPrimaryLabel(selectedAccount)}`}
+              onMouseDown={(event) => {
+                if (event.target === event.currentTarget) {
+                  setSelectedId(null);
+                  setIsEditingCustomer(false);
+                  if (paymentMode) {
+                    navigate("/operator/billing", { replace: true });
+                  }
+                }
+              }}
+            >
+            <Card
+              className="flex h-[min(90vh,860px)] w-[min(96vw,960px)] flex-col overflow-hidden border-slate-300 p-0 shadow-2xl dark:border-slate-700"
+              onMouseDown={(event) => event.stopPropagation()}
+            >
               <div className="border-b bg-white px-5 pb-3 pt-5 dark:bg-slate-950">
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0">
@@ -1985,6 +2188,9 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
                           setMessage("");
                           setPaymentSplits([]);
                           setIsEditingCustomer(false);
+                          if (paymentMode) {
+                            navigate("/operator/billing", { replace: true });
+                          }
                         }}
                       >
                         <X className="h-4 w-4" />
@@ -2375,9 +2581,7 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
 
                   <Button
                     className="mt-2 w-full gap-2"
-                    onClick={
-                      handleReceivePayment
-                    }
+                    onClick={() => handleReceivePayment()}
                     disabled={
                       isReceivingSelectedPayment ||
                       isSelectedBillStillRunning
@@ -2396,6 +2600,14 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
                                 paymentMethod
                               )}`
                         }`}
+                  </Button>
+                  <Button
+                    className="mt-2 w-full"
+                    variant="outline"
+                    onClick={handleOpenPartialCreditDialog}
+                    disabled={isSelectedBillStillRunning}
+                  >
+                    Pay Part &amp; Credit Rest
                   </Button>
                   <Button
                     className="mt-2 w-full"
@@ -2419,6 +2631,7 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
                 )}
               </div>
             </Card>
+            </div>
           )}
         </div>
 
@@ -2629,6 +2842,105 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
               </Card>
             </div>
           )}
+
+        {isPartialCreditDialogOpen &&
+          selectedAccount &&
+          selectedTotals && (() => {
+            const paidAmount = Number(partialPaymentText);
+            const validPaidAmount =
+              Number.isFinite(paidAmount) &&
+              paidAmount > 0 &&
+              paidAmount < selectedTotals.grandTotal;
+            const remainingAmount = validPaidAmount
+              ? selectedTotals.grandTotal - paidAmount
+              : selectedTotals.grandTotal;
+
+            return (
+              <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4">
+                <Card className="w-full max-w-md p-5">
+                  <div className="mb-4 flex items-start justify-between gap-4">
+                    <div>
+                      <h2 className="text-xl font-bold text-slate-950">
+                        Pay Part &amp; Credit Rest
+                      </h2>
+                      <p className="text-sm text-slate-500">
+                        Record the amount received now and move only the balance to Credit Ledger.
+                      </p>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-9 w-9 p-0"
+                      onClick={() => setIsPartialCreditDialogOpen(false)}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-3 rounded-lg border bg-slate-50 p-3 text-sm">
+                      <div>
+                        <p className="text-slate-500">Bill Total</p>
+                        <p className="text-lg font-bold">{formatCurrency(selectedTotals.grandTotal)}</p>
+                      </div>
+                      <div>
+                        <p className="text-slate-500">Credit Balance</p>
+                        <p className="text-lg font-bold text-amber-700">{formatCurrency(remainingAmount)}</p>
+                      </div>
+                    </div>
+
+                    <label className="block text-sm font-semibold text-slate-700">
+                      Amount Received
+                      <Input
+                        className="mt-1"
+                        type="number"
+                        min="1"
+                        max={Math.max(1, selectedTotals.grandTotal - 1)}
+                        value={partialPaymentText}
+                        onChange={(event) => setPartialPaymentText(event.target.value)}
+                        placeholder="e.g. 1500"
+                        autoFocus
+                      />
+                    </label>
+
+                    <div className="rounded-lg border px-3 py-2 text-sm">
+                      Payment method: <strong>{paymentLabel(paymentMethod)}</strong>
+                    </div>
+
+                    <label className="block text-sm font-semibold text-slate-700">
+                      Credit Note
+                      <Input
+                        className="mt-1"
+                        value={creditNote}
+                        onChange={(event) => setCreditNote(event.target.value)}
+                        placeholder="Optional note"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="mt-5 grid grid-cols-2 gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => setIsPartialCreditDialogOpen(false)}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      disabled={!validPaidAmount || isReceivingSelectedPayment}
+                      onClick={() =>
+                        handleReceivePayment({
+                          paidAmount,
+                          creditNote,
+                        })
+                      }
+                    >
+                      Confirm
+                    </Button>
+                  </div>
+                </Card>
+              </div>
+            );
+          })()}
       </div>
     </main>
   );

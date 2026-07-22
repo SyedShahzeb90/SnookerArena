@@ -3,8 +3,8 @@ import {
   ReceiptText,
   Search,
 } from "lucide-react";
-import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -57,6 +57,7 @@ function statusLabel(status: CreditLedgerStatus) {
 function CreditLedgerPage() {
   useAppDateTimeFormats();
   const navigate = useNavigate();
+  const location = useLocation();
   const entries = useCreditLedgerStore(
     (state) => state.entries
   );
@@ -78,6 +79,8 @@ function CreditLedgerPage() {
   const advanceTransactions = useAdvanceGamesStore((state) => state.transactions);
   const safeAdvanceTransactions = Array.isArray(advanceTransactions) ? advanceTransactions : [];
   const transferAdvanceGames = useAdvanceGamesStore((state) => state.transfer);
+  const customersInClub = useAdvanceGamesStore((state) => state.customersInClub ?? {});
+  const setCustomerInClub = useAdvanceGamesStore((state) => state.setCustomerInClub);
   const customerAccounts = useCustomerAccountStore((state) => state.accounts);
   const tableHistoryRecords = useTableHistoryStore((state) => state.records);
 
@@ -108,6 +111,14 @@ function CreditLedgerPage() {
   const [receiverId, setReceiverId] = useState("");
   const [transferGames, setTransferGames] = useState("1");
   const [transferNote, setTransferNote] = useState("");
+
+  useEffect(() => {
+    setLedgerTab(
+      location.hash === "#advance-games"
+        ? "advance"
+        : "credit"
+    );
+  }, [location.hash]);
 
   const advanceBalances = useMemo(() => {
     const balances = new Map<string, { customerId: string; customerName: string; games: number }>();
@@ -468,8 +479,8 @@ function CreditLedgerPage() {
         </div>
 
         <div className="mb-4 flex gap-2">
-          <Button variant={ledgerTab === "credit" ? "default" : "outline"} onClick={() => setLedgerTab("credit")}>Customer Credit</Button>
-          <Button variant={ledgerTab === "advance" ? "default" : "outline"} onClick={() => setLedgerTab("advance")}>Advance Games</Button>
+          <Button variant={ledgerTab === "credit" ? "default" : "outline"} onClick={() => navigate("/operator/credit-ledger")}>Customer Credit</Button>
+          <Button variant={ledgerTab === "advance" ? "default" : "outline"} onClick={() => navigate("/operator/credit-ledger#advance-games")}>Advance Games</Button>
         </div>
 
         {message && (
@@ -528,9 +539,12 @@ function CreditLedgerPage() {
             </Card>
             <Card className="overflow-hidden">
               <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-4 py-3">Customer</th><th className="px-4 py-3 text-right">Balance</th></tr></thead>
-                <tbody>{advanceBalances.map((item) => <tr key={item.customerId} className="border-t"><td className="px-4 py-3 font-semibold">{item.customerName}</td><td className="px-4 py-3 text-right font-bold">{item.games} advance games</td></tr>)}</tbody>
+                <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-4 py-3">Customer</th><th className="px-4 py-3 text-right">Balance</th><th className="px-4 py-3 text-right">Session availability</th></tr></thead>
+                <tbody>{advanceBalances.map((item) => <tr key={item.customerId} className="border-t"><td className="px-4 py-3 font-semibold">{item.customerName}</td><td className="px-4 py-3 text-right font-bold">{item.games} advance games</td><td className="px-4 py-3"><label className="ml-auto flex w-fit cursor-pointer items-center gap-2"><input type="checkbox" className="h-4 w-4 accent-emerald-600" checked={customersInClub[item.customerId] === true} disabled={item.games <= 0} onChange={(event) => setCustomerInClub(item.customerId, event.target.checked)} /><span className="text-sm font-medium">Show in session list</span></label></td></tr>)}</tbody>
               </table>
+              <p className="border-t bg-slate-50 px-4 py-3 text-xs text-slate-500">
+                Check this only while the customer is available to play. Unchecking it keeps their advance games saved.
+              </p>
             </Card>
             <Card className="overflow-hidden">
               <div className="border-b p-4 font-bold">Advance Games History</div>

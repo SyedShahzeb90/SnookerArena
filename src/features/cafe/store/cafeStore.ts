@@ -196,7 +196,8 @@ interface CafeStore {
   getPlayerOrder: (
     tableId: number,
     playerName: string,
-    playerId?: string
+    playerId?: string,
+    sessionId?: string
   ) => PlayerOrder | undefined;
 
   getWaitingCustomerOrder: (
@@ -230,14 +231,16 @@ interface CafeStore {
     tableId: number,
     playerName: string,
     menuItemId: string,
-    playerId?: string
+    playerId?: string,
+    sessionId?: string
   ) => void;
 
   decreasePlayerItem: (
     tableId: number,
     playerName: string,
     menuItemId: string,
-    playerId?: string
+    playerId?: string,
+    sessionId?: string
   ) => void;
 
   addItemToWaitingCustomer: (
@@ -775,11 +778,13 @@ export const useCafeStore =
     getPlayerOrder: (
       tableId,
       playerName,
-      playerId
+      playerId,
+      sessionId
     ) =>
       get().playerOrders.find(
         (p) =>
           p.tableId === tableId &&
+          (!sessionId || p.sessionId === sessionId) &&
           isSamePlayerIdentity(p, {
             playerId,
             playerName,
@@ -847,11 +852,8 @@ export const useCafeStore =
           return false;
         }
 
-        if (
-          sessionId &&
-          order.sessionId === sessionId
-        ) {
-          return true;
+        if (sessionId) {
+          return order.sessionId === sessionId;
         }
 
         return order.tableId === tableId;
@@ -942,7 +944,8 @@ increasePlayerItem: (
   tableId,
   playerName,
   menuItemId,
-  playerId
+  playerId,
+  sessionId
 ) =>
   set((state) => ({
     playerOrders:
@@ -951,6 +954,7 @@ increasePlayerItem: (
           if (
             player.tableId !==
               tableId ||
+            (sessionId && player.sessionId !== sessionId) ||
             !isSamePlayerIdentity(player, {
               playerId,
               playerName,
@@ -980,7 +984,8 @@ decreasePlayerItem: (
   tableId,
   playerName,
   menuItemId,
-  playerId
+  playerId,
+  sessionId
 ) =>
   set((state) => ({
     playerOrders:
@@ -989,6 +994,7 @@ decreasePlayerItem: (
           if (
             player.tableId !==
               tableId ||
+            (sessionId && player.sessionId !== sessionId) ||
             !isSamePlayerIdentity(player, {
               playerId,
               playerName,
@@ -1445,6 +1451,7 @@ attachWaitingOrderToTable: (
             playerName:
               order.customerName,
             playerId:
+              order.customerAccountId ??
               order.customerName,
           }));
 
@@ -1472,9 +1479,12 @@ attachWaitingOrderToTable: (
         (order) =>
           order.tableId === tableId &&
           order.sessionId === sessionId &&
-          order.playerName ===
-            attachedOrder!
-              .customerName
+          isSamePlayerIdentity(order, {
+            playerId:
+              attachedOrder!.customerAccountId,
+            playerName:
+              attachedOrder!.customerName,
+          })
       );
 
     const playerOrders = playerOrderExists
@@ -1482,11 +1492,28 @@ attachWaitingOrderToTable: (
           order.tableId === tableId &&
           order.sessionId ===
             sessionId &&
-          order.playerName ===
-            attachedOrder!
-              .customerName
+          isSamePlayerIdentity(order, {
+            playerId:
+              attachedOrder!.customerAccountId,
+            playerName:
+              attachedOrder!.customerName,
+          })
             ? {
                 ...order,
+                playerId:
+                  attachedOrder!
+                    .customerAccountId ??
+                  order.playerId,
+                playerKey:
+                  getPlayerIdentityKey({
+                    customerId:
+                      attachedOrder!
+                        .customerAccountId ??
+                      order.playerId,
+                    playerName:
+                      attachedOrder!
+                        .customerName,
+                  }),
                 orderItems:
                   attachedOrder!
                     .orderItems,
@@ -1503,6 +1530,15 @@ attachWaitingOrderToTable: (
             sessionId,
             playerName:
               attachedOrder.customerName,
+            playerId:
+              attachedOrder.customerAccountId,
+            playerKey:
+              getPlayerIdentityKey({
+                customerId:
+                  attachedOrder.customerAccountId,
+                playerName:
+                  attachedOrder.customerName,
+              }),
             orderItems:
               attachedOrder.orderItems,
             totalAmount:

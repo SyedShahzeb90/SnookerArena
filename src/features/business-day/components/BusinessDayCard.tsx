@@ -582,7 +582,7 @@ function BusinessDayCard() {
                   summary?.netProfit ?? 0,
                 ],
                 [
-                  "Outside Purchases Paid Out",
+                  "Customer Outside Purchases Paid Out",
                   summary?.outsidePurchasesPaidFromDrawer ?? 0,
                 ],
                 [

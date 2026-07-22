@@ -41,6 +41,10 @@ function normalizeSplitMethods(
   const used = new Set<PaymentMethod>();
 
   return splits.map((split) => {
+    if (split.method === "cash") {
+      return split;
+    }
+
     if (!used.has(split.method)) {
       used.add(split.method);
       return split;
@@ -221,6 +225,7 @@ function PaymentMethodSelector({
                     {paymentOptions
                       .filter(
                         (option) =>
+                          option.value === "cash" ||
                           option.value ===
                             split.method ||
                           !splits.some(

@@ -1,5 +1,6 @@
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -11,6 +12,7 @@ import { type AccessoryItem, useAccessoriesStore } from "../store/accessoriesSto
 const categories: AccessoryItem["category"][] = ["Tips", "Sticks", "Gloves", "Chalk", "Other"];
 
 export default function AccessoriesManagementPage() {
+  const navigate = useNavigate();
   const items = useAccessoriesStore((state) => state.items);
   const addItem = useAccessoriesStore((state) => state.addItem);
   const updateItem = useAccessoriesStore((state) => state.updateItem);
@@ -54,6 +56,15 @@ export default function AccessoriesManagementPage() {
     <main className="min-h-screen bg-slate-100 px-4 py-6 sm:px-6">
       <div className="mx-auto max-w-6xl space-y-5">
         <header>
+          <Button
+            type="button"
+            variant="ghost"
+            className="mb-3 -ml-2 gap-2"
+            onClick={() => navigate("/admin")}
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to Admin Dashboard
+          </Button>
           <h1 className="text-2xl font-bold text-slate-950">Accessories Management</h1>
           <p className="text-sm text-slate-500">Manage accessory products, prices, categories, and availability.</p>
         </header>

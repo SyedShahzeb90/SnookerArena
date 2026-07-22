@@ -118,7 +118,7 @@ function OutsidePurchasesPanel() {
     });
     submitting.current = false;
     if (!result.ok) {
-      setError(result.error ?? "Unable to void outside purchase.");
+      setError(result.error ?? "Unable to void customer outside purchase.");
       return;
     }
     setVoiding(null);
@@ -185,7 +185,7 @@ function OutsidePurchasesPanel() {
                   </td>
                 </tr>
               ))}
-              {rows.length === 0 && <tr><td colSpan={9} className="px-4 py-10 text-center text-slate-500">No outside purchases found.</td></tr>}
+              {rows.length === 0 && <tr><td colSpan={9} className="px-4 py-10 text-center text-slate-500">No customer outside purchases found.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -207,7 +207,7 @@ function OutsidePurchasesPanel() {
 
       <Dialog open={Boolean(voiding)} onOpenChange={(open) => !open && setVoiding(null)}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Void Outside Purchase</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Void Customer Outside Purchase</DialogTitle></DialogHeader>
           <div className="grid gap-3">
             <p className="text-sm text-slate-600">Confirm that {money(voiding?.amountPaidFromDrawer ?? 0)} was physically returned to the cash drawer.</p>
             <div><Label>Reason</Label><Textarea value={reason} onChange={(event) => setReason(event.target.value)} /></div>

@@ -462,7 +462,7 @@ function ExpensesPage() {
             className="h-9"
             onClick={() => setActiveTab("outside-purchases")}
           >
-            Outside Purchases
+            Customer Outside Purchases
           </Button>
         </div>
 

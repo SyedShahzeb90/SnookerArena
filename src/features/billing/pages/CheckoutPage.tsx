@@ -38,6 +38,7 @@ import {
 import { formatAppDate, formatAppTime, useAppDateTimeFormats } from "@/lib/dateTime";
 import CustomerBillsPage from "@/features/customers/pages/CustomerBillsPage";
 import { useAdminModeStore } from "@/features/admin-mode/adminModeStore";
+import { useTableStore } from "@/store/tableStore";
 type StatusFilter = "pending" | "paid" | "cancelled";
 type ViewFilter = StatusFilter | "all";
 type DateFilter =
@@ -62,6 +63,17 @@ const cancellationReasons = [
   "Testing mistake",
   "Other",
 ];
+function getCustomerAccountSessionIds(account: CustomerAccount) {
+  return new Set(
+    [
+      ...account.gameCharges,
+      ...account.cafeCharges,
+      ...(account.accessoryCharges ?? []),
+    ]
+      .map((charge) => charge.sessionId)
+      .filter((sessionId): sessionId is string => Boolean(sessionId))
+  );
+}
 function getSalePaymentLabel(sale: {
   paymentMethod: PaymentMethod;
   paymentSplits?: PaymentSplit[];
@@ -299,15 +311,21 @@ function accountHasSessionActivity(
   account: CustomerAccount,
   sessionId: string
 ) {
+  const physicalSessionId = (value?: string) =>
+    (value ?? "").split("-TCL-")[0];
+  const targetSessionId = physicalSessionId(sessionId);
+  const matchesSession = (value?: string) =>
+    physicalSessionId(value) === targetSessionId;
+
   return (
     account.gameCharges.some(
-      (charge) => charge.sessionId === sessionId
+      (charge) => matchesSession(charge.sessionId)
     ) ||
     account.cafeCharges.some(
-      (charge) => charge.sessionId === sessionId
+      (charge) => matchesSession(charge.sessionId)
     ) ||
     (account.accessoryCharges ?? []).some(
-      (charge) => charge.sessionId === sessionId
+      (charge) => matchesSession(charge.sessionId)
     )
   );
 }
@@ -1003,6 +1021,7 @@ function CheckoutPage() {
     state.getActiveBusinessDay(),
   );
   const customerAccounts = useCustomerAccountStore((state) => state.accounts);
+  const tables = useTableStore((state) => state.tables);
   const canCancelBills = useAdminModeStore((state) => state.can("cancel_bills"));
   const cancelCustomerAccount = useCustomerAccountStore(
     (state) => state.cancelCustomerAccount
@@ -1089,21 +1108,72 @@ function CheckoutPage() {
     [activePendingBills, openCustomerAccountBills],
   );
   const activeCustomerAccounts = useMemo(() => {
-    const pendingCustomerIds = new Set<string>();
-    displayPendingBills.forEach((bill) => {
-      [
-        bill.session.player1CustomerId,
-        bill.session.player2CustomerId,
-        bill.session.player3CustomerId,
-        bill.session.player4CustomerId,
-      ]
+    const pendingCustomerIds = new Set(
+      displayPendingBills
+        .flatMap((bill) =>
+          getPendingPlayerBillRows(
+            bill,
+            openCustomerAccountBills
+          )
+        )
+        .map((row) => row.customerId)
         .filter((id): id is string => Boolean(id))
-        .forEach((id) => pendingCustomerIds.add(id));
-    });
+    );
     return openCustomerAccountBills.filter(
       (account) => !pendingCustomerIds.has(account.id),
     );
   }, [displayPendingBills, openCustomerAccountBills]);
+  const currentlyPlayingCustomerIds = useMemo(() => {
+    const customerIds = new Set<string>();
+
+    tables.forEach((table) => {
+      if (
+        !table.session ||
+        (table.status !== "running" && table.status !== "paused")
+      ) {
+        return;
+      }
+
+      [
+        table.session.player1CustomerId,
+        table.session.player2CustomerId,
+        table.session.player3CustomerId,
+        table.session.player4CustomerId,
+      ]
+        .filter((id): id is string => Boolean(id))
+        .forEach((id) => customerIds.add(id));
+    });
+
+    return customerIds;
+  }, [tables]);
+  const collectiblePendingRows = useMemo(
+    () =>
+      displayPendingBills
+        .flatMap((bill) =>
+          getPendingPlayerBillRows(
+            bill,
+            openCustomerAccountBills
+          )
+        )
+        .filter(
+          (row) =>
+            !row.customerId ||
+            !currentlyPlayingCustomerIds.has(row.customerId)
+        ),
+    [
+      currentlyPlayingCustomerIds,
+      displayPendingBills,
+      openCustomerAccountBills,
+    ]
+  );
+  const collectibleCustomerAccounts = useMemo(
+    () =>
+      activeCustomerAccounts.filter(
+        (account) =>
+          !currentlyPlayingCustomerIds.has(account.id)
+      ),
+    [activeCustomerAccounts, currentlyPlayingCustomerIds]
+  );
   const checkoutSales = useMemo(
     () => sales.filter(isCheckoutPaidSale),
     [sales],
@@ -1123,22 +1193,16 @@ function CheckoutPage() {
     () =>
       dedupeCheckoutRows(
         combinePendingRows([
-          ...displayPendingBills.flatMap((bill) =>
-            getPendingPlayerBillRows(
-              bill,
-              openCustomerAccountBills
-            )
-          ),
-          ...activeCustomerAccounts.map((account) => ({
+          ...collectiblePendingRows,
+          ...collectibleCustomerAccounts.map((account) => ({
             type: "account" as const,
             account,
           })),
         ])
       ),
     [
-      activeCustomerAccounts,
-      displayPendingBills,
-      openCustomerAccountBills,
+      collectibleCustomerAccounts,
+      collectiblePendingRows,
     ]
   );
   const openBillsCount = openRows.length;
@@ -1152,13 +1216,8 @@ function CheckoutPage() {
     const rows: CheckoutRow[] =
       statusFilter === "pending"
         ? [
-            ...displayPendingBills.flatMap((bill) =>
-              getPendingPlayerBillRows(
-                bill,
-                openCustomerAccountBills
-              ),
-            ),
-            ...activeCustomerAccounts.map((account) => ({
+            ...collectiblePendingRows,
+            ...collectibleCustomerAccounts.map((account) => ({
               type: "account" as const,
               account,
             })),
@@ -1173,13 +1232,8 @@ function CheckoutPage() {
                 )
               )
             : [
-                ...displayPendingBills.flatMap((bill) =>
-                  getPendingPlayerBillRows(
-                    bill,
-                    openCustomerAccountBills
-                  ),
-                ),
-                ...activeCustomerAccounts.map((account) => ({
+                ...collectiblePendingRows,
+                ...collectibleCustomerAccounts.map((account) => ({
                   type: "account" as const,
                   account,
                 })),
@@ -1302,8 +1356,8 @@ function CheckoutPage() {
     customEnd,
     customStart,
     dateFilter,
-    displayPendingBills,
-    activeCustomerAccounts,
+    collectiblePendingRows,
+    collectibleCustomerAccounts,
     cancelledBills,
     paymentMethodFilter,
     search,
@@ -1490,20 +1544,12 @@ function CheckoutPage() {
     });
   };
   const handleCancelPendingBill = (bill: PendingBill) => {
-    if (!useAdminModeStore.getState().can("cancel_bills")) {
-      setMessage("Admin Mode is required to cancel a bill.");
-      return;
-    }
     setBillToCancel(bill);
     setCancelReason("");
     setCancelNote("");
     setCancelError("");
   };
   const confirmCancelPendingBill = () => {
-    if (!useAdminModeStore.getState().can("cancel_bills")) {
-      setCancelError("Admin Mode is required to cancel a bill.");
-      return;
-    }
     if (!billToCancel) return;
     const reason = cancelReason.trim();
     const note = cancelNote.trim();
@@ -1540,25 +1586,17 @@ function CheckoutPage() {
       setSelectedPlayerName(undefined);
     }
     setMessage(
-      `Cancelled bill ${billToCancel.staffBillNumber ?? billToCancel.id}.`,
+      `Bill ${billToCancel.staffBillNumber ?? billToCancel.id} removed from pending and saved in Cancelled history.`,
     );
     setBillToCancel(null);
   };
   const handleCancelAccountBill = (account: CustomerAccount) => {
-    if (!useAdminModeStore.getState().can("cancel_bills")) {
-      setMessage("Admin Mode is required to cancel a bill.");
-      return;
-    }
     setAccountToCancel(account);
     setCancelReason("");
     setCancelNote("");
     setCancelError("");
   };
   const confirmCancelAccountBill = () => {
-    if (!useAdminModeStore.getState().can("cancel_bills")) {
-      setCancelError("Admin Mode is required to cancel a bill.");
-      return;
-    }
     if (!accountToCancel) return;
     const reason = cancelReason.trim();
     const note = cancelNote.trim();
@@ -1571,9 +1609,12 @@ function CheckoutPage() {
       return;
     }
 
+    getCustomerAccountSessionIds(accountToCancel).forEach((sessionId) => {
+      removePendingBill(`BILL-${sessionId}`);
+    });
     cancelCustomerAccount({ id: accountToCancel.id, reason, note });
     setMessage(
-      `Cancelled bill ${getBillPrimaryLabel(accountToCancel)}.`
+      `Bill ${getBillPrimaryLabel(accountToCancel)} removed from pending and saved in Cancelled history.`
     );
     setAccountToCancel(null);
   };
@@ -1596,17 +1637,6 @@ function CheckoutPage() {
     }
 
     if (row.type === "pending") {
-      const account = row.customerId
-        ? customerAccountById.get(row.customerId)
-        : undefined;
-
-      if (account) {
-        navigate(
-          `/operator/billing?customerBillId=${account.id}`
-        );
-        return;
-      }
-
       const sessionCafeAmount = getPlayerCafeAmount(
         row.bill.session,
         row.playerName
@@ -1906,18 +1936,18 @@ function CheckoutPage() {
             <table
               className={`${
                 showPaymentColumn && showStatusColumn
-                  ? "min-w-[1360px]"
+                  ? "min-w-[1420px]"
                   : showPaymentColumn
-                    ? "min-w-[1270px]"
-                    : "min-w-[1200px]"
+                    ? "min-w-[1330px]"
+                    : "min-w-[1260px]"
               } w-full table-fixed text-left text-sm`}
             >
               <colgroup>
                 <col className="w-[8.5rem]" />
                 <col className="w-[8rem]" />
                 <col className="w-[8rem]" />
-                <col className="w-[5.75rem]" />
-                <col className="w-[12rem]" />
+                <col className="w-[8rem]" />
+                <col className="w-[13rem]" />
                 <col className="w-[6rem]" />
                 <col className="w-[6rem]" />
                 <col className="w-[6.5rem]" />
@@ -2022,15 +2052,27 @@ function CheckoutPage() {
                       <td className="whitespace-nowrap px-3 py-3 align-middle">
                         {getCheckoutRowTypeLabel(row)}
                       </td>
-                      <td className="whitespace-nowrap px-3 py-3 align-middle">
-                        {row.type === "pending"
-                          ? row.bill.tableName
-                          : row.type === "account"
-                            ? getBillTableLabel(row.account) || "-"
-                            : row.sale.tableName}
+                      <td className="overflow-hidden px-3 py-3 align-middle">
+                        {(() => {
+                          const tableLabel =
+                            row.type === "pending"
+                              ? row.bill.tableName
+                              : row.type === "account"
+                                ? getBillTableLabel(row.account) || "-"
+                                : row.sale.tableName;
+
+                          return (
+                            <span
+                              className="block truncate whitespace-nowrap"
+                              title={tableLabel}
+                            >
+                              {tableLabel}
+                            </span>
+                          );
+                        })()}
                       </td>
-                      <td className="px-3 py-3 align-middle">
-                        <span className="block truncate" title={getCheckoutRowPlayersLabel(row, account)}>
+                      <td className="overflow-hidden px-3 py-3 align-middle">
+                        <span className="block truncate whitespace-nowrap" title={getCheckoutRowPlayersLabel(row, account)}>
                           {getCheckoutRowPlayersLabel(row, account)}
                         </span>
                       </td>
@@ -2101,7 +2143,7 @@ function CheckoutPage() {
                                 ? "View Details"
                                 : "View & Pay"}
                             </Button>
-                            {canCancelBills && row.type === "pending" &&
+                            {row.type === "pending" &&
                               row.bill.status !== "cancelled" && (
                                 <Button
                                   type="button"
@@ -2113,10 +2155,10 @@ function CheckoutPage() {
                                     handleCancelPendingBill(row.bill);
                                   }}
                                 >
-                                  <Trash2 className="h-3.5 w-3.5" /> Cancel Bill
+                                  <Trash2 className="h-3.5 w-3.5" /> Delete Bill
                                 </Button>
                               )}
-                            {canCancelBills && row.type === "account" && (
+                            {row.type === "account" && (
                               <Button
                                 type="button"
                                 variant="outline"
@@ -2124,12 +2166,10 @@ function CheckoutPage() {
                                 className="gap-1 whitespace-nowrap border-red-200 text-red-700 hover:bg-red-50"
                                 onClick={(event) => {
                                   event.stopPropagation();
-                                  handleCancelAccountBill(
-                                    row.account
-                                  );
+                                  handleCancelAccountBill(row.account);
                                 }}
                               >
-                                <Trash2 className="h-3.5 w-3.5" /> Cancel Bill
+                                <Trash2 className="h-3.5 w-3.5" /> Delete Bill
                               </Button>
                             )}
                           </div>
@@ -2199,25 +2239,25 @@ function CheckoutPage() {
           onReceivePlayerBill={handleReceivePlayerBill}
         />
       )}{" "}
-      {canCancelBills && (billToCancel || accountToCancel) && (
+      {(billToCancel || accountToCancel) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4">
           {" "}
           <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl">
             {" "}
             <h2 className="text-lg font-bold text-slate-950">
               {" "}
-              Cancel unpaid bill?{" "}
+              Delete unpaid bill?{" "}
             </h2>{" "}
             <p className="mt-2 text-sm text-slate-600">
               {" "}
-              Are you sure you want to cancel this unpaid bill? It will stay in
-              history with Cancelled status.{" "}
+              This bill will be removed from Pending and kept in history with
+              Cancelled status.{" "}
             </p>{" "}
             <div className="mt-4 space-y-3">
               {" "}
               <label className="grid gap-1 text-sm font-medium text-slate-700">
                 {" "}
-                Cancellation reason{" "}
+                Deletion reason{" "}
                 <select
                   className="h-10 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
                   value={cancelReason}
@@ -2283,7 +2323,7 @@ function CheckoutPage() {
                 }
               >
                 {" "}
-                Cancel Bill{" "}
+                Delete Bill{" "}
               </Button>{" "}
             </div>{" "}
           </div>{" "}

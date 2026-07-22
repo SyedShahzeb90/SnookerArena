@@ -75,7 +75,7 @@ function BackupRestorePage() {
       ["Accessories", accessories.length],
       ["Credit records", creditEntries.length],
       ["Table-history rows", historyRecords.length],
-      ["Outside purchases", outsidePurchases.length],
+      ["Customer outside purchases", outsidePurchases.length],
       ["Menu products", menu.length],
     ] as const,
     [

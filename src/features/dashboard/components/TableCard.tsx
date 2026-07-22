@@ -742,12 +742,12 @@ const TableCard = forwardRef<TableCardHandle, Props>(function TableCard({
                   "paused") && (
                 <RunningPanel
                   frameElapsed={frameElapsed}
-                  showFrameFeatures={
-                    table.session.sessionType ===
-                      "single" ||
-                    table.session.sessionType ===
-                      "double"
+                  timerLabel={
+                    currentFrameType === "tableBooking"
+                      ? "Current booking"
+                      : "Current frame"
                   }
+                  showFrameFeatures
                   isPaused={
                     table.status ===
                     "paused"
@@ -767,10 +767,7 @@ const TableCard = forwardRef<TableCardHandle, Props>(function TableCard({
                     }
                   }}
                   onAddCharge={
-                    table.session.sessionType ===
-                      "single" ||
-                    table.session.sessionType ===
-                      "double"
+                    table.type !== "private-room"
                       ? openAddFrame
                       : undefined
                   }

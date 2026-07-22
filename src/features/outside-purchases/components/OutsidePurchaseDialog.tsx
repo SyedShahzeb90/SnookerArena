@@ -107,7 +107,7 @@ function OutsidePurchaseDialog({
     submitting.current = false;
 
     if (!result.ok) {
-      setError(result.error ?? "Unable to record outside purchase.");
+      setError(result.error ?? "Unable to record customer outside purchase.");
       return;
     }
     onOpenChange(false);

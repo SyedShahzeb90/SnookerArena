@@ -752,14 +752,12 @@ function addSessionGameChargesToCustomers(
       customerStore.addGameChargeToCustomer({
         customerName: payer.playerName,
         customerId:
-          payer.line?.payerCustomerId ??
-          getCustomerIdForPayer(
-            payer.playerName
-          ) ??
+          (isWalkInName(payer.playerName)
+            ? getCustomerIdForPayer(payer.playerName)
+            : payer.line?.payerCustomerId ??
+              getCustomerIdForPayer(payer.playerName)) ??
           session.payerCustomerId,
-        sessionId: payer.line
-          ? `${session.id}-${payer.line.id}`
-          : session.id,
+        sessionId: session.id,
         tableId: table.id,
         tableName: table.name,
         tableType: table.type,
@@ -797,6 +795,9 @@ function addSessionGameChargesToCustomers(
           ? `Team ${session.losingTeam}`
           : undefined,
         teamPlayers,
+        sourceFrameIds: payer.line
+          ? [payer.line.id]
+          : undefined,
       });
     });
 }

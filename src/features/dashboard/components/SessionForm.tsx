@@ -186,6 +186,9 @@ function SessionForm({
   const advanceTransactions = useAdvanceGamesStore(
     (state) => state.transactions
   );
+  const customersInClub = useAdvanceGamesStore(
+    (state) => state.customersInClub ?? {}
+  );
   const safeAdvanceTransactions = Array.isArray(advanceTransactions)
     ? advanceTransactions
     : [];
@@ -193,16 +196,29 @@ function SessionForm({
     safeAdvanceTransactions
       .filter((item) => item.customerId === customerId)
       .reduce((total, item) => total + item.balanceDelta, 0);
-  const activeCustomers =
-    dedupeActiveCustomers(customerAccounts.filter(
-      (account) =>
-        ((account.status === "active" &&
+  const sessionCustomerIds = new Set([
+    session?.player1CustomerId,
+    session?.player2CustomerId,
+    session?.player3CustomerId,
+    session?.player4CustomerId,
+  ].filter((value): value is string => Boolean(value)));
+  const activeCustomers = dedupeActiveCustomers(
+    customerAccounts.filter((account) => {
+      const hasOpenCharges =
+        account.status === "active" &&
         account.paymentStatus === "unpaid" &&
+        account.grandTotal > 0 &&
         (account.gameCharges.length > 0 ||
           account.cafeCharges.length > 0 ||
-          (account.accessoryCharges ?? [])
-            .length > 0)) || getAdvanceBalance(account.id) > 0)
-    ));
+          (account.accessoryCharges ?? []).length > 0);
+      const hasAvailableAdvanceGames =
+        getAdvanceBalance(account.id) > 0;
+
+      return hasOpenCharges ||
+        sessionCustomerIds.has(account.id) ||
+        (hasAvailableAdvanceGames && customersInClub[account.id] === true);
+    })
+  );
   const hasNamedPlayer = [
     player1,
     player2,
@@ -331,24 +347,39 @@ function SessionForm({
               ))}
             </select>
             {selectedCustomer ? (
-              <div className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800 ring-1 ring-emerald-200">
-                <p className="font-medium">
-                  Charges will be added to{" "}
-                  {getBillPrimaryLabel(
-                    selectedCustomer
-                  )}
-                  .
-                </p>
-                <p>
-                  Current unpaid amount: Rs.{" "}
-                  {selectedCustomer.grandTotal}
-                </p>
-                {getAdvanceBalance(selectedCustomer.id) > 0 && (
-                  <p className="font-medium">
-                    {selectedCustomer.customerName} has {getAdvanceBalance(selectedCustomer.id)} advance games available.
-                  </p>
+              <>
+                {session && (
+                  <div className="space-y-1.5">
+                    <Label>Customer Name</Label>
+                    <Input
+                      value={nameValue}
+                      onChange={(event) =>
+                        setName(event.target.value)
+                      }
+                      placeholder="Enter customer name"
+                      required
+                    />
+                  </div>
                 )}
-              </div>
+                <div className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800 ring-1 ring-emerald-200">
+                  <p className="font-medium">
+                    Charges will be added to{" "}
+                    {getBillPrimaryLabel(
+                      selectedCustomer
+                    )}
+                    .
+                  </p>
+                  <p>
+                    Current unpaid amount: Rs.{" "}
+                    {selectedCustomer.grandTotal}
+                  </p>
+                  {getAdvanceBalance(selectedCustomer.id) > 0 && (
+                    <p className="font-medium">
+                      {selectedCustomer.customerName} has {getAdvanceBalance(selectedCustomer.id)} advance games available.
+                    </p>
+                  )}
+                </div>
+              </>
             ) : (
               <p className="text-xs text-slate-500">
                 Charges will be added to this bill.

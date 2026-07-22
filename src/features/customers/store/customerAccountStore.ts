@@ -127,6 +127,10 @@ interface CustomerAccountStore {
   markCustomerBillPaid: (
     input: MarkPaidInput
   ) => void;
+  markCustomerBillSettledByAdvance: (
+    customerId: string,
+    activeBusinessDayId?: string
+  ) => void;
   updatePaidBillPaymentMethod: (
     customerId: string,
     paymentMethod: PaymentMethod
@@ -163,6 +167,11 @@ export const selectActionableCustomerBillCount = (
 
 function normalize(value?: string) {
   return (value ?? "").trim().toLowerCase();
+}
+
+function getPhysicalSessionId(sessionId?: string) {
+  if (!sessionId) return "";
+  return sessionId.split("-TCL-")[0];
 }
 
 function generateCustomerToken(sequence: number) {
@@ -544,6 +553,27 @@ export const useCustomerAccountStore =
 
             if (existing) return existing;
 
+            const closedUnpaidCustomer = get().accounts.find(
+              (account) =>
+                account.id === input.customerId &&
+                account.status === "closed" &&
+                account.paymentStatus === "unpaid"
+            );
+            if (closedUnpaidCustomer) {
+              existing = {
+                ...closedUnpaidCustomer,
+                status: "active",
+                closedAt: undefined,
+                updatedAt: new Date().toISOString(),
+              };
+              set((state) => ({
+                accounts: state.accounts.map((account) =>
+                  account.id === existing!.id ? existing! : account
+                ),
+              }));
+              return existing;
+            }
+
             const paidCustomer = get().accounts.find(
               (account) =>
                 account.id === input.customerId &&
@@ -644,13 +674,30 @@ export const useCustomerAccountStore =
                     account.staffBillNumber,
                   gameCharges: [
                     ...account.gameCharges.filter(
-                      (item) =>
-                        !(
-                          item.sessionId ===
-                            input.sessionId &&
-                          item.payerName ===
-                            input.payerName
-                        )
+                      (item) => {
+                        if (
+                          item.sessionId !== input.sessionId ||
+                          item.payerName !== input.payerName
+                        ) {
+                          return true;
+                        }
+
+                        const incomingFrameIds =
+                          input.sourceFrameIds ?? [];
+                        const existingFrameIds =
+                          item.sourceFrameIds ?? [];
+
+                        if (
+                          incomingFrameIds.length > 0 &&
+                          existingFrameIds.length > 0
+                        ) {
+                          return !incomingFrameIds.some((frameId) =>
+                            existingFrameIds.includes(frameId)
+                          );
+                        }
+
+                        return false;
+                      }
                     ),
                     charge,
                   ],
@@ -977,6 +1024,40 @@ export const useCustomerAccountStore =
             ),
           })),
 
+        markCustomerBillSettledByAdvance: (
+          customerId,
+          activeBusinessDayId
+        ) =>
+          set((state) => ({
+            accounts: state.accounts.map((account) => {
+              if (account.id !== customerId) {
+                return account;
+              }
+
+              const settledAccount = withTotals(account);
+
+              if (
+                settledAccount.paymentStatus !== "unpaid" ||
+                settledAccount.grandTotal > 0 ||
+                !settledAccount.advanceGamesApplied
+              ) {
+                return account;
+              }
+
+              const now = new Date().toISOString();
+
+              return {
+                ...settledAccount,
+                status: "closed",
+                closedAt: now,
+                updatedAt: now,
+                paymentStatus: "paid",
+                paidAt: now,
+                activeBusinessDayId,
+              };
+            }),
+          })),
+
         updatePaidBillPaymentMethod: (
           customerId,
           paymentMethod
@@ -1051,8 +1132,7 @@ export const useCustomerAccountStore =
               if (
                 account.status !== "active" ||
                 account.paymentStatus !== "unpaid" ||
-                normalize(account.customerName) !==
-                  "walk-in customer" ||
+                !isWalkInName(account.customerName) ||
                 !firstSessionCharge ||
                 !(
                   "sessionId" in
@@ -1069,7 +1149,7 @@ export const useCustomerAccountStore =
                 return;
               }
 
-              const key = `walkin-${firstSessionCharge.tableId}-${firstSessionCharge.sessionId}`;
+              const key = `walkin-${firstSessionCharge.tableId}-${getPhysicalSessionId(firstSessionCharge.sessionId)}`;
               grouped.set(key, [
                 ...(grouped.get(key) ?? []),
                 account,
@@ -1132,13 +1212,16 @@ export const useCustomerAccountStore =
                   account.status === "active" &&
                   account.paymentStatus ===
                     "unpaid" &&
-                  normalize(
-                    account.customerName
-                  ) === "walk-in customer" &&
+                  isWalkInName(account.customerName) &&
                   !account.customerNote &&
                   !account.phone &&
                   account.gameCharges.length > 1 &&
-                  account.cafeCharges.length === 0;
+                  account.cafeCharges.length === 0 &&
+                  new Set(
+                    account.gameCharges.map((charge) =>
+                      getPhysicalSessionId(charge.sessionId)
+                    )
+                  ).size > 1;
 
                 if (!shouldSplit) {
                   return [account];

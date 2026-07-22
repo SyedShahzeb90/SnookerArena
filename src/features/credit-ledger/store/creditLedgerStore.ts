@@ -54,6 +54,8 @@ interface AddCreditInput {
   cafeTotal: number;
   accessoryTotal: number;
   finalAmount: number;
+  tableTotal?: number;
+  discount?: number;
   creditNote?: string;
   businessDayId?: string;
 }
@@ -167,11 +169,11 @@ export const useCreditLedgerStore =
               ),
             ],
             tableTotal:
-              input.account.totalGameAmount,
+              input.tableTotal ?? input.account.totalGameAmount,
             cafeTotal: input.cafeTotal,
             accessoryTotal:
               input.accessoryTotal,
-            discount: cappedDiscount,
+            discount: input.discount ?? cappedDiscount,
             finalAmount: input.finalAmount,
           };
 

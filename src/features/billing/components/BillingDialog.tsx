@@ -393,7 +393,7 @@ function BillingDialog({
       open={open}
       onOpenChange={onClose}
     >
-      <DialogContent className="flex max-h-[90vh] w-[70vw] !max-w-[70vw] flex-col overflow-hidden p-0">
+      <DialogContent className="flex h-[min(90vh,860px)] w-[min(96vw,960px)] !max-w-[960px] flex-col overflow-hidden border-slate-300 p-0 shadow-2xl dark:border-slate-700">
         <DialogHeader className="border-b px-6 py-4">
           <DialogTitle>
             Billing

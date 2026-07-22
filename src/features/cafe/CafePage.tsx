@@ -96,11 +96,6 @@ function CafePage() {
     useCustomerAccountStore(
       (state) => state.accounts
     );
-  const closeCustomerAccount =
-    useCustomerAccountStore(
-      (state) => state.closeCustomerAccount
-    );
-
   const {
     waitingCustomers,
     getPlayerOrder,
@@ -114,6 +109,7 @@ function CafePage() {
     saveOrder,
     savedOrders,
     receiveWaitingCustomerPayment,
+    attachWaitingOrderToTable,
     playerOrders,
     getTableOrderItems,
     getSavedOrderForTable,
@@ -464,7 +460,8 @@ function CafePage() {
       ? getPlayerOrder(
           selectedTarget.tableId,
           selectedTarget.playerName,
-          selectedTarget.customerId
+          selectedTarget.customerId,
+          selectedTarget.sessionId
         ) ?? savedTableOrder
       : selectedTarget?.type === "waitingCustomer"
         ? getWaitingCustomerOrder(
@@ -651,8 +648,11 @@ function CafePage() {
           (order) =>
             order.customerType ===
               "waiting_customer" &&
-            order.customerName ===
-              selectedCustomerName &&
+            (selectedTarget.customerAccountId
+              ? order.customerAccountId ===
+                selectedTarget.customerAccountId
+              : order.customerName ===
+                selectedCustomerName) &&
             order.paymentStatus === "saved"
         )
       : undefined;
@@ -678,7 +678,8 @@ function CafePage() {
         selectedTarget.tableId,
         selectedTarget.playerName,
         menuItemId,
-        selectedTarget.customerId
+        selectedTarget.customerId,
+        selectedTarget.sessionId
       );
       return;
     }
@@ -755,7 +756,8 @@ function CafePage() {
         selectedTarget.tableId,
         selectedTarget.playerName,
         menuItemId,
-        selectedTarget.customerId
+        selectedTarget.customerId,
+        selectedTarget.sessionId
       );
       return;
     }
@@ -985,15 +987,7 @@ function CafePage() {
     if (!tableId || !sessionId) return;
 
     const urlTargetKey = `${tableId}-${sessionId}`;
-    const sameRunningTarget =
-      selectedTarget?.type === "runningTable" &&
-      selectedTarget.tableId === tableId &&
-      selectedTarget.sessionId === sessionId;
-
-    if (
-      sameRunningTarget &&
-      previousUrlTableTargetKey.current === urlTargetKey
-    ) {
+    if (previousUrlTableTargetKey.current === urlTargetKey) {
       return;
     }
 
@@ -1020,7 +1014,7 @@ function CafePage() {
       playerName,
       customerId: firstPlayer?.customerId,
     });
-  }, [searchParams, selectedTarget, tables]);
+  }, [searchParams, tables]);
 
   const isCustomerBillCode = (value?: string) =>
     /^CUST-\d+$/i.test(value?.trim() ?? "");
@@ -1569,14 +1563,26 @@ function CafePage() {
           (item) => item.id === table.id
         )?.session;
 
+    const attachedOrder =
+      attachedSession && selectedWaitingSavedOrder
+        ? attachWaitingOrderToTable(
+            selectedWaitingSavedOrder.id,
+            table.id,
+            table.name,
+            attachedSession.id
+          )
+        : undefined;
+
     if (
       attachedSession &&
-      selectedAttachAccount.cafeCharges.length > 0
+      (attachedOrder?.orderItems.length ||
+        selectedAttachAccount.cafeCharges.length > 0)
     ) {
       updateSessionCafe({
         tableId: table.id,
-        cafeOrders: selectedAttachAccount.cafeCharges.map(
-          (charge) => ({
+        cafeOrders: attachedOrder?.orderItems.length
+          ? attachedOrder.orderItems
+          : selectedAttachAccount.cafeCharges.map((charge) => ({
             menuItemId: charge.itemId,
             name: charge.name,
             price: charge.price,
@@ -1589,9 +1595,10 @@ function CafePage() {
               selectedAttachAccount.customerName,
             playerName:
               selectedAttachAccount.customerName,
+            playerId:
+              selectedAttachAccount.id,
             orderedAt: charge.orderedAt,
-          })
-        ),
+          })),
       });
     }
 
@@ -1603,10 +1610,6 @@ function CafePage() {
             selectedAttachAccount.id
         ),
     }));
-    closeCustomerAccount(
-      selectedAttachAccount.id
-    );
-
     setSelectedTarget({
       type: "runningTable",
       tableId: table.id,
@@ -1756,13 +1759,31 @@ function CafePage() {
                         <>
                     <button
                       className="flex w-full items-center justify-between p-4 text-left"
-                      onClick={() =>
+                      onClick={() => {
+                        const isAlreadyExpanded =
+                          expandedTable === table.id;
+
+                        if (sessionPlayers.length === 1) {
+                          const [player] = sessionPlayers;
+                          setExpandedTable(table.id);
+                          setSelectedTarget({
+                            type: "runningTable",
+                            tableId: table.id,
+                            sessionId: table.session!.id,
+                            playerName: player.name,
+                            customerId: player.customerId,
+                          });
+                          return;
+                        }
+
                         setExpandedTable(
-                          expandedTable === table.id
-                            ? null
-                            : table.id
-                        )
-                      }
+                          isAlreadyExpanded ? null : table.id
+                        );
+
+                        if (!isAlreadyExpanded) {
+                          setSelectedTarget(null);
+                        }
+                      }}
                     >
                       <div>
                         <p className="font-bold">

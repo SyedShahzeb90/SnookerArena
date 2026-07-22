@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 
 interface Props {
   frameElapsed: string;
+  timerLabel?: string;
   showFrameFeatures?: boolean;
   isPaused?: boolean;
   onPause?: () => void;
@@ -32,6 +33,7 @@ interface Props {
 
 function RunningPanel({
   frameElapsed,
+  timerLabel = "Current frame",
   showFrameFeatures = false,
   isPaused = false,
   onPause,
@@ -49,7 +51,7 @@ function RunningPanel({
     <div className="mt-auto space-y-3 border-t pt-3">
       {showFrameFeatures && (
         <div className="flex items-center justify-between rounded-md bg-slate-50 px-3 py-2">
-          <p className="text-xs font-medium text-slate-500">Current frame</p>
+          <p className="text-xs font-medium text-slate-500">{timerLabel}</p>
           <p className="font-mono text-xl font-bold tabular-nums leading-tight text-blue-700">
             {frameElapsed}
           </p>
@@ -161,7 +163,7 @@ function RunningPanel({
                 setMoreOpen(false);
                 onOutsidePurchase();
               }}>
-                <ShoppingBag className="h-3.5 w-3.5" /> Outside Purchase
+                <ShoppingBag className="h-3.5 w-3.5" /> Customer Outside Purchase
               </Button>
             )}
             {onHistory && (
