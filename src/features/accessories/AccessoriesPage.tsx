@@ -1,7 +1,10 @@
-import { ShoppingCart, Trash2 } from "lucide-react";
+import { Minus, Plus, Search, ShoppingCart, Trash2 } from "lucide-react";
 import {
+  memo,
+  useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
@@ -12,6 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { EmptyState } from "@/components/ui/empty-state";
 import type { PaymentMethod } from "@/types/session";
 import { useBusinessDayStore } from "@/features/business-day/store/businessDayStore";
 import { useClubSettingsStore } from "@/features/settings/store/clubSettingsStore";
@@ -33,6 +37,12 @@ import {
 
 type CartItem = AccessoryItem & {
   quantity: number;
+};
+
+type StockAwareAccessory = AccessoryItem & {
+  trackStock?: boolean;
+  currentStock?: number;
+  stockUnit?: string;
 };
 
 type SelectedTarget =
@@ -79,9 +89,67 @@ function cleanAccessoryName(name: string) {
     : name;
 }
 
+function getStockLabel(item: AccessoryItem) {
+  const stockItem = item as StockAwareAccessory;
+  if (!stockItem.trackStock || typeof stockItem.currentStock !== "number") {
+    return "—";
+  }
+
+  return `${stockItem.currentStock.toLocaleString()} ${stockItem.stockUnit ?? "pcs"}`;
+}
+
+const AccessoryProductRow = memo(function AccessoryProductRow({
+  item,
+  highlighted,
+  alternate,
+  onAdd,
+}: {
+  item: AccessoryItem;
+  highlighted: boolean;
+  alternate: boolean;
+  onAdd: (item: AccessoryItem) => void;
+}) {
+  return (
+    <div
+      className={`grid min-h-12 min-w-[620px] grid-cols-[minmax(180px,1fr)_minmax(100px,150px)_110px_90px_44px] items-center gap-3 border-t border-slate-100 px-3 py-2 text-sm transition-colors hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/70 ${
+        highlighted
+          ? "bg-slate-100 dark:bg-slate-800"
+          : alternate
+            ? "bg-slate-50/60 dark:bg-slate-900/70"
+            : "bg-white dark:bg-slate-900"
+      }`}
+      aria-selected={highlighted}
+    >
+      <p className="truncate font-semibold text-slate-950 dark:text-slate-100" title={item.name}>
+        {item.name}
+      </p>
+      <p className="truncate text-slate-500 dark:text-slate-400" title={item.category}>
+        {item.category}
+      </p>
+      <p className="whitespace-nowrap text-right font-semibold tabular-nums text-emerald-700 dark:text-emerald-400">
+        Rs. {item.price.toLocaleString()}
+      </p>
+      <p className="whitespace-nowrap text-right text-xs text-slate-500 dark:text-slate-400">
+        {getStockLabel(item)}
+      </p>
+      <Button
+        type="button"
+        size="icon"
+        className="h-8 w-8 justify-self-end"
+        title={`Add ${item.name}`}
+        aria-label={`Add ${item.name}`}
+        onClick={() => onAdd(item)}
+      >
+        <Plus className="h-4 w-4" />
+      </Button>
+    </div>
+  );
+});
+
 function AccessoriesPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const items = useAccessoriesStore(
     (state) => state.items
   );
@@ -149,11 +217,14 @@ function AccessoriesPage() {
       : undefined;
 
   const filteredItems = useMemo(
-    () =>
-      items.filter((item) => {
-        const matchesSearch = item.name
-          .toLowerCase()
-          .includes(search.toLowerCase());
+    () => {
+      const query = search.trim().toLowerCase();
+      return items
+        .filter((item) => {
+        const matchesSearch =
+          !query ||
+          item.name.toLowerCase().includes(query) ||
+          item.category.toLowerCase().includes(query);
         const matchesCategory =
           category === "All" ||
           item.category === category;
@@ -163,7 +234,15 @@ function AccessoriesPage() {
           matchesSearch &&
           matchesCategory
         );
-      }),
+        })
+        .sort((left, right) => {
+          if (!query) return 0;
+          const leftNameMatch = left.name.toLowerCase().includes(query);
+          const rightNameMatch = right.name.toLowerCase().includes(query);
+          if (leftNameMatch === rightNameMatch) return 0;
+          return leftNameMatch ? -1 : 1;
+        });
+    },
     [items, search, category]
   );
 
@@ -381,7 +460,7 @@ function AccessoriesPage() {
     openCustomerBills,
   ]);
 
-  const addToCart = (item: AccessoryItem) => {
+  const addToCart = useCallback((item: AccessoryItem) => {
     setBillSaved(false);
     setCart((current) => {
       const existing = current.find(
@@ -407,6 +486,21 @@ function AccessoriesPage() {
         },
       ];
     });
+    setSearch("");
+    window.requestAnimationFrame(() => searchInputRef.current?.focus());
+  }, []);
+
+  const handleSearchKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setSearch("");
+      return;
+    }
+
+    if (event.key === "Enter" && filteredItems[0]) {
+      event.preventDefault();
+      addToCart(filteredItems[0]);
+    }
   };
 
   const changeQuantity = (
@@ -681,29 +775,67 @@ function AccessoriesPage() {
         </Card>
 
         <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
-          <section className="min-w-0 space-y-4">
-            <Card className="p-4">
-              <Input placeholder="Search accessories..." value={search} onChange={(event) => setSearch(event.target.value)} />
-              <div className="mt-3 flex flex-wrap gap-2">
+          <section className="min-w-0 space-y-3">
+            <Card className="p-3">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <Input
+                  ref={searchInputRef}
+                  autoFocus
+                  className="pl-9"
+                  placeholder="Search by accessory or category..."
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  onKeyDown={handleSearchKeyDown}
+                />
+              </div>
+              <div className="mt-3 flex flex-wrap gap-1.5">
                 {categories.map((item) => (
-                  <Button key={item} size="sm" variant={category === item ? "default" : "secondary"} onClick={() => setCategory(item)}>{item}</Button>
+                  <Button
+                    key={item}
+                    type="button"
+                    size="sm"
+                    variant={category === item ? "default" : "secondary"}
+                    className="h-8 rounded-full px-3 text-xs"
+                    onClick={() => {
+                      setCategory(item);
+                      window.requestAnimationFrame(() => searchInputRef.current?.focus());
+                    }}
+                  >
+                    {item}
+                  </Button>
                 ))}
               </div>
             </Card>
 
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {filteredItems.map((item) => (
-                <Card key={item.id} className="flex min-h-[164px] flex-col p-4">
-                  <p className="text-xs font-medium text-slate-500">{item.category}</p>
-                  <h2 className="mt-1 font-bold text-slate-950">{item.name}</h2>
-                  <p className="mt-2 text-lg font-bold text-emerald-700">Rs. {item.price.toLocaleString()}</p>
-                  <Button className="mt-auto w-full" onClick={() => addToCart(item)}>Add</Button>
-                </Card>
-              ))}
+            <Card className="overflow-hidden p-0">
+              <div className="overflow-x-auto">
+                <div className="grid min-w-[620px] grid-cols-[minmax(180px,1fr)_minmax(100px,150px)_110px_90px_44px] items-center gap-3 bg-slate-50 px-3 py-2 text-[11px] font-bold uppercase text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                  <span>Product</span>
+                  <span>Category</span>
+                  <span className="text-right">Price</span>
+                  <span className="text-right">Stock</span>
+                  <span className="sr-only">Add</span>
+                </div>
+                {filteredItems.map((item, index) => (
+                  <AccessoryProductRow
+                    key={item.id}
+                    item={item}
+                    highlighted={index === 0 && search.trim().length > 0}
+                    alternate={index % 2 === 1}
+                    onAdd={addToCart}
+                  />
+                ))}
+              </div>
               {filteredItems.length === 0 && (
-                <p className="col-span-full rounded-lg border bg-white px-4 py-8 text-center text-sm text-slate-500">No accessories match this search.</p>
+                <EmptyState
+                  compact
+                  icon={Search}
+                  title="No Accessories Found"
+                  description="Try another search or category."
+                />
               )}
-            </div>
+            </Card>
           </section>
 
           <aside className="lg:sticky lg:top-4">
@@ -719,18 +851,63 @@ function AccessoriesPage() {
                 </div>
               </div>
 
-              <div className="min-h-0 flex-1 space-y-3 overflow-y-auto py-3 pr-1">
+              <div className="min-h-0 flex-1 divide-y divide-slate-100 overflow-y-auto py-1 dark:divide-slate-800">
                 {cart.map((item) => (
-                  <div key={item.id} className="rounded-lg border p-3">
-                    <div className="flex justify-between gap-3">
-                      <div><p className="font-semibold">{item.name}</p><p className="text-xs text-slate-500">Rs. {item.price.toLocaleString()} each</p></div>
-                      <strong>Rs. {(item.price * item.quantity).toLocaleString()}</strong>
+                  <div
+                    key={item.id}
+                    className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-2.5"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-slate-950 dark:text-slate-100" title={item.name}>
+                        {item.name}
+                      </p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        Rs. {item.price.toLocaleString()} each
+                      </p>
                     </div>
-                    <div className="mt-3 flex items-center gap-2">
-                      <Button size="sm" variant="outline" onClick={() => changeQuantity(item.id, -1)}>-</Button>
-                      <span className="w-7 text-center font-bold">{item.quantity}</span>
-                      <Button size="sm" onClick={() => changeQuantity(item.id, 1)}>+</Button>
-                      <Button size="sm" variant="ghost" className="ml-auto gap-1 text-red-700" onClick={() => { setBillSaved(false); setCart((current) => current.filter((cartItem) => cartItem.id !== item.id)); }}><Trash2 className="h-3.5 w-3.5" /> Remove</Button>
+                    <p className="whitespace-nowrap text-right text-sm font-bold tabular-nums text-slate-950 dark:text-slate-100">
+                      Rs. {(item.price * item.quantity).toLocaleString()}
+                    </p>
+                    <div className="col-span-2 flex items-center gap-1.5">
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="outline"
+                        className="h-8 w-8"
+                        aria-label={`Decrease ${item.name} quantity`}
+                        onClick={() => changeQuantity(item.id, -1)}
+                      >
+                        <Minus className="h-3.5 w-3.5" />
+                      </Button>
+                      <span className="w-7 text-center text-sm font-bold tabular-nums">
+                        {item.quantity}
+                      </span>
+                      <Button
+                        type="button"
+                        size="icon"
+                        className="h-8 w-8"
+                        aria-label={`Increase ${item.name} quantity`}
+                        onClick={() => changeQuantity(item.id, 1)}
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="ml-auto h-8 w-8 text-red-700 hover:bg-red-50 hover:text-red-800"
+                        title={`Remove ${item.name}`}
+                        aria-label={`Remove ${item.name}`}
+                        onClick={() => {
+                          setBillSaved(false);
+                          setCart((current) =>
+                            current.filter((cartItem) => cartItem.id !== item.id),
+                          );
+                          window.requestAnimationFrame(() => searchInputRef.current?.focus());
+                        }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
                     </div>
                   </div>
                 ))}

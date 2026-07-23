@@ -1,6 +1,5 @@
-import { Building2, KeyRound, Pencil, RotateCcw, Save, ShieldCheck, Trash2, UserPlus } from "lucide-react";
-import { useEffect, useState } from "react";
-import { formatAppDate, formatAppTime } from "@/lib/dateTime";
+import { Building2, KeyRound, LoaderCircle, Pencil, RotateCcw, Save, ShieldCheck, Trash2, UserPlus } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -12,10 +11,12 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useToast } from "@/components/ui/toast";
 import type { PaymentMethod } from "@/types/session";
 import { useBusinessDayStore } from "@/features/business-day/store/businessDayStore";
 import { createPinSalt, hashAdminPin, validatePinFormat, verifyAdminPin } from "@/features/admin-mode/pinSecurity";
 import { useAdminModeStore } from "@/features/admin-mode/adminModeStore";
+import { ClubLogo, type LogoFitMode } from "@/features/settings/components/ClubLogo";
 
 import {
   DEFAULT_CLUB_SETTINGS,
@@ -24,6 +25,14 @@ import {
   type ClubSettings,
   type ClubOperator,
 } from "../store/clubSettingsStore";
+
+const LOGO_MAX_FILE_SIZE = 2 * 1024 * 1024;
+const LOGO_MAX_DIMENSION = 256;
+const SUPPORTED_LOGO_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+]);
 
 type FormState = Omit<
   ClubSettings,
@@ -71,6 +80,63 @@ function toSettings(form: FormState): ClubSettings {
   };
 }
 
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+        return;
+      }
+      reject(new Error("Could not read the selected logo."));
+    };
+    reader.onerror = () => reject(new Error("Could not read the selected logo."));
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadImage(dataUrl: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Could not load the selected logo."));
+    image.src = dataUrl;
+  });
+}
+
+async function processLogoFile(file: File) {
+  if (!SUPPORTED_LOGO_TYPES.has(file.type)) {
+    throw new Error("Logo must be a PNG, JPG, JPEG, or WebP image.");
+  }
+  if (file.size > LOGO_MAX_FILE_SIZE) {
+    throw new Error("Logo file must be 2 MB or smaller.");
+  }
+
+  const dataUrl = await readFileAsDataUrl(file);
+  const image = await loadImage(dataUrl);
+  const canvas = document.createElement("canvas");
+  canvas.width = LOGO_MAX_DIMENSION;
+  canvas.height = LOGO_MAX_DIMENSION;
+  const context = canvas.getContext("2d");
+  if (!context) {
+    throw new Error("Logo could not be prepared.");
+  }
+
+  context.clearRect(0, 0, LOGO_MAX_DIMENSION, LOGO_MAX_DIMENSION);
+  const scale = Math.min(
+    LOGO_MAX_DIMENSION / image.naturalWidth,
+    LOGO_MAX_DIMENSION / image.naturalHeight,
+    1,
+  );
+  const width = Math.max(1, Math.round(image.naturalWidth * scale));
+  const height = Math.max(1, Math.round(image.naturalHeight * scale));
+  const x = Math.round((LOGO_MAX_DIMENSION - width) / 2);
+  const y = Math.round((LOGO_MAX_DIMENSION - height) / 2);
+  context.drawImage(image, x, y, width, height);
+
+  return canvas.toDataURL(file.type === "image/jpeg" ? "image/jpeg" : "image/png", 0.9);
+}
+
 function ClubSettingsPage() {
   const settings = useClubSettingsStore((state) => state.settings);
   const updateSettings = useClubSettingsStore((state) => state.updateSettings);
@@ -79,7 +145,6 @@ function ClubSettingsPage() {
   );
   const [form, setForm] = useState(() => toForm(settings));
   const [errors, setErrors] = useState<string[]>([]);
-  const [message, setMessage] = useState("");
   const [resetOpen, setResetOpen] = useState(false);
   const [newOperatorName, setNewOperatorName] = useState("");
   const [editingOperatorId, setEditingOperatorId] = useState<string | null>(null);
@@ -88,6 +153,9 @@ function ClubSettingsPage() {
   const [newPin, setNewPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
   const [pinMessage, setPinMessage] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const logoInputRef = useRef<HTMLInputElement | null>(null);
+  const toast = useToast();
   const businessDays = useBusinessDayStore((state) => state.days);
   const enterAdminMode = useAdminModeStore((state) => state.enterAdminMode);
 
@@ -96,10 +164,17 @@ function ClubSettingsPage() {
   const update = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((current) => ({ ...current, [key]: value }));
     setErrors([]);
-    setMessage("");
   };
 
-  const save = () => {
+  const updateLogoSettings = (
+    logoSettings: Pick<ClubSettings, "customLogoDataUrl" | "customLogoFit">
+  ) => {
+    setForm((current) => ({ ...current, ...logoSettings }));
+    updateSettings({ ...settings, ...logoSettings });
+    setErrors([]);
+  };
+
+  const save = async () => {
     const numericFields = [
       form.singleGameRate,
       form.doubleGameRate,
@@ -117,13 +192,24 @@ function ClubSettingsPage() {
       setErrors(nextErrors);
       return;
     }
-    updateSettings(next);
-    if (!settings.adminPinHash && next.adminPinHash) {
-      enterAdminMode();
+    setIsSaving(true);
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+    try {
+      updateSettings(next);
+      if (!settings.adminPinHash && next.adminPinHash) {
+        enterAdminMode();
+      }
+      setForm(toForm(next));
+      setErrors([]);
+      toast.success({
+        title: "Settings Saved",
+        description: "Club settings have been updated successfully.",
+      });
+    } catch {
+      toast.error({ title: "Unable to Save", description: "Please try again." });
+    } finally {
+      setIsSaving(false);
     }
-    setForm(toForm(next));
-    setErrors([]);
-    setMessage("Club settings saved successfully.");
   };
 
   const reset = () => {
@@ -138,7 +224,10 @@ function ClubSettingsPage() {
     );
     setResetOpen(false);
     setErrors([]);
-    setMessage("Club settings reset to defaults.");
+    toast.success({
+      title: "Settings Restored",
+      description: "Club settings were reset to their defaults.",
+    });
   };
 
   const operatorNameExists = (name: string, exceptId?: string) => {
@@ -180,6 +269,10 @@ function ClubSettingsPage() {
       },
     ]);
     setNewOperatorName("");
+    toast.info({
+      title: "Operator Added",
+      description: `${name} will be available after Save Settings.`,
+    });
   };
 
   const saveOperatorName = (operatorId: string) => {
@@ -229,6 +322,57 @@ function ClubSettingsPage() {
       "operators",
       form.operators.filter((item) => item.id !== operator.id)
     );
+    toast.success({
+      title: "Operator Removed",
+      description: `${operator.name} will be removed after Save Settings.`,
+    });
+  };
+
+  const handleLogoUpload = async (file?: File) => {
+    if (!file) return;
+    try {
+      const customLogoDataUrl = await processLogoFile(file);
+      updateLogoSettings({
+        customLogoDataUrl,
+        customLogoFit: form.customLogoFit ?? "contain",
+      });
+      toast.success({
+        title: "Logo Uploaded",
+        description: "The club logo has been updated.",
+      });
+    } catch (error) {
+      toast.error({
+        title: "Unable to Upload Logo",
+        description:
+          error instanceof Error ? error.message : "Please try again.",
+      });
+    } finally {
+      if (logoInputRef.current) {
+        logoInputRef.current.value = "";
+      }
+    }
+  };
+
+  const removeLogo = () => {
+    updateLogoSettings({
+      customLogoDataUrl: undefined,
+      customLogoFit: form.customLogoFit ?? "contain",
+    });
+    toast.info({
+      title: "Default Logo Restored",
+      description: "The custom club logo has been removed.",
+    });
+  };
+
+  const updateLogoFit = (customLogoFit: LogoFitMode) => {
+    updateLogoSettings({
+      customLogoDataUrl: form.customLogoDataUrl,
+      customLogoFit,
+    });
+    toast.info({
+      title: "Logo Fit Updated",
+      description: `Logo fit is now ${customLogoFit}.`,
+    });
   };
 
   const prepareAdminPin = async () => {
@@ -299,7 +443,6 @@ function ClubSettingsPage() {
           </div>
         </header>
 
-        {message && <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">{message}</p>}
         {errors.length > 0 && (
           <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
             {errors.map((error) => <p key={error}>{error}</p>)}
@@ -312,32 +455,87 @@ function ClubSettingsPage() {
             <div className="mt-4 grid gap-4">
               <div className="space-y-1.5"><Label htmlFor="clubName">Club Name</Label><Input id="clubName" value={form.clubName} onChange={(event) => update("clubName", event.target.value)} /></div>
               <div className="space-y-1.5"><Label htmlFor="tagline">Header Subtitle</Label><Input id="tagline" value={form.tagline} onChange={(event) => update("tagline", event.target.value)} /></div>
+              <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900">
+                <Label>Club Logo</Label>
+                <div className="flex min-h-24 items-center gap-4 overflow-hidden rounded-lg border border-slate-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-950 sm:gap-5">
+                  <ClubLogo
+                    alt="Club logo preview"
+                    fit={form.customLogoFit ?? "contain"}
+                    size="preview"
+                    src={form.customLogoDataUrl}
+                  />
+                  <div className="min-w-0">
+                    <p className="truncate text-xl font-extrabold leading-tight text-slate-900 dark:text-slate-100">
+                      {form.clubName || "Snooker Arena"}
+                    </p>
+                    <p className="mt-1 truncate text-xs font-medium text-slate-500 dark:text-slate-400">
+                      {form.tagline || "Club Management System"}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="min-w-0 space-y-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="customLogoFit">Logo Fit</Label>
+                      <select
+                        id="customLogoFit"
+                        className="h-9 w-full rounded-lg border border-input bg-white px-3 text-sm"
+                        value={form.customLogoFit ?? "contain"}
+                        onChange={(event) =>
+                          updateLogoFit(event.target.value as LogoFitMode)
+                        }
+                      >
+                        <option value="contain">Contain (Recommended)</option>
+                        <option value="cover">Cover</option>
+                        <option value="fill">Fill</option>
+                      </select>
+                    </div>
+
+                    <input
+                      ref={logoInputRef}
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      className="hidden"
+                      onChange={(event) =>
+                        void handleLogoUpload(event.target.files?.[0])
+                      }
+                    />
+
+                    <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                      <Button
+                        type="button"
+                        className="bg-slate-950 text-white hover:bg-slate-800"
+                        onClick={() => logoInputRef.current?.click()}
+                      >
+                        Upload Logo
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={removeLogo}
+                        disabled={!form.customLogoDataUrl}
+                      >
+                        Restore Default
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
+                        onClick={removeLogo}
+                        disabled={!form.customLogoDataUrl}
+                      >
+                        Remove Logo
+                      </Button>
+                    </div>
+
+                  <p className="text-xs leading-5 text-slate-500">
+                    For the best result, upload a transparent PNG or WebP logo. JPG and JPEG are also supported. Maximum size: 2 MB.
+                  </p>
+                </div>
+              </div>
               <div className="space-y-1.5"><Label htmlFor="phone">Phone Number</Label><Input id="phone" value={form.phone} onChange={(event) => update("phone", event.target.value)} /></div>
               <div className="space-y-1.5"><Label htmlFor="address">Address</Label><Input id="address" value={form.address} onChange={(event) => update("address", event.target.value)} /></div>
               <div className="space-y-1.5"><Label htmlFor="currency">Currency</Label><Input id="currency" value="PKR" disabled /></div>
-            </div>
-          </Card>
-
-          <Card className="p-5">
-            <h2 className="font-bold text-slate-950">Display Format</h2>
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="timeFormat">Time Format</Label>
-                <select id="timeFormat" className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm" value={form.timeFormat} onChange={(event) => update("timeFormat", event.target.value as ClubSettings["timeFormat"])}>
-                  <option value="12-hour">12-hour - example: 7:30 PM</option>
-                  <option value="24-hour">24-hour - example: 19:30</option>
-                </select>
-                <p className="text-xs text-slate-500">Current time: {formatAppTime(new Date(), form.timeFormat)}</p>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="dateFormat">Date Format</Label>
-                <select id="dateFormat" className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm" value={form.dateFormat} onChange={(event) => update("dateFormat", event.target.value as ClubSettings["dateFormat"])}>
-                  <option value="DD/MM/YYYY">DD/MM/YYYY - example: 21/07/2026</option>
-                  <option value="MM/DD/YYYY">MM/DD/YYYY - example: 07/21/2026</option>
-                  <option value="YYYY-MM-DD">YYYY-MM-DD - example: 2026-07-21</option>
-                </select>
-                <p className="text-xs text-slate-500">Current date: {formatAppDate(new Date(), form.dateFormat)}</p>
-              </div>
             </div>
           </Card>
 
@@ -525,9 +723,20 @@ function ClubSettingsPage() {
           </div>
         </Card>
 
-        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
           <Button variant="outline" className="gap-2 text-red-700" onClick={() => setResetOpen(true)}><RotateCcw className="h-4 w-4" /> Reset to Defaults</Button>
-          <Button className="gap-2 bg-slate-950 text-white hover:bg-slate-800" onClick={save}><Save className="h-4 w-4" /> Save Settings</Button>
+          <Button
+            className="gap-2 bg-slate-950 text-white hover:bg-slate-800"
+            disabled={isSaving}
+            onClick={() => void save()}
+          >
+            {isSaving ? (
+              <LoaderCircle className="h-4 w-4 animate-spin" />
+            ) : (
+              <Save className="h-4 w-4" />
+            )}
+            {isSaving ? "Saving..." : "Save Settings"}
+          </Button>
         </div>
       </div>
 

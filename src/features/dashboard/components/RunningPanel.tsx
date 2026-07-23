@@ -29,6 +29,7 @@ interface Props {
   onOutsidePurchase?: () => void;
   onCancelSession?: () => void;
   onEndSession: () => void;
+  onMoreOpenChange?: (open: boolean) => void;
 }
 
 function RunningPanel({
@@ -45,6 +46,7 @@ function RunningPanel({
   onOutsidePurchase,
   onCancelSession,
   onEndSession,
+  onMoreOpenChange,
 }: Props) {
   const [moreOpen, setMoreOpen] = useState(false);
   return (
@@ -62,7 +64,10 @@ function RunningPanel({
         <Button
           className="h-9 gap-1.5"
           title={isPaused ? "Resume" : onAddCharge ? "Add Frame - A" : "Pause"}
-          onClick={isPaused || !onAddCharge ? onPause : onAddCharge}
+          onClick={(event) => {
+            event.stopPropagation();
+            (isPaused || !onAddCharge ? onPause : onAddCharge)?.();
+          }}
         >
           {isPaused ? (
             <Play className="h-4 w-4" />
@@ -78,7 +83,10 @@ function RunningPanel({
           variant="destructive"
           className="h-9 gap-1.5"
           title="End Session - E"
-          onClick={onEndSession}
+          onClick={(event) => {
+            event.stopPropagation();
+            onEndSession();
+          }}
         >
           <Square className="h-4 w-4" />
           End Session
@@ -91,7 +99,10 @@ function RunningPanel({
             variant="outline"
             size="sm"
             className="h-8 gap-1 px-2 text-xs"
-            onClick={onPause}
+            onClick={(event) => {
+              event.stopPropagation();
+              onPause?.();
+            }}
           >
             <Pause className="h-3.5 w-3.5" />
             Pause
@@ -102,7 +113,10 @@ function RunningPanel({
             variant="outline"
             size="sm"
             className="h-8 gap-1 px-2 text-xs"
-            onClick={onAddCharge}
+            onClick={(event) => {
+              event.stopPropagation();
+              onAddCharge();
+            }}
           >
             <Plus className="h-3.5 w-3.5" />
             Add Frame
@@ -112,7 +126,10 @@ function RunningPanel({
           variant="outline"
           size="sm"
           className="h-8 gap-1 px-2 text-xs"
-          onClick={onEdit}
+          onClick={(event) => {
+            event.stopPropagation();
+            onEdit?.();
+          }}
         >
           <Pencil className="h-3.5 w-3.5" />
           Edit
@@ -131,14 +148,14 @@ function RunningPanel({
         <Button
           variant="outline"
           className="h-11 w-full gap-2 border-emerald-200 bg-emerald-50 text-sm font-semibold text-emerald-800 hover:border-emerald-300 hover:bg-emerald-100"
-          title="Cafe - C"
+          title="Canteen - C"
           onClick={(event) => {
             event.stopPropagation();
             onCafe();
           }}
         >
           <Coffee className="h-4 w-4" />
-          Cafe
+          Canteen
         </Button>
       )}
 
@@ -149,7 +166,11 @@ function RunningPanel({
           className="h-8 w-full gap-1.5 text-xs"
           onClick={(event) => {
             event.stopPropagation();
-            setMoreOpen((value) => !value);
+            setMoreOpen((value) => {
+              const nextValue = !value;
+              onMoreOpenChange?.(nextValue);
+              return nextValue;
+            });
           }}
         >
           <MoreHorizontal className="h-3.5 w-3.5" />
@@ -161,6 +182,7 @@ function RunningPanel({
               <Button variant="outline" size="sm" className="h-8 gap-1 px-2 text-xs" onClick={(event) => {
                 event.stopPropagation();
                 setMoreOpen(false);
+                onMoreOpenChange?.(false);
                 onOutsidePurchase();
               }}>
                 <ShoppingBag className="h-3.5 w-3.5" /> Customer Outside Purchase
@@ -169,6 +191,8 @@ function RunningPanel({
             {onHistory && (
           <Button variant="outline" size="sm" className="h-8 gap-1 px-2 text-xs" onClick={(event) => {
             event.stopPropagation();
+            setMoreOpen(false);
+            onMoreOpenChange?.(false);
             onHistory();
           }}>
             <History className="h-3.5 w-3.5" /> History
@@ -178,7 +202,12 @@ function RunningPanel({
           variant="outline"
           size="sm"
           className="h-8 gap-1 border-amber-200 bg-amber-50 px-2 text-xs text-amber-800 hover:bg-amber-100"
-          onClick={onCancelSession}
+          onClick={(event) => {
+            event.stopPropagation();
+            setMoreOpen(false);
+            onMoreOpenChange?.(false);
+            onCancelSession?.();
+          }}
         >
           <Trash2 className="h-3.5 w-3.5" />
           Cancel Session

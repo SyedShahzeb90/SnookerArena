@@ -10,7 +10,7 @@ function TableStatusBadge({ status }: Props) {
     available:
       "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 hover:bg-emerald-50",
     running:
-      "bg-red-50 text-red-700 ring-1 ring-red-200 hover:bg-red-50",
+      "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 hover:bg-emerald-50",
     paused:
       "bg-amber-50 text-amber-700 ring-1 ring-amber-200 hover:bg-amber-50",
     "payment-pending":

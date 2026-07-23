@@ -12,6 +12,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { useToast } from "@/components/ui/toast";
 import { useCheckoutStore } from "@/features/billing/store/checkoutStore";
 import { useExpensesStore } from "@/features/expenses/store/expensesStore";
 import { useSalesStore } from "@/features/sales/store/salesStore";
@@ -34,6 +35,7 @@ function dateTime(value: string) {
 function BusinessDayCard() {
   useAppDateTimeFormats();
   const navigate = useNavigate();
+  const toast = useToast();
   const activeDay =
     useBusinessDayStore((state) =>
       state.getActiveBusinessDay()
@@ -63,9 +65,6 @@ function BusinessDayCard() {
     (state) => state.purchases
   );
   const vendorRestockingRecords = useCafeStore((state) => state.vendorRestockingRecords);
-  const message = useBusinessDayStore(
-    (state) => state.message
-  );
   const operators = useClubSettingsStore(
     (state) => state.settings.operators
   );
@@ -161,6 +160,11 @@ function BusinessDayCard() {
 
     if (day) {
       setStartOpen(false);
+      toast.info({
+        title: "Business Day Started",
+        description: `Operator: ${selectedOperator.name}`,
+      });
+      navigate("/operator/tables-rooms");
     } else {
       setError(
         "A business day is already active."
@@ -210,7 +214,7 @@ function BusinessDayCard() {
 
     if (!confirmed) return;
 
-    closeBusinessDay({
+    const closedDay = closeBusinessDay({
       actualCashCounted: parsedActual,
       cashLeftForStaff: parsedLeft,
       closedBy: closedBy.trim(),
@@ -218,6 +222,13 @@ function BusinessDayCard() {
       summary,
     });
     setEndOpen(false);
+    if (closedDay) {
+      toast.success({
+        title: "Business Day Closed",
+        description: `Closed by ${closedBy.trim()}.`,
+      });
+      navigate("/operator/business-day");
+    }
   };
 
   const openEnd = () => {
@@ -247,11 +258,6 @@ function BusinessDayCard() {
               <h2 className="mt-1 text-2xl font-bold text-slate-950">
                 No active business day
               </h2>
-              {message && (
-                <p className="mt-2 text-sm font-medium text-emerald-700">
-                  {message}
-                </p>
-              )}
             </div>
 
             <div className="flex flex-wrap gap-2">

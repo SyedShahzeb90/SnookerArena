@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Search } from "lucide-react";
 
 import type {
   MenuItem,
@@ -7,6 +8,7 @@ import type {
 
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 
 import MenuCard from "./MenuCard";
 import OrderSummary from "./OrderSummary";
@@ -124,7 +126,12 @@ function MenuGrid({
         {filteredMenu.length === 0 && (
           <div className="rounded-lg border border-dashed border-slate-200 px-4 py-6 text-center">
             <p className="text-sm font-semibold text-slate-700">
-              No products found
+              <EmptyState
+                compact
+                icon={Search}
+                title="No Products Found"
+                description="Try another search or category."
+              />
             </p>
             <p className="mt-1 text-xs text-slate-500">
               Try another category or search term.

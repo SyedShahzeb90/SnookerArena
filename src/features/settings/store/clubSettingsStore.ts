@@ -11,9 +11,16 @@ export interface ClubOperator {
   updatedAt?: string;
 }
 
+export type RunningCardView = "full" | "compact-expand";
+
 export interface ClubSettings {
   clubName: string;
   tagline: string;
+  customLogoDataUrl?: string;
+  customLogoFit: "contain" | "cover" | "fill";
+  interfaceScale: 80 | 90 | 100 | 110 | 120;
+  displayDensity: "comfortable" | "compact" | "touch";
+  runningTableCardView: RunningCardView;
   timeFormat: "12-hour" | "24-hour";
   dateFormat: "DD/MM/YYYY" | "MM/DD/YYYY" | "YYYY-MM-DD";
   phone: string;
@@ -35,6 +42,11 @@ export interface ClubSettings {
 export const DEFAULT_CLUB_SETTINGS: ClubSettings = {
   clubName: "Snooker Arena",
   tagline: "Club Management System",
+  customLogoDataUrl: undefined,
+  customLogoFit: "contain",
+  interfaceScale: 100,
+  displayDensity: "comfortable",
+  runningTableCardView: "compact-expand",
   timeFormat: "12-hour",
   dateFormat: "DD/MM/YYYY",
   phone: "",
@@ -64,6 +76,18 @@ export function validateClubSettings(input: ClubSettings): string[] {
   const errors: string[] = [];
   if (!input.clubName.trim()) errors.push("Club name is required.");
   if (!input.tagline.trim()) errors.push("Header subtitle is required.");
+  if (![80, 90, 100, 110, 120].includes(input.interfaceScale)) {
+    errors.push("Select a supported interface scale.");
+  }
+  if (!["comfortable", "compact", "touch"].includes(input.displayDensity)) {
+    errors.push("Select a supported display density.");
+  }
+  if (!["full", "compact-expand"].includes(input.runningTableCardView)) {
+    errors.push("Select a supported running table card view.");
+  }
+  if (!["contain", "cover", "fill"].includes(input.customLogoFit)) {
+    errors.push("Select a supported logo fit mode.");
+  }
   if (!["12-hour", "24-hour"].includes(input.timeFormat)) {
     errors.push("Select a supported time format.");
   }

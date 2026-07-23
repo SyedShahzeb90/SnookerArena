@@ -30,25 +30,27 @@ function BusinessSummaryCards() {
   );
   const todayProfit =
     totals.revenue - todayExpenses;
+  const money = (value: number) =>
+    `Rs. ${Math.round(value).toLocaleString()}`;
 
   const cards = [
     {
       label: "Today's Revenue",
-      value: `Rs. ${totals.revenue}`,
+      value: money(totals.revenue),
       icon: TrendingUp,
       tone: "text-emerald-700",
       bg: "bg-emerald-50",
     },
     {
       label: "Today's Table Sales",
-      value: `Rs. ${totals.tableRevenue}`,
+      value: money(totals.tableRevenue),
       icon: Banknote,
       tone: "text-slate-700",
       bg: "bg-slate-100",
     },
     {
-      label: "Today's Cafe Sales",
-      value: `Rs. ${totals.cafeRevenue}`,
+      label: "Today's Canteen Sales",
+      value: money(totals.cafeRevenue),
       icon: Coffee,
       tone: "text-amber-700",
       bg: "bg-amber-50",
@@ -62,7 +64,7 @@ function BusinessSummaryCards() {
     },
     {
       label: "Today's Expenses",
-      value: `Rs. ${todayExpenses}`,
+      value: money(todayExpenses),
       icon: TrendingDown,
       tone: "text-red-700",
       bg: "bg-red-50",
@@ -72,7 +74,7 @@ function BusinessSummaryCards() {
         todayProfit < 0
           ? "Today's Loss"
           : "Today's Profit",
-      value: `Rs. ${Math.abs(todayProfit)}`,
+      value: money(Math.abs(todayProfit)),
       icon:
         todayProfit < 0
           ? TrendingDown
@@ -89,7 +91,7 @@ function BusinessSummaryCards() {
   ];
 
   return (
-    <section className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3 xl:grid-cols-6">
+    <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
       {cards.map((card) => {
         const Icon = card.icon;
 

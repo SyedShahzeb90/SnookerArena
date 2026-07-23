@@ -1,11 +1,13 @@
 import {
   Coffee,
   CalendarClock,
+  LayoutGrid,
   Menu,
   Moon,
   Package,
   ReceiptText,
   Settings,
+  SlidersHorizontal,
   Sun,
   Trophy,
   WalletCards,
@@ -14,7 +16,7 @@ import {
   UserRound,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Outlet,
   useLocation,
@@ -49,6 +51,10 @@ import { useAdminModeStore } from "@/features/admin-mode/adminModeStore";
 import type { AppPermission } from "@/features/admin-mode/permissions";
 import AdminModeDialog from "@/features/admin-mode/AdminModeDialog";
 import { useClubSettingsStore } from "@/features/settings/store/clubSettingsStore";
+import {
+  INTERFACE_SCALE_OPTIONS,
+  type InterfaceScale,
+} from "@/features/settings/interfaceScale";
 import { useBusinessDayStore } from "@/features/business-day/store/businessDayStore";
 
 interface NavigationItem {
@@ -73,12 +79,28 @@ const navigationGroups: NavigationGroup[] = [
     items: [
       {
         label: "Business Day",
-        path: "/operator",
+        path: "/operator/business-day",
         icon: CalendarClock,
         exact: true,
       },
+      {
+        label: "Tables & Rooms",
+        path: "/operator/tables-rooms",
+        icon: LayoutGrid,
+        exact: true,
+      },
+    ],
+  },
+  {
+    label: "Sales",
+    items: [
       { label: "Canteen POS", path: "/operator/cafe", icon: Coffee },
       { label: "Accessories POS", path: "/operator/accessories", icon: Package },
+    ],
+  },
+  {
+    label: "Billing",
+    items: [
       { label: "Customer Bills", path: "/operator/customer-bills", icon: ReceiptText },
       { label: "Collect Payment", path: "/operator/billing", icon: CreditCard, badge: "collect-payment" },
       { label: "Credit Ledger", path: "/operator/credit-ledger", icon: WalletCards, exact: true, badge: "credit-ledger" },
@@ -88,6 +110,13 @@ const navigationGroups: NavigationGroup[] = [
   {
     label: "Management",
     items: [
+      {
+        label: "General Settings",
+        path: "/operator/general-settings",
+        icon: SlidersHorizontal,
+        exact: true,
+        permission: "manage_settings",
+      },
       { label: "Admin Dashboard", path: "/admin", icon: Settings, exact: true, permission: "view_management_reports" },
     ],
   },
@@ -97,7 +126,6 @@ const managementPaths = [
   "/admin",
   "/operator/expenses",
   "/operator/table-history",
-  "/operator/day-history",
   "/operator/club-settings",
   "/operator/backup-restore",
 ];
@@ -202,6 +230,8 @@ function SidebarNavigation({ onSelect }: { onSelect?: () => void }) {
                       ? location.pathname.startsWith("/admin")
                       : location.pathname.startsWith(path)
                   )
+                : item.path === "/operator/business-day"
+                  ? location.pathname === item.path || location.pathname === "/operator/day-history"
                 : item.hash
                 ? location.pathname === item.path && location.hash === item.hash
                 : item.exact
@@ -263,6 +293,62 @@ function SidebarNavigation({ onSelect }: { onSelect?: () => void }) {
   );
 }
 
+function SidebarInterfaceScaleControl() {
+  const settings = useClubSettingsStore((state) => state.settings);
+  const updateSettings = useClubSettingsStore((state) => state.updateSettings);
+  const currentIndex = INTERFACE_SCALE_OPTIONS.indexOf(
+    settings.interfaceScale as InterfaceScale,
+  );
+  const safeIndex = currentIndex >= 0
+    ? currentIndex
+    : INTERFACE_SCALE_OPTIONS.indexOf(100);
+  const currentScale = INTERFACE_SCALE_OPTIONS[safeIndex];
+  const decreaseDisabled = safeIndex <= 0;
+  const increaseDisabled = safeIndex >= INTERFACE_SCALE_OPTIONS.length - 1;
+  const setScale = (scale: InterfaceScale) => {
+    updateSettings({ ...settings, interfaceScale: scale });
+  };
+
+  return (
+    <div className="mb-1 rounded-md px-2.5 py-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="min-w-0 text-xs font-semibold text-slate-600">
+          Interface Scale
+        </span>
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 text-sm font-bold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+            aria-label="Decrease interface scale"
+            disabled={decreaseDisabled}
+            onClick={() => setScale(INTERFACE_SCALE_OPTIONS[safeIndex - 1])}
+          >
+            -
+          </button>
+          <button
+            type="button"
+            className="h-7 min-w-12 rounded-md border border-slate-200 px-2 text-xs font-bold text-slate-800 transition hover:bg-slate-100"
+            title="Reset to 100%"
+            aria-label="Reset interface scale to 100%"
+            onClick={() => setScale(100)}
+          >
+            {currentScale}%
+          </button>
+          <button
+            type="button"
+            className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 text-sm font-bold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+            aria-label="Increase interface scale"
+            disabled={increaseDisabled}
+            onClick={() => setScale(INTERFACE_SCALE_OPTIONS[safeIndex + 1])}
+          >
+            +
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SidebarContent({ onSelect }: { onSelect?: () => void }) {
   const { resolvedTheme, toggleTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
@@ -276,13 +362,13 @@ function SidebarContent({ onSelect }: { onSelect?: () => void }) {
   );
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden [scrollbar-color:#cbd5e1_transparent] [scrollbar-width:thin]">
+    <div className="grid h-full min-h-0 grid-rows-[minmax(0,1fr)_auto]">
+      <div className="min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain [scrollbar-color:#cbd5e1_transparent] [scrollbar-width:thin]">
         <SidebarNavigation onSelect={onSelect} />
       </div>
-      <div className="shrink-0 border-t border-slate-200 px-3 py-2.5">
+      <footer className="relative z-10 border-t border-slate-200 bg-white px-3 py-2 dark:border-slate-800 dark:bg-slate-950">
         {activeOperator && (
-          <div className="mb-2 rounded-md bg-slate-50 px-2.5 py-1.5">
+          <div className="mb-1.5 rounded-md bg-slate-50 px-2.5 py-1.5">
             <p className="flex items-center gap-2 text-[11px] font-medium text-slate-500">
               <UserRound className="h-3.5 w-3.5 shrink-0" /> Active operator
             </p>
@@ -326,6 +412,7 @@ function SidebarContent({ onSelect }: { onSelect?: () => void }) {
             <span>Enter Admin Mode</span>
           </Button>
         )}
+        <SidebarInterfaceScaleControl />
         <Button
           type="button"
           variant="ghost"
@@ -341,19 +428,31 @@ function SidebarContent({ onSelect }: { onSelect?: () => void }) {
           )}
           <span>{isDark ? "Light Mode" : "Dark Mode"}</span>
         </Button>
-      </div>
+      </footer>
     </div>
   );
 }
 
 function OperatorShell() {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const location = useLocation();
+  const mainContentRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (location.hash) return;
+
+    mainContentRef.current?.scrollTo({
+      top: 0,
+      left: 0,
+      behavior: "auto",
+    });
+  }, [location.pathname, location.search]);
 
   return (
-    <div className="min-h-screen bg-slate-100">
+    <div className="flex h-dvh min-h-0 flex-col overflow-hidden bg-slate-100">
       <DashboardHeader />
 
-      <div className="border-b bg-white px-4 py-2 lg:hidden">
+      <div className="shrink-0 border-b bg-white px-4 py-2 lg:hidden">
         <Button
           variant="outline"
           className="h-9 gap-2"
@@ -364,12 +463,15 @@ function OperatorShell() {
         </Button>
       </div>
 
-      <div className="flex min-w-0 items-start">
-        <aside className="sticky top-0 hidden h-[calc(100vh-89px)] w-[224px] shrink-0 border-r border-slate-200 bg-white lg:block">
+      <div className="flex min-h-0 min-w-0 flex-1 items-stretch overflow-hidden">
+        <aside className="hidden min-h-0 w-[224px] shrink-0 border-r border-slate-200 bg-white lg:block">
           <SidebarContent />
         </aside>
 
-        <div className="min-w-0 flex-1">
+        <div
+          ref={mainContentRef}
+          className="min-w-0 flex-1 overflow-y-auto overscroll-contain"
+        >
           <Outlet />
         </div>
       </div>

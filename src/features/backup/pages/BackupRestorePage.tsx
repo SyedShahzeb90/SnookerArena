@@ -12,6 +12,7 @@ import { useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { useToast } from "@/components/ui/toast";
 import {
   Dialog,
   DialogContent,
@@ -45,6 +46,7 @@ function formatDate(value: string) {
 
 function BackupRestorePage() {
   useAppDateTimeFormats();
+  const toast = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const tables = useTableStore((state) => state.tables);
   const customerAccounts = useCustomerAccountStore((state) => state.accounts);
@@ -62,7 +64,6 @@ function BackupRestorePage() {
   const [isExporting, setIsExporting] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
   const [restoreComplete, setRestoreComplete] = useState(false);
-  const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
   const applicationCounts = useMemo(
@@ -95,14 +96,22 @@ function BackupRestorePage() {
   const handleExport = async () => {
     setIsExporting(true);
     setError("");
-    setMessage("");
     try {
       const backup = await exportApplicationBackup();
       downloadApplicationBackup(backup);
       setLastExportedAt(backup.exportedAt);
-      setMessage("Backup downloaded successfully.");
+      toast.success({
+        title: "Backup Completed",
+        description: "Application backup downloaded successfully.",
+      });
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "The backup could not be exported.");
+      toast.error({
+        title: "Backup Failed",
+        description:
+          caught instanceof Error
+            ? caught.message
+            : "The backup could not be exported.",
+      });
     } finally {
       setIsExporting(false);
     }
@@ -110,7 +119,6 @@ function BackupRestorePage() {
 
   const handleFile = async (file?: File) => {
     setError("");
-    setMessage("");
     setSelectedBackup(null);
     if (!file) return;
     if (!file.name.toLowerCase().endsWith(".json")) {
@@ -141,9 +149,18 @@ function BackupRestorePage() {
       useAdminModeStore.getState().exitAdminMode("Admin Mode was locked after backup restore.");
       setSelectedBackup(null);
       setRestoreComplete(true);
+      toast.success({
+        title: "Backup Restored",
+        description: "Application data was restored successfully.",
+      });
     } catch (caught) {
       setSelectedBackup(null);
-      setError(caught instanceof Error ? caught.message : "Restore failed. Current data was recovered.");
+      const description =
+        caught instanceof Error
+          ? caught.message
+          : "Restore failed. Current data was recovered.";
+      setError(description);
+      toast.error({ title: "Unable to Restore", description });
     } finally {
       setIsRestoring(false);
     }
@@ -164,7 +181,6 @@ function BackupRestorePage() {
           </div>
         </header>
 
-        {message && <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">{message}</p>}
         {error && <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800">{error}</p>}
 
         <div className="grid gap-4 lg:grid-cols-2">

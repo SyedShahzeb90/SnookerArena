@@ -8,6 +8,7 @@ import StartSessionDialog from "./StartSessionDialog";
 import BillingDialog from "@/features/billing/components/BillingDialog";
 
 import { useTableStore } from "@/store/tableStore";
+import { useClubSettingsStore } from "@/features/settings/store/clubSettingsStore";
 
 import type { PaymentMethod } from "@/types/session";
 import type { Table } from "@/types/table";
@@ -15,6 +16,9 @@ import type { Table } from "@/types/table";
 function TableGrid() {
   const navigate = useNavigate();
   const tables = useTableStore((state) => state.tables);
+  const runningTableCardView = useClubSettingsStore(
+    (state) => state.settings.runningTableCardView
+  );
   const standardTables = tables.filter(
     (table) => table.type === "table"
   );
@@ -51,6 +55,8 @@ function TableGrid() {
   const [activeDialog, setActiveDialog] = useState<
     "start-session" | "billing" | null
   >(null);
+  const [expandedTableId, setExpandedTableId] =
+    useState<number | null>(null);
   const cardRefs = useRef(
     new Map<number, TableCardHandle>()
   );
@@ -75,6 +81,10 @@ function TableGrid() {
   const closeDialog = () => {
     setActiveDialog(null);
   };
+
+  useEffect(() => {
+    setExpandedTableId(null);
+  }, [runningTableCardView]);
 
   useEffect(() => {
     if (
@@ -248,7 +258,7 @@ function TableGrid() {
           </div>
 
           {section.items.length > 0 ? (
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <div className="grid grid-cols-1 items-start gap-x-4 gap-y-5 md:grid-cols-2 xl:grid-cols-3">
               {section.items.map((table) => (
                 <TableCard
                   key={table.id}
@@ -260,6 +270,16 @@ function TableGrid() {
                     }
                   }}
                   table={table}
+                  isDetailsExpanded={expandedTableId === table.id}
+                  onDetailsExpandedChange={(expanded) => {
+                    setExpandedTableId((current) =>
+                      expanded
+                        ? table.id
+                        : current === table.id
+                          ? null
+                          : current
+                    );
+                  }}
                   onClick={() => handleTableClick(table)}
                   onHistoryClick={() =>
                     navigate(

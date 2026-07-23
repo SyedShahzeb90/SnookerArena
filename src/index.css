@@ -157,6 +157,51 @@
 }
 
 @layer utilities {
+  [data-display-density="compact"] .p-4 { padding: 0.75rem; }
+  [data-display-density="compact"] .p-5 { padding: 1rem; }
+  [data-display-density="compact"] .py-3 { padding-top: 0.625rem; padding-bottom: 0.625rem; }
+  [data-display-density="compact"] .gap-4 { gap: 0.75rem; }
+  [data-display-density="touch"] button,
+  [data-display-density="touch"] select,
+  [data-display-density="touch"] input { min-height: 2.75rem; }
+  [data-display-density="touch"] .py-3 { padding-top: 0.875rem; padding-bottom: 0.875rem; }
+  [data-display-density="touch"] .gap-2 { gap: 0.75rem; }
+  .motion-fade-in {
+    animation: motion-fade-in 220ms ease-out both;
+  }
+
+  .motion-menu-in {
+    animation: motion-menu-in 180ms ease-out both;
+  }
+
+  .motion-dialog-in {
+    animation: motion-dialog-in 240ms ease-out both;
+  }
+
+  .motion-row-in {
+    animation: motion-row-in 180ms ease-out both;
+  }
+
+  @keyframes motion-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @keyframes motion-menu-in {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes motion-dialog-in {
+    from { opacity: 0; transform: scale(0.98); }
+    to { opacity: 1; transform: scale(1); }
+  }
+
+  @keyframes motion-row-in {
+    from { opacity: 0; transform: translateY(3px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
   .dark .bg-white {
     background-color: oklch(0.205 0.015 255) !important;
   }
@@ -311,8 +356,14 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  body {
+  body,
+  *,
+  *::before,
+  *::after {
     transition: none;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
   }
 }
 

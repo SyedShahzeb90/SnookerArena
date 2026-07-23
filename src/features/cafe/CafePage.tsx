@@ -13,6 +13,7 @@ import { useSearchParams } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useToast } from "@/components/ui/toast";
 import {
   Dialog,
   DialogContent,
@@ -76,6 +77,7 @@ type SelectedTarget =
 
 function CafePage() {
   const navigate = useNavigate();
+  const toast = useToast();
   const [searchParams] = useSearchParams();
   const tables = useTableStore(
     (state) => state.tables
@@ -1463,9 +1465,11 @@ function CafePage() {
       ],
     });
 
-    setOrderMessage(
-      `Payment received for ${paidOrder.customerName}.`
-    );
+    setOrderMessage("");
+    toast.success({
+      title: "Payment Received",
+      description: paidOrder.customerName,
+    });
     setSelectedTarget(null);
     setLastSavedTotal(null);
     setPaymentDialogOpen(false);

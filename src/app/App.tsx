@@ -5,7 +5,11 @@ import {
   Route,
 } from "react-router-dom";
 
-import OperatorDashboard from "@/features/dashboard/Dashboard";
+import {
+  BusinessDayPage,
+  OperatorLandingRedirect,
+  TablesRoomsPage,
+} from "@/features/dashboard/Dashboard";
 import CafePage from "@/features/cafe/CafePage";
 import AccessoriesPage from "@/features/accessories/AccessoriesPage";
 import SalesHistoryPage from "@/features/sales/pages/SalesHistoryPage";
@@ -22,6 +26,7 @@ import CreditLedgerPage from "@/features/credit-ledger/pages/CreditLedgerPage";
 import OperatorShell from "@/features/dashboard/components/OperatorShell";
 import BackupRestorePage from "@/features/backup/pages/BackupRestorePage";
 import ClubSettingsPage from "@/features/settings/pages/ClubSettingsPage";
+import GeneralSettingsPage from "@/features/settings/pages/GeneralSettingsPage";
 import VendorRestockingPage from "@/features/cafe/pages/VendorRestockingPage";
 import CanteenProfitReportPage from "@/features/reports/pages/CanteenProfitReportPage";
 import RequirePermission from "@/features/admin-mode/RequirePermission";
@@ -37,7 +42,22 @@ function App() {
         />
 
         <Route element={<OperatorShell />}>
-          <Route path="/operator" element={<OperatorDashboard />} />
+          <Route path="/operator" element={<OperatorLandingRedirect />} />
+
+          <Route
+            path="/operator/business-day"
+            element={<BusinessDayPage />}
+          />
+
+          <Route
+            path="/operator/tables-rooms"
+            element={<TablesRoomsPage />}
+          />
+
+          <Route
+            path="/operator/floor-overview"
+            element={<Navigate to="/operator/tables-rooms" replace />}
+          />
 
           <Route
             path="/operator/cafe"
@@ -82,6 +102,11 @@ function App() {
           <Route
             path="/operator/club-settings"
             element={<RequirePermission permission="manage_settings" allowPinSetup><ClubSettingsPage /></RequirePermission>}
+          />
+
+          <Route
+            path="/operator/general-settings"
+            element={<RequirePermission permission="manage_settings"><GeneralSettingsPage /></RequirePermission>}
           />
 
           <Route

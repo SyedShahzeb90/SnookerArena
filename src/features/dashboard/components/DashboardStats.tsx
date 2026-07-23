@@ -1,14 +1,16 @@
 import {
-  CircleCheck,
   CircleDollarSign,
-  CircleDot,
   LayoutGrid,
 } from "lucide-react";
 
 import { Card } from "@/components/ui/card";
-import { useTableStore } from "@/store/tableStore";
+import { ProgressIndicator } from "@/components/ui/progress-indicator";
+import { useCafeStore } from "@/features/cafe/store/cafeStore";
 import { useSalesStore } from "@/features/sales/store/salesStore";
 import { calculatePaymentTotals } from "@/features/sales/utils/salesReports";
+import { useTableStore } from "@/store/tableStore";
+
+import { DashboardMetricCard } from "./DashboardMetricCard";
 
 function money(value: number) {
   return `Rs. ${Math.round(value).toLocaleString()}`;
@@ -16,141 +18,145 @@ function money(value: number) {
 
 function isToday(value?: string) {
   if (!value) return false;
-
-  return (
-    new Date(value).toDateString() ===
-    new Date().toDateString()
-  );
+  return new Date(value).toDateString() === new Date().toDateString();
 }
 
-function DashboardStats() {
-  const tables = useTableStore(
-    (state) => state.tables
-  );
-  const sales = useSalesStore(
-    (state) => state.sales
-  );
+function useDashboardStats() {
+  const tables = useTableStore((state) => state.tables);
+  const sales = useSalesStore((state) => state.sales);
+  const menu = useCafeStore((state) => state.menu);
   const total = tables.length;
-  const standardTableCount = tables.filter(
-    (table) => table.type === "table"
+  const standardTableCount = tables.filter((table) => table.type === "table").length;
+  const privateRoomCount = tables.filter((table) => table.type === "private-room").length;
+  const available = tables.filter((table) => table.status === "available").length;
+  const running = tables.filter((table) => table.status === "running").length;
+  const paused = tables.filter((table) => table.status === "paused").length;
+  const pendingTables = tables.filter(
+    (table) => table.status === "payment-pending",
   ).length;
-  const privateRoomCount = tables.filter(
-    (table) => table.type === "private-room"
-  ).length;
-
-  const available = tables.filter(
-    (table) => table.status === "available"
-  ).length;
-
-  const running = tables.filter(
+  const occupiedTables = tables.filter(
     (table) =>
       table.status === "running" ||
-      table.status === "paused"
+      table.status === "paused" ||
+      table.status === "payment-pending",
   ).length;
-
-  const pendingTables = tables.filter(
-    (table) =>
-    table.status === "payment-pending"
+  const trackedProducts = menu.filter((item) => item.trackStock);
+  const healthyProducts = trackedProducts.filter(
+    (item) => (item.currentStock ?? 0) > (item.lowStockAlertQuantity ?? 0),
   ).length;
-
+  const lowStockProducts = trackedProducts.filter((item) => {
+    const stock = item.currentStock ?? 0;
+    return stock > 0 && stock <= (item.lowStockAlertQuantity ?? 0);
+  }).length;
+  const outOfStockProducts = trackedProducts.filter(
+    (item) => (item.currentStock ?? 0) <= 0,
+  ).length;
   const todayCafeTotal = sales
     .filter(
       (sale) =>
         sale.paymentStatus === "paid" &&
         sale.saleType !== "accessories" &&
         sale.cafeAmount > 0 &&
-        isToday(sale.paidAt ?? sale.createdAt)
+        isToday(sale.paidAt ?? sale.createdAt),
     )
-    .reduce(
-      (total, sale) => total + sale.cafeAmount,
-      0
-    );
-  const todayPaidSales = sales.filter(
-    (sale) =>
-      sale.paymentStatus === "paid" &&
-      isToday(sale.paidAt ?? sale.createdAt)
+    .reduce((sum, sale) => sum + sale.cafeAmount, 0);
+  const todayPaymentTotals = calculatePaymentTotals(
+    sales.filter(
+      (sale) =>
+        sale.paymentStatus === "paid" &&
+        isToday(sale.paidAt ?? sale.createdAt),
+    ),
   );
-  const todayPaymentTotals =
-    calculatePaymentTotals(todayPaidSales);
 
+  return {
+    total,
+    standardTableCount,
+    privateRoomCount,
+    available,
+    running,
+    paused,
+    pendingTables,
+    occupiedTables,
+    trackedProducts,
+    healthyProducts,
+    lowStockProducts,
+    outOfStockProducts,
+    todayCafeTotal,
+    todayPaymentTotals,
+  };
+}
+
+export function BusinessDayStats() {
+  const { todayCafeTotal, todayPaymentTotals } = useDashboardStats();
   const stats = [
     {
-      label: "Total Tables",
-      value: total,
-      icon: LayoutGrid,
-      tone: "text-slate-700",
-      bg: "bg-slate-100",
-      secondary: `${standardTableCount} tables · ${privateRoomCount} private rooms`,
-    },
-    {
-      label: "Running",
-      value: running,
-      icon: CircleDot,
-      tone: "text-red-600",
-      bg: "bg-red-50",
-      secondary: "Active sessions",
-    },
-    {
-      label: "Available",
-      value: available,
-      icon: CircleCheck,
-      tone: "text-emerald-600",
-      bg: "bg-emerald-50",
-      secondary: "Ready to start",
-    },
-    {
-      label: "Payment-Pending Tables",
-      value: pendingTables,
-      icon: CircleDollarSign,
-      tone: "text-amber-600",
-      bg: "bg-amber-50",
-      secondary: "Awaiting checkout",
-    },
-    {
-      label: "Cafe Sales Today",
+      label: "Canteen Sales Today",
       value: money(todayCafeTotal),
-      icon: CircleDollarSign,
       tone: "text-emerald-700",
       bg: "bg-emerald-50",
-      secondary: "Paid cafe revenue",
+      supportingText: "Paid canteen revenue",
     },
     {
       label: "Digital Payments",
       value: money(
         todayPaymentTotals.card +
           todayPaymentTotals.jazzcash +
-          todayPaymentTotals.easypaisa
+          todayPaymentTotals.easypaisa,
       ),
-      icon: CircleDollarSign,
       tone: "text-blue-700",
       bg: "bg-blue-50",
       details: [
-        {
-          label: "JazzCash",
-          value: todayPaymentTotals.jazzcash,
-        },
-        {
-          label: "Easypaisa",
-          value: todayPaymentTotals.easypaisa,
-        },
-        {
-          label: "Card",
-          value: todayPaymentTotals.card,
-        },
+        { label: "JazzCash", value: money(todayPaymentTotals.jazzcash) },
+        { label: "Easypaisa", value: money(todayPaymentTotals.easypaisa) },
+        { label: "Card", value: money(todayPaymentTotals.card) },
       ],
     },
-  ].slice(3);
+  ];
 
   return (
-    <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-      <Card className="flex h-[160px] flex-col rounded-lg border-slate-200 bg-white p-3 shadow-none transition-[transform,box-shadow,border-color] duration-150 hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-sm">
+    <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
+      {stats.map((stat) => (
+        <DashboardMetricCard
+          key={stat.label}
+          title={stat.label}
+          value={stat.value}
+          icon={CircleDollarSign}
+          tone={stat.tone}
+          iconBackground={stat.bg}
+          supportingText={stat.supportingText}
+          details={stat.details}
+        />
+      ))}
+    </section>
+  );
+}
+
+export function TableStatusStats() {
+  const {
+    total,
+    standardTableCount,
+    privateRoomCount,
+    available,
+    running,
+    paused,
+    pendingTables,
+    occupiedTables,
+    trackedProducts,
+    healthyProducts,
+    lowStockProducts,
+    outOfStockProducts,
+  } = useDashboardStats();
+
+  return (
+    <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <Card className="flex h-full min-h-[184px] flex-col rounded-lg border-slate-200 bg-white p-4 shadow-sm transition-[transform,box-shadow,border-color] duration-150 hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md">
         <div className="flex items-start justify-between gap-2">
           <p className="text-xs font-medium text-slate-500">Table Status</p>
           <span className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-100 text-slate-700">
             <LayoutGrid className="h-4 w-4" />
           </span>
         </div>
-        <div className="mt-2 grid grid-cols-3 divide-x divide-slate-200 text-center">
+        <div className="mt-2 grid grid-cols-4 divide-x divide-slate-200 text-center">
           <div>
             <p className="text-xl font-bold text-slate-700">{total}</p>
             <p className="text-[11px] text-slate-500">Total</p>
@@ -160,6 +166,10 @@ function DashboardStats() {
             <p className="text-[11px] text-slate-500">Running</p>
           </div>
           <div>
+            <p className="text-xl font-bold text-amber-600">{paused}</p>
+            <p className="text-[11px] text-slate-500">Paused</p>
+          </div>
+          <div>
             <p className="text-xl font-bold text-emerald-600">{available}</p>
             <p className="text-[11px] text-slate-500">Available</p>
           </div>
@@ -167,66 +177,37 @@ function DashboardStats() {
         <p className="mt-auto text-xs text-slate-500">
           {standardTableCount} tables / {privateRoomCount} private rooms
         </p>
+        <div className="mt-2">
+          <ProgressIndicator
+            label="Table Occupancy"
+            current={occupiedTables}
+            maximum={total}
+            supportingText={`${occupiedTables} of ${total} occupied`}
+          />
+        </div>
+        {trackedProducts.length > 0 && (
+          <div className="mt-2">
+            <ProgressIndicator
+              label="Tracked Stock"
+              current={healthyProducts}
+              maximum={trackedProducts.length}
+              supportingText={`${healthyProducts} of ${trackedProducts.length} healthy`}
+              status={`${lowStockProducts} low / ${outOfStockProducts} out`}
+            />
+          </div>
+        )}
       </Card>
 
-      {stats.map((stat) => {
-        const Icon = stat.icon;
-        const details =
-          "details" in stat
-            ? stat.details
-            : undefined;
-
-        return (
-          <Card
-            key={stat.label}
-            className="flex h-[160px] flex-col gap-0 rounded-lg border-slate-200 bg-white p-3 shadow-none transition-[transform,box-shadow,border-color] duration-150 hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-sm"
-          >
-            <div className="flex min-h-8 items-start justify-between gap-2">
-              <p className="text-xs font-medium leading-4 text-slate-500">
-                {stat.label}
-              </p>
-
-              <div
-                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${stat.bg} ${stat.tone}`}
-              >
-                <Icon className="h-4 w-4" />
-              </div>
-            </div>
-
-            <p
-              className={`mt-1 text-2xl font-bold ${stat.tone}`}
-            >
-              {stat.value}
-            </p>
-
-            {"secondary" in stat && stat.secondary && (
-              <p className="mt-auto text-xs leading-4 text-slate-500">
-                {stat.secondary}
-              </p>
-            )}
-
-            {details && (
-              <div className="mt-auto space-y-0.5 text-[11px] leading-4 text-slate-500">
-                {details.map(
-                  (detail) => (
-                    <div
-                      key={detail.label}
-                      className="flex items-center justify-between gap-2"
-                    >
-                      <span>{detail.label}</span>
-                      <span className="font-semibold text-slate-950">
-                        {money(detail.value)}
-                      </span>
-                    </div>
-                  )
-                )}
-              </div>
-            )}
-          </Card>
-        );
-      })}
+      <DashboardMetricCard
+        title="Payment-Pending Tables"
+        value={pendingTables}
+        icon={CircleDollarSign}
+        tone="text-amber-600"
+        iconBackground="bg-amber-50"
+        supportingText="Awaiting checkout"
+      />
     </section>
   );
 }
 
-export default DashboardStats;
+export default TableStatusStats;

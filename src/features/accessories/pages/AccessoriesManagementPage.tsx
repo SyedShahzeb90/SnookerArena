@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useToast } from "@/components/ui/toast";
 
 import { type AccessoryItem, useAccessoriesStore } from "../store/accessoriesStore";
 
@@ -13,6 +14,7 @@ const categories: AccessoryItem["category"][] = ["Tips", "Sticks", "Gloves", "Ch
 
 export default function AccessoriesManagementPage() {
   const navigate = useNavigate();
+  const toast = useToast();
   const items = useAccessoriesStore((state) => state.items);
   const addItem = useAccessoriesStore((state) => state.addItem);
   const updateItem = useAccessoriesStore((state) => state.updateItem);
@@ -23,7 +25,6 @@ export default function AccessoriesManagementPage() {
   const [price, setPrice] = useState("");
   const [category, setCategory] = useState<AccessoryItem["category"]>("Other");
   const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
 
   const clearForm = () => {
     setEditingId(null);
@@ -37,17 +38,22 @@ export default function AccessoriesManagementPage() {
     const amount = Number(price);
     if (!name.trim() || !price.trim() || !Number.isFinite(amount) || amount <= 0) {
       setError("Enter an accessory name and a valid price greater than zero.");
-      setMessage("");
       return;
     }
     const current = editingId ? items.find((item) => item.id === editingId) : undefined;
     const payload = { name: name.trim(), price: amount, category, available: current?.available ?? true };
     if (editingId) {
       updateItem(editingId, payload);
-      setMessage("Accessory updated.");
+      toast.success({
+        title: "Accessory Updated",
+        description: `${payload.name} was updated successfully.`,
+      });
     } else {
       addItem(payload);
-      setMessage("Accessory added.");
+      toast.success({
+        title: "Accessory Added",
+        description: `${payload.name} was added successfully.`,
+      });
     }
     clearForm();
   };
@@ -68,7 +74,6 @@ export default function AccessoriesManagementPage() {
           <h1 className="text-2xl font-bold text-slate-950">Accessories Management</h1>
           <p className="text-sm text-slate-500">Manage accessory products, prices, categories, and availability.</p>
         </header>
-        {message && <p className="rounded-lg bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">{message}</p>}
         {error && <p className="rounded-lg bg-red-50 px-4 py-3 text-sm font-medium text-red-700">{error}</p>}
 
         <div className="grid gap-5 lg:grid-cols-[320px_minmax(0,1fr)]">
@@ -103,7 +108,7 @@ export default function AccessoriesManagementPage() {
                   <div className="flex flex-wrap gap-2">
                     <Button size="sm" variant="outline" className="gap-1.5" onClick={() => { setEditingId(item.id); setName(item.name); setPrice(String(item.price)); setCategory(item.category); setError(""); }}><Pencil className="h-3.5 w-3.5" /> Edit</Button>
                     <Button size="sm" variant="outline" onClick={() => toggleItem(item.id)}>{item.available ? "Disable" : "Enable"}</Button>
-                    <Button size="sm" variant="outline" className="gap-1.5 text-red-700" onClick={() => { if (window.confirm(`Delete ${item.name}?`)) { deleteItem(item.id); setMessage("Accessory deleted."); if (editingId === item.id) clearForm(); } }}><Trash2 className="h-3.5 w-3.5" /> Delete</Button>
+                    <Button size="sm" variant="outline" className="gap-1.5 text-red-700" onClick={() => { if (window.confirm(`Delete ${item.name}?`)) { deleteItem(item.id); toast.success({ title: "Accessory Deleted", description: `${item.name} was removed successfully.` }); if (editingId === item.id) clearForm(); } }}><Trash2 className="h-3.5 w-3.5" /> Delete</Button>
                   </div>
                 </div>
               ))}

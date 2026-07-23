@@ -20,6 +20,7 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { useToast } from "@/components/ui/toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   useCafeStore,
@@ -53,6 +54,7 @@ type StockFilter = "all" | "tracked" | "low" | "out" | "untracked";
 
 function MenuManagementPage() {
   const navigate = useNavigate();
+  const toast = useToast();
   const {
     menu,
     addMenuItem,
@@ -66,8 +68,6 @@ function MenuManagementPage() {
     useState<MenuItemInput>(emptyForm);
   const [editingItem, setEditingItem] =
     useState<MenuItem | null>(null);
-  const [message, setMessage] =
-    useState("");
   const [error, setError] = useState("");
   const [stockFilter, setStockFilter] = useState<StockFilter>("all");
   const [stockItem, setStockItem] = useState<MenuItem | null>(null);
@@ -165,7 +165,6 @@ function MenuManagementPage() {
     event: FormEvent
   ) => {
     event.preventDefault();
-    setMessage("");
     setError("");
 
     const name = form.name.trim();
@@ -197,10 +196,16 @@ function MenuManagementPage() {
 
     if (editingItem) {
       updateMenuItem(editingItem.id, input);
-      setMessage("Menu item updated.");
+      toast.success({
+        title: "Menu Item Updated",
+        description: `${name} was updated successfully.`,
+      });
     } else {
       addMenuItem(input);
-      setMessage("Menu item added.");
+      toast.success({
+        title: "Menu Item Added",
+        description: `${name} is now available in Menu Management.`,
+      });
     }
 
     resetForm();
@@ -222,7 +227,6 @@ function MenuManagementPage() {
       lowStockAlertQuantity: Math.max(0, item.lowStockAlertQuantity ?? 0),
       stockUnit: item.stockUnit ?? "pcs",
     });
-    setMessage("");
     setError("");
   };
 
@@ -234,7 +238,10 @@ function MenuManagementPage() {
       setStockQuantity("");
       setStockNote("");
       setStockError("");
-      setMessage("Stock updated.");
+      toast.success({
+        title: "Stock Updated",
+        description: `${stockItem.name} stock was updated successfully.`,
+      });
     } catch (caught) {
       setStockError(caught instanceof Error ? caught.message : "Stock could not be updated.");
     }
@@ -248,7 +255,10 @@ function MenuManagementPage() {
     if (!confirmed) return;
 
     deleteMenuItem(item.id);
-    setMessage("Menu item deleted.");
+    toast.success({
+      title: "Menu Item Deleted",
+      description: `${item.name} was removed from the menu.`,
+    });
 
     if (editingItem?.id === item.id) {
       resetForm();
@@ -307,11 +317,6 @@ function MenuManagementPage() {
                 : "Add Menu Item"}
             </h2>
 
-            {message && (
-              <p className="mb-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700">
-                {message}
-              </p>
-            )}
             {error && (
               <p className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm font-medium text-red-700">
                 {error}

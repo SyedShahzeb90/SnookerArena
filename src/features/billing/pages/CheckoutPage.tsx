@@ -1,9 +1,12 @@
-import { ArrowLeft, ReceiptText, Search, Trash2 } from "lucide-react";
+import { ArrowLeft, CheckCircle2, ReceiptText, Search, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { EmptyState } from "@/components/ui/empty-state";
+import { BillContextMenu, type BillContextMenuAction } from "@/components/ui/bill-context-menu";
+import { useToast } from "@/components/ui/toast";
 import type { PaymentMethod } from "@/types/session";
 import type { PaymentSplit } from "@/features/sales/types/sale";
 import BillingDialog from "../components/BillingDialog";
@@ -110,81 +113,6 @@ function formatCustomerDisplayName(value?: string) {
       ? word.toUpperCase()
       : word[0].toUpperCase() + word.slice(1).toLowerCase(),
   );
-}
-
-function formatGameTypeLabel(
-  charges: Array<{ sessionType?: string; tableType?: string }> = [],
-) {
-  const playableCharges = charges.filter((charge) => charge.sessionType);
-  const chargeCount = playableCharges.length;
-  const suffix = chargeCount > 1 ? ` ×${chargeCount}` : "";
-
-  if (!chargeCount) {
-    return undefined;
-  }
-
-  if (playableCharges.some((charge) => charge.tableType === "private-room")) {
-    return `Private Room${suffix}`;
-  }
-
-  const sessionTypes = new Set(
-    playableCharges.map((charge) => charge.sessionType),
-  );
-
-  if (sessionTypes.size > 1) {
-    return `Multiple Games${suffix}`;
-  }
-
-  const [sessionType] = Array.from(sessionTypes);
-
-  if (sessionType === "single") {
-    return `Single Game${suffix}`;
-  }
-
-  if (sessionType === "double") {
-    return `Double Game${suffix}`;
-  }
-
-  if (sessionType === "time") {
-    return `Table Booking${suffix}`;
-  }
-
-  if (sessionType === "private") {
-    return `Private Room${suffix}`;
-  }
-
-  return `Table Booking${suffix}`;
-}
-
-function formatTableChargeLineLabel(
-  lines: Array<{ type?: string }> = [],
-  fallbackSessionType?: string,
-  tableType?: string,
-) {
-  if (lines.length > 0) {
-    const suffix = lines.length > 1 ? ` ×${lines.length}` : "";
-    const types = new Set(lines.map((line) => line.type));
-
-    if (types.size > 1) {
-      return `Multiple Games${suffix}`;
-    }
-
-    const [type] = Array.from(types);
-
-    if (type === "singleGame") {
-      return `Single Game${suffix}`;
-    }
-
-    if (type === "doubleGame") {
-      return `Double Game${suffix}`;
-    }
-
-    return `Table Booking${suffix}`;
-  }
-
-  return formatGameTypeLabel([
-    { sessionType: fallbackSessionType, tableType },
-  ]);
 }
 
 function getUsableTime(value?: string | Date) {
@@ -722,6 +650,21 @@ function getRowTime(row: CheckoutRow) {
   return row.sale.endedAt ?? row.sale.createdAt;
 }
 
+function getRowStartTime(row: CheckoutRow) {
+  if (row.type === "pending") {
+    return row.bill.session.startTime ?? row.bill.createdAt;
+  }
+  if (row.type === "account") {
+    const times = getAccountActivityTimes(row.account);
+    const earliest = times.length ? Math.min(...times) : NaN;
+
+    return Number.isFinite(earliest)
+      ? new Date(earliest).toISOString()
+      : row.account.openedAt;
+  }
+  return row.sale.startedAt ?? row.sale.createdAt;
+}
+
 function getRowPaidTime(row: CheckoutRow) {
   return row.type === "paid"
     ? getSalePaymentTime(row.sale)
@@ -756,6 +699,9 @@ function getCheckoutRowPlayersLabel(
 ) {
   if (row.type === "pending") {
     if (account) {
+      if (isWalkInName(account.customerName)) {
+        return "Walk-in Customer";
+      }
       return getBillPrimaryLabel(account);
     }
     return isWalkInName(row.playerName)
@@ -763,6 +709,9 @@ function getCheckoutRowPlayersLabel(
       : formatCustomerDisplayName(row.playerName);
   }
   if (row.type === "account") {
+    if (isWalkInName(row.account.customerName)) {
+      return "Walk-in Customer";
+    }
     return getBillPrimaryLabel(row.account);
   }
   if (row.sale.sessionType === "double") {
@@ -779,6 +728,15 @@ function getCheckoutRowPlayersLabel(
         : formatCustomerDisplayName(player.name),
     )
     .join(", ");
+}
+function getCheckoutRowTableLabel(row: CheckoutRow) {
+  if (row.type === "pending") {
+    return row.bill.tableName;
+  }
+  if (row.type === "account") {
+    return getBillTableLabel(row.account) || "-";
+  }
+  return row.sale.tableName;
 }
 function getCheckoutRowBillLabel(row: CheckoutRow, account?: CustomerAccount) {
   if (row.type === "pending") {
@@ -810,76 +768,6 @@ function getCheckoutRowBillLabel(row: CheckoutRow, account?: CustomerAccount) {
         )
       : row.sale.invoiceNumber)
   );
-}
-function getCheckoutRowTypeLabel(row: CheckoutRow) {
-  if (row.type === "pending") {
-    if (row.snookerAmount <= 0) {
-      return "Canteen Only";
-    }
-
-    const gameCount = Math.max(
-      1,
-      Math.round(row.snookerAmount / 300)
-    );
-
-    if (row.bill.session.sessionType === "single") {
-      return `Single Game ×${gameCount}`;
-    }
-
-    if (row.bill.session.sessionType === "double") {
-      return `Double Game ×${gameCount}`;
-    }
-
-    return (
-      formatTableChargeLineLabel(
-        row.bill.session.tableChargeLines,
-        row.bill.session.sessionType,
-        row.bill.tableType,
-      ) ?? "Table Booking"
-    );
-  }
-  if (row.type === "account") {
-    if (row.account.totalGameAmount > 0) {
-      return formatGameTypeLabel(row.account.gameCharges) ?? "Table Booking";
-    }
-    if (
-      getAccountAccessoryAmount(row.account) > 0 &&
-      getAccountCafeAmount(row.account) === 0
-    ) {
-      return "Accessories Only";
-    }
-    return "Canteen Only";
-  }
-  const saleType = row.sale.saleType;
-  if (saleType === "cafe-only" || saleType === "cafe_only") {
-    return "Canteen Only";
-  }
-  if (saleType === "customer_bill") {
-    return "Customer Bill";
-  }
-  if (saleType === "accessories") {
-    return "Accessories Only";
-  }
-
-  const saleChargeLabel = formatGameTypeLabel(row.sale.gameCharges);
-  if (saleChargeLabel) {
-    return saleChargeLabel;
-  }
-
-  if (
-    row.sale.sessionType === "private" ||
-    /^private/i.test(row.sale.tableName) ||
-    /^pr/i.test(row.sale.tableName)
-  ) {
-    return "Private Room";
-  }
-  if (row.sale.sessionType === "single") {
-    return "Single Game";
-  }
-  if (row.sale.sessionType === "double") {
-    return "Double Game";
-  }
-  return "Table Booking";
 }
 function getCheckoutRowAccessoryAmount(row: CheckoutRow) {
   if (row.type === "pending") {
@@ -997,6 +885,7 @@ function isCheckoutPaidSale(sale: Sale) {
 function CheckoutPage() {
   useAppDateTimeFormats();
   const navigate = useNavigate();
+  const toast = useToast();
   const [searchParams] = useSearchParams();
   const selectedCustomerBillId = searchParams.get("customerBillId");
   const pendingBills = useCheckoutStore((state) => state.pendingBills);
@@ -1027,6 +916,12 @@ function CheckoutPage() {
     (state) => state.cancelCustomerAccount
   );
   const [selectedBill, setSelectedBill] = useState<PendingBill | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    row: CheckoutRow;
+    x: number;
+    y: number;
+  } | null>(null);
+  const [contextRowKey, setContextRowKey] = useState<string | null>(null);
   const [selectedPlayerName, setSelectedPlayerName] = useState<
     string | undefined
   >();
@@ -1038,7 +933,6 @@ function CheckoutPage() {
   const [tableFilter, setTableFilter] = useState<TableFilter>("all");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
-  const [message, setMessage] = useState("");
   const [billToCancel, setBillToCancel] = useState<PendingBill | null>(null);
   const [accountToCancel, setAccountToCancel] =
     useState<CustomerAccount | null>(null);
@@ -1465,14 +1359,7 @@ function CheckoutPage() {
     setCustomStart("");
     setCustomEnd("");
   };
-  const showPaymentColumn = statusFilter === "paid" || statusFilter === "all";
-  const showStatusColumn = statusFilter !== "paid";
-  const showAccessoriesColumn = true;
-  const emptyColumnCount =
-    9 +
-    (showAccessoriesColumn ? 1 : 0) +
-    (showStatusColumn ? 1 : 0) +
-    (showPaymentColumn ? 1 : 0);
+  const emptyColumnCount = 9;
   const handleReceivePayment = (
     paymentMethod: PaymentMethod,
     payerName?: string,
@@ -1481,13 +1368,20 @@ function CheckoutPage() {
   ) => {
     if (!selectedBill) return;
     if (selectedBill.status === "cancelled") {
-      setMessage("Cancelled bills cannot receive payment.");
+      toast.warning({
+        title: "Payment Not Available",
+        description: "Cancelled bills cannot receive payment.",
+      });
       return;
     }
     if (!activeBusinessDay) {
-      setMessage("Please start the day before receiving payment.");
+      toast.warning({
+        title: "Start Business Day",
+        description: "Start the day before receiving payment.",
+      });
       return;
     }
+    const billLabel = selectedBill.staffBillNumber ?? selectedBill.id;
     receivePendingBillPayment({
       billId: selectedBill.id,
       paymentMethod,
@@ -1496,6 +1390,10 @@ function CheckoutPage() {
       discount,
     });
     setSelectedBill(null);
+    toast.success({
+      title: "Payment Received",
+      description: billLabel,
+    });
   };
   const handleReceivePlayerBill = (input: {
     paymentMethod: PaymentMethod;
@@ -1510,14 +1408,25 @@ function CheckoutPage() {
   }) => {
     if (!selectedBill) return;
     if (selectedBill.status === "cancelled") {
-      setMessage("Cancelled bills cannot receive payment.");
+      toast.warning({
+        title: "Payment Not Available",
+        description: "Cancelled bills cannot receive payment.",
+      });
       return;
     }
     if (!activeBusinessDay) {
-      setMessage("Please start the day before receiving payment.");
+      toast.warning({
+        title: "Start Business Day",
+        description: "Start the day before receiving payment.",
+      });
       return;
     }
+    const billLabel = selectedBill.staffBillNumber ?? selectedBill.id;
     receivePendingPlayerBillPayment({ billId: selectedBill.id, ...input });
+    toast.success({
+      title: "Payment Received",
+      description: `${input.playerName} · ${billLabel}`,
+    });
     const paidPlayerNames = selectedBill.paidPlayerNames ?? [];
     const nextPaidPlayerNames = paidPlayerNames.includes(input.playerName)
       ? paidPlayerNames
@@ -1585,9 +1494,10 @@ function CheckoutPage() {
       setSelectedBill(null);
       setSelectedPlayerName(undefined);
     }
-    setMessage(
-      `Bill ${billToCancel.staffBillNumber ?? billToCancel.id} removed from pending and saved in Cancelled history.`,
-    );
+    toast.success({
+      title: "Bill Deleted",
+      description: `Bill ${billToCancel.staffBillNumber ?? billToCancel.id} was saved in Cancelled history.`,
+    });
     setBillToCancel(null);
   };
   const handleCancelAccountBill = (account: CustomerAccount) => {
@@ -1613,14 +1523,18 @@ function CheckoutPage() {
       removePendingBill(`BILL-${sessionId}`);
     });
     cancelCustomerAccount({ id: accountToCancel.id, reason, note });
-    setMessage(
-      `Bill ${getBillPrimaryLabel(accountToCancel)} removed from pending and saved in Cancelled history.`
-    );
+    toast.success({
+      title: "Bill Deleted",
+      description: `Bill ${getBillPrimaryLabel(accountToCancel)} was saved in Cancelled history.`,
+    });
     setAccountToCancel(null);
   };
   const handleDeleteSale = (sale: Sale) => {
     if (!useAdminModeStore.getState().can("cancel_bills")) {
-      setMessage("Admin Mode is required to delete a paid bill.");
+      toast.warning({
+        title: "Admin Mode Required",
+        description: "Enter Admin Mode to delete a paid bill.",
+      });
       return;
     }
     const confirmed = window.confirm(
@@ -1628,7 +1542,10 @@ function CheckoutPage() {
     );
     if (!confirmed) return;
     deleteSale(sale.id);
-    setMessage(`Deleted paid bill ${sale.invoiceNumber}.`);
+    toast.success({
+      title: "Bill Deleted",
+      description: `Paid bill ${sale.invoiceNumber} was deleted.`,
+    });
   };
   const openCheckoutRow = (row: CheckoutRow) => {
     if (row.type === "account") {
@@ -1688,9 +1605,9 @@ function CheckoutPage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-100 px-4 py-5 sm:px-5 lg:px-6">
+    <main className="min-h-screen overflow-x-hidden bg-slate-100 px-3 py-4 sm:px-4 lg:px-5 xl:px-6">
       {" "}
-      <div className="mx-auto max-w-[1440px]">
+      <div className="mx-auto w-full max-w-[1560px]">
         {" "}
         <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           {" "}
@@ -1724,7 +1641,7 @@ function CheckoutPage() {
             </div>{" "}
           </div>{" "}
         </div>{" "}
-        <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <section className="grid grid-cols-[repeat(auto-fit,minmax(210px,1fr))] gap-3">
           {" "}
           <Card className="flex min-h-[104px] flex-col justify-between p-3.5">
             {" "}
@@ -1763,15 +1680,9 @@ function CheckoutPage() {
             <p className="text-xs text-slate-500">All payment methods</p>
           </Card>{" "}
         </section>{" "}
-        {message && (
-          <p className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
-            {" "}
-            {message}{" "}
-          </p>
-        )}{" "}
         <Card className="mt-5 overflow-hidden">
           {" "}
-          <div className="grid gap-3 border-b p-3.5 sm:p-4">
+          <div className="grid min-w-0 gap-3 border-b p-3 sm:p-4">
             {" "}
             <div className="flex items-center gap-2">
               {" "}
@@ -1782,9 +1693,9 @@ function CheckoutPage() {
                 onChange={(event) => setSearch(event.target.value)}
               />{" "}
             </div>{" "}
-            <div className="flex flex-wrap items-end gap-2.5">
+            <div className="flex min-w-0 flex-wrap items-end gap-2.5">
               {" "}
-              <div className="flex rounded-lg border bg-white p-1">
+              <div className="flex max-w-full flex-wrap rounded-lg border bg-white p-1">
                 {" "}
                 {(["pending", "paid", "cancelled", "all"] as ViewFilter[]).map(
                   (value) => (
@@ -1805,7 +1716,7 @@ function CheckoutPage() {
                   ),
                 )}{" "}
               </div>{" "}
-              <div className="flex flex-wrap rounded-lg border bg-white p-1">
+              <div className="flex max-w-full flex-wrap rounded-lg border bg-white p-1">
                 {" "}
                 {(
                   [
@@ -1827,7 +1738,7 @@ function CheckoutPage() {
                   </Button>
                 ))}{" "}
               </div>{" "}
-              <label className="grid gap-1 text-xs font-semibold text-slate-500">
+              <label className="grid min-w-[150px] gap-1 text-xs font-semibold text-slate-500">
                 Payment
                 <select
                   className="h-10 rounded-md border bg-white px-3 text-sm font-normal text-slate-900"
@@ -1845,7 +1756,7 @@ function CheckoutPage() {
                   <option value="easypaisa">Easypaisa</option>
                 </select>
               </label>
-              <label className="grid gap-1 text-xs font-semibold text-slate-500">
+              <label className="grid min-w-[140px] gap-1 text-xs font-semibold text-slate-500">
                 Table
                 <select
                   className="h-10 rounded-md border bg-white px-3 text-sm font-normal text-slate-900"
@@ -1931,53 +1842,37 @@ function CheckoutPage() {
               )}
             </div>
           </div>{" "}
-          <div className="max-h-[calc(100vh-22rem)] min-h-[220px] w-full overflow-auto pb-2">
+          <div className="max-h-[calc(100vh-22rem)] min-h-[220px] w-full overflow-x-auto overflow-y-auto overscroll-x-contain pb-2">
             {" "}
-            <table
-              className={`${
-                showPaymentColumn && showStatusColumn
-                  ? "min-w-[1420px]"
-                  : showPaymentColumn
-                    ? "min-w-[1330px]"
-                    : "min-w-[1260px]"
-              } w-full table-fixed text-left text-sm`}
-            >
+            <table className="w-full min-w-[992px] table-fixed text-left text-sm">
               <colgroup>
-                <col className="w-[8.5rem]" />
-                <col className="w-[8rem]" />
-                <col className="w-[8rem]" />
-                <col className="w-[8rem]" />
-                <col className="w-[13rem]" />
+                <col className="w-[5rem]" />
+                <col className="w-[5rem]" />
+                <col className="w-[12rem]" />
+                <col className="w-[6rem]" />
+                <col className="w-[5rem]" />
                 <col className="w-[6rem]" />
                 <col className="w-[6rem]" />
-                <col className="w-[6.5rem]" />
-                <col className="w-[6.5rem]" />
-                {showStatusColumn && <col className="w-[9rem]" />}
-                {showPaymentColumn && <col className="w-[8.5rem]" />}
-                <col className="w-[10.5rem]" />
+                <col className="w-[8rem]" />
+                <col className="w-[9rem]" />
               </colgroup>
               <thead className="sticky top-0 z-10 bg-slate-50 text-xs uppercase text-slate-500 shadow-sm">
                 <tr>
-                  <th className="whitespace-nowrap px-3 py-2.5">
-                    Bill No
+                  <th className="whitespace-nowrap px-2 py-2.5 sm:px-3">
+                    Started At
                   </th>
-                  <th className="whitespace-nowrap px-3 py-2.5">
+                  <th className="whitespace-nowrap px-2 py-2.5 sm:px-3">
                     Ended At
                   </th>
-                  <th className="whitespace-nowrap px-3 py-2.5">Type</th>
-                  <th className="whitespace-nowrap px-3 py-2.5">Table</th>
-                  <th className="whitespace-nowrap px-3 py-2.5">Customer / Players</th>
-                  <th className="whitespace-nowrap px-3 py-3 text-right">Table</th>
-                  <th className="whitespace-nowrap px-3 py-3 text-right">Canteen</th>
-                  {showAccessoriesColumn && (
-                    <th className="whitespace-nowrap px-3 py-2.5 text-right">Accessories</th>
-                  )}
-                  <th className="whitespace-nowrap px-3 py-2.5 text-right">Total</th>
-                  {showStatusColumn && <th className="whitespace-nowrap px-3 py-2.5">Status</th>}
-                  {showPaymentColumn && (
-                    <th className="whitespace-nowrap px-3 py-2.5">Payment Method</th>
-                  )}
-                  <th className="whitespace-nowrap px-3 py-2.5 text-right">Action</th>
+                  <th className="whitespace-nowrap px-3 py-2.5">
+                    Customer / Table
+                  </th>
+                  <th className="whitespace-nowrap px-2 py-2.5 text-right sm:px-3">Table Charges</th>
+                  <th className="whitespace-nowrap px-2 py-3 text-right sm:px-3">Canteen</th>
+                  <th className="whitespace-nowrap px-2 py-2.5 text-right sm:px-3">Accessories</th>
+                  <th className="whitespace-nowrap px-2 py-2.5 text-right sm:px-3">Total</th>
+                  <th className="whitespace-nowrap px-2 py-2.5 sm:px-3">Status</th>
+                  <th className="sticky right-0 z-20 whitespace-nowrap bg-slate-50 px-3 py-2.5 text-right shadow-[-8px_0_12px_-12px_rgba(15,23,42,0.35)] dark:bg-slate-900">Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -1988,6 +1883,7 @@ function CheckoutPage() {
                       : row.type === "pending" && row.customerId
                         ? customerAccountById.get(row.customerId)
                         : undefined;
+                  const startedAt = formatDateTimeLines(getRowStartTime(row));
                   const endedAt = formatDateTimeLines(getRowTime(row));
                   const paidAt = formatDateTimeLines(getRowPaidTime(row));
                   const statusLabel =
@@ -2003,7 +1899,22 @@ function CheckoutPage() {
                       ? getPendingAge(getRowTime(row))
                       : "";
                   const rowIsSelected =
-                    row.type === "pending" && selectedBill?.id === row.bill.id;
+                    (row.type === "pending" && selectedBill?.id === row.bill.id) ||
+                    contextRowKey === (row.type === "pending" ? `${row.bill.id}-${row.playerName}` : row.type === "account" ? `account-${row.account.id}` : row.sale.id);
+                  const startedAtTitle =
+                    startedAt.time && startedAt.date
+                      ? `${startedAt.date} ${startedAt.time}`
+                      : startedAt.date;
+                  const endedAtTitle =
+                    endedAt.time && endedAt.date
+                      ? `${endedAt.date} ${endedAt.time}`
+                      : endedAt.date;
+                  const customerTableLabel = getCheckoutRowTableLabel(row);
+                  const customerPlayersLabel = getCheckoutRowPlayersLabel(
+                    row,
+                    account,
+                  );
+                  const fullIdentityTitle = `${customerPlayersLabel} - ${customerTableLabel} - ${getCheckoutRowBillLabel(row, account)}`;
                   return (
                     <tr
                       key={
@@ -2014,6 +1925,12 @@ function CheckoutPage() {
                             : row.sale.id
                       }
                       tabIndex={0}
+                      onContextMenu={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setContextRowKey(row.type === "pending" ? `${row.bill.id}-${row.playerName}` : row.type === "account" ? `account-${row.account.id}` : row.sale.id);
+                        setContextMenu({ row, x: event.clientX, y: event.clientY });
+                      }}
                       onClick={() => openCheckoutRow(row)}
                       onKeyDown={(event) => {
                         if (event.key === "Enter") {
@@ -2026,107 +1943,87 @@ function CheckoutPage() {
                           : "bg-white hover:bg-slate-50"
                       }`}
                     >
-                      <td className="px-3 py-3 align-middle font-mono text-sm font-semibold text-slate-900">
+                      <td className="px-2 py-3 align-middle text-slate-700 sm:px-3">
                         <span
-                          className="block truncate whitespace-nowrap"
-                          title={getCheckoutRowBillLabel(row, account)}
+                          className="block whitespace-nowrap font-medium text-slate-700 dark:text-slate-200"
+                          title={startedAtTitle}
                         >
-                          {getCheckoutRowBillLabel(row, account)}
+                          {startedAt.time || "-"}
                         </span>
                       </td>
-                      <td className="px-3 py-3 align-middle text-slate-700">
-                        <span className="block whitespace-nowrap font-medium text-slate-700">
-                          {endedAt.date}
+                      <td className="px-2 py-3 align-middle text-slate-700 sm:px-3">
+                        <span
+                          className="block whitespace-nowrap font-medium text-slate-700 dark:text-slate-200"
+                          title={endedAtTitle}
+                        >
+                          {endedAt.time || "-"}
                         </span>
-                        {endedAt.time && (
-                          <span className="block whitespace-nowrap text-xs text-slate-500">
-                            {endedAt.time}
-                          </span>
-                        )}
                         {getRowPaidTime(row) && paidAt.time && (
                           <span className="block whitespace-nowrap text-xs text-emerald-700">
                             Paid {paidAt.time}
                           </span>
                         )}
                       </td>
-                      <td className="whitespace-nowrap px-3 py-3 align-middle">
-                        {getCheckoutRowTypeLabel(row)}
-                      </td>
                       <td className="overflow-hidden px-3 py-3 align-middle">
-                        {(() => {
-                          const tableLabel =
-                            row.type === "pending"
-                              ? row.bill.tableName
-                              : row.type === "account"
-                                ? getBillTableLabel(row.account) || "-"
-                                : row.sale.tableName;
-
-                          return (
-                            <span
-                              className="block truncate whitespace-nowrap"
-                              title={tableLabel}
-                            >
-                              {tableLabel}
-                            </span>
-                          );
-                        })()}
-                      </td>
-                      <td className="overflow-hidden px-3 py-3 align-middle">
-                        <span className="block truncate whitespace-nowrap" title={getCheckoutRowPlayersLabel(row, account)}>
-                          {getCheckoutRowPlayersLabel(row, account)}
+                        <span
+                          className="block truncate whitespace-nowrap font-semibold text-slate-950 dark:text-slate-100"
+                          title={fullIdentityTitle}
+                        >
+                          {customerPlayersLabel}
+                        </span>
+                        <span
+                          className="block truncate whitespace-nowrap text-xs text-slate-500 dark:text-slate-400"
+                          title={customerTableLabel}
+                        >
+                          {customerTableLabel}
                         </span>
                       </td>
-                      <td className="whitespace-nowrap px-3 py-3 text-right align-middle tabular-nums">
+                      <td className="whitespace-nowrap px-2 py-3 text-right align-middle tabular-nums sm:px-3">
                         {formatAmountOrDash(getCheckoutRowTableAmount(row))}
                       </td>
-                      <td className="whitespace-nowrap px-3 py-3 text-right align-middle tabular-nums">
+                      <td className="whitespace-nowrap px-2 py-3 text-right align-middle tabular-nums sm:px-3">
                         {formatAmountOrDash(getCheckoutRowCafeAmount(row))}
                       </td>
-                      {showAccessoriesColumn && (
-                        <td className="whitespace-nowrap px-3 py-3 text-right align-middle tabular-nums">
-                          {formatAmountOrDash(
-                            getCheckoutRowAccessoryAmount(row),
-                          )}
-                        </td>
-                      )}
-                      <td className="whitespace-nowrap px-3 py-3 text-right align-middle font-bold tabular-nums text-slate-950">
+                      <td className="whitespace-nowrap px-2 py-3 text-right align-middle tabular-nums sm:px-3">
+                        {formatAmountOrDash(
+                          getCheckoutRowAccessoryAmount(row),
+                        )}
+                      </td>
+                      <td className="whitespace-nowrap px-2 py-3 text-right align-middle font-bold tabular-nums text-slate-950 sm:px-3">
                         {formatCurrency(getCheckoutRowTotal(row))}
                       </td>
-                      {showStatusColumn && (
-                        <td className="px-3 py-3 align-middle">
-                          <span
-                            className={
-                              row.type === "pending" &&
-                              row.bill.status === "cancelled"
-                                ? "whitespace-nowrap rounded-full bg-red-50 px-2.5 py-0.5 text-xs font-semibold text-red-700 ring-1 ring-red-200"
-                                : row.type === "pending" ||
-                                    row.type === "account"
-                                  ? "whitespace-nowrap rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-700 ring-1 ring-amber-200"
-                                  : "whitespace-nowrap rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200"
-                            }
-                          >
-                            {statusLabel}
-                          </span>
-                          {pendingAge && (
-                            <p className="mt-0.5 text-xs leading-tight text-slate-500">
-                              {pendingAge}
-                            </p>
-                          )}
-                        </td>
-                      )}
-                      {showPaymentColumn && (
-                        <td className="px-3 py-3">
-                          {row.type === "pending" || row.type === "account"
-                            ? "-"
-                            : getSalePaymentLabel(row.sale)}
-                        </td>
-                      )}
-                      <td className="px-3 py-3 text-right align-middle">
+                      <td className="px-2 py-3 align-middle sm:px-3">
+                        <span
+                          className={
+                            row.type === "pending" &&
+                            row.bill.status === "cancelled"
+                              ? "whitespace-nowrap rounded-full bg-red-50 px-2.5 py-0.5 text-xs font-semibold text-red-700 ring-1 ring-red-200"
+                              : row.type === "pending" ||
+                                  row.type === "account"
+                                ? "whitespace-nowrap rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-700 ring-1 ring-amber-200"
+                                : "whitespace-nowrap rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200"
+                          }
+                        >
+                          {statusLabel}
+                        </span>
+                        {pendingAge && (
+                          <p className="mt-0.5 text-xs leading-tight text-slate-500">
+                            {pendingAge}
+                          </p>
+                        )}
+                      </td>
+                      <td
+                        className={`sticky right-0 z-10 px-3 py-3 text-right align-middle shadow-[-8px_0_12px_-12px_rgba(15,23,42,0.35)] ${
+                          rowIsSelected
+                            ? "bg-amber-50 dark:bg-amber-950"
+                            : "bg-white group-hover:bg-slate-50 dark:bg-slate-950 dark:group-hover:bg-slate-800"
+                        }`}
+                      >
                         {row.type === "pending" || row.type === "account" ? (
-                          <div className="flex flex-wrap justify-end gap-2">
+                          <div className="flex flex-wrap justify-end gap-1.5">
                             <Button
                               size="sm"
-                              className="h-8 whitespace-nowrap px-3"
+                              className="h-8 whitespace-nowrap px-2.5"
                               variant={
                                 row.type === "pending" &&
                                 row.bill.status === "cancelled"
@@ -2149,7 +2046,7 @@ function CheckoutPage() {
                                   type="button"
                                   variant="outline"
                                   size="sm"
-                                  className="gap-1 whitespace-nowrap border-red-200 text-red-700 hover:bg-red-50"
+                                  className="gap-1 whitespace-nowrap border-red-200 px-2.5 text-red-700 hover:bg-red-50"
                                   onClick={(event) => {
                                     event.stopPropagation();
                                     handleCancelPendingBill(row.bill);
@@ -2163,7 +2060,7 @@ function CheckoutPage() {
                                 type="button"
                                 variant="outline"
                                 size="sm"
-                                className="gap-1 whitespace-nowrap border-red-200 text-red-700 hover:bg-red-50"
+                                className="gap-1 whitespace-nowrap border-red-200 px-2.5 text-red-700 hover:bg-red-50"
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   handleCancelAccountBill(row.account);
@@ -2195,9 +2092,16 @@ function CheckoutPage() {
                   <tr>
                     <td
                       colSpan={emptyColumnCount}
-                      className="px-4 py-10 text-center text-slate-500"
+                      className="p-4"
                     >
-                      No bills found for the selected filters.
+                      <EmptyState
+                        compact
+                        icon={checkoutRows.length === openBillsCount ? CheckCircle2 : Search}
+                        title={checkoutRows.length === openBillsCount ? "No Pending Payments" : "No Matching Bills"}
+                        description={checkoutRows.length === openBillsCount ? "Everything has been collected." : "Try changing your search or filters."}
+                        actionLabel={checkoutRows.length === openBillsCount ? undefined : "Clear Filters"}
+                        onAction={checkoutRows.length === openBillsCount ? undefined : clearFilters}
+                      />
                     </td>
                   </tr>
                 )}
@@ -2206,6 +2110,40 @@ function CheckoutPage() {
           </div>
         </Card>
       </div>
+      {contextMenu && (
+        <BillContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={() => {
+            setContextMenu(null);
+            setContextRowKey(null);
+          }}
+          actions={([
+            {
+              id: "view",
+              label: contextMenu.row.type === "pending" && contextMenu.row.bill.status !== "cancelled" ? "Collect Payment" : "View Details",
+              onSelect: () => openCheckoutRow(contextMenu.row),
+            },
+            ...(canCancelBills
+              ? contextMenu.row.type === "pending" && contextMenu.row.bill.status !== "cancelled"
+                ? [{
+                    id: "delete" as const,
+                    label: "Delete Bill",
+                    destructive: true,
+                    onSelect: () => handleCancelPendingBill((contextMenu.row as Extract<CheckoutRow, { type: "pending" }>).bill),
+                  }]
+                : contextMenu.row.type === "account"
+                  ? [{
+                      id: "delete" as const,
+                      label: "Delete Bill",
+                      destructive: true,
+                      onSelect: () => handleCancelAccountBill((contextMenu.row as Extract<CheckoutRow, { type: "account" }>).account),
+                    }]
+                  : []
+              : []),
+          ] satisfies BillContextMenuAction[])}
+        />
+      )}
       {selectedBill && (
         <BillingDialog
           open={!!selectedBill}
@@ -2231,9 +2169,11 @@ function CheckoutPage() {
           cancelledReason={selectedBill.cancelledReason}
           cancelledNote={selectedBill.cancelledNote}
           onPaymentBlocked={() =>
-            setMessage(
-              "Please start the day and enter the operator name before receiving payment.",
-            )
+            toast.warning({
+              title: "Payment Not Available",
+              description:
+                "Start the day and select an operator before receiving payment.",
+            })
           }
           onReceivePayment={handleReceivePayment}
           onReceivePlayerBill={handleReceivePlayerBill}

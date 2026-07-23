@@ -23,6 +23,7 @@ interface Props {
   tableType: Table["type"];
   now: Date;
   compactRunning?: boolean;
+  summaryOnly?: boolean;
   onCafeBillClick?: () => void;
   onAccessoriesClick?: () => void;
 }
@@ -33,6 +34,7 @@ function TableInfo({
   tableType,
   now,
   compactRunning = false,
+  summaryOnly = false,
   onCafeBillClick,
   onAccessoriesClick,
 }: Props) {
@@ -329,6 +331,45 @@ function TableInfo({
         currentBill - cafeTotal - accessoriesTotal
       );
 
+  if (summaryOnly) {
+    const identityLabel = doubleTeams
+      ? `${doubleTeams.teamAPlayers.join(" / ")} vs ${doubleTeams.teamBPlayers.join(" / ")}`
+      : isBooking
+        ? bookingLabel
+        : sessionPlayers.join(" / ");
+
+    return (
+      <div className="space-y-2.5">
+        <div className="rounded-lg bg-slate-50 px-3 py-2.5">
+          <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
+            <Users className="h-4 w-4 shrink-0" />
+            {doubleTeams ? "Teams" : "Players"}
+          </div>
+          <p
+            className="mt-1 truncate font-semibold text-slate-950"
+            title={identityLabel}
+          >
+            {identityLabel}
+          </p>
+        </div>
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5">
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-slate-500">Current game</p>
+            <p className="mt-0.5 truncate font-semibold text-slate-950">
+              {getGameCountLabel() ?? session.sessionType}
+            </p>
+          </div>
+          <div className="text-right">
+            <p className="text-xs font-medium text-slate-500">Current Bill</p>
+            <p className="whitespace-nowrap text-xl font-bold tabular-nums text-slate-950">
+              Rs. {Math.round(currentBill).toLocaleString()}
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (!compactRunning) {
     return (
       <div className="grid grid-cols-2 gap-3">
@@ -441,7 +482,7 @@ function TableInfo({
         ) : (
           <div className="grid grid-cols-2 gap-3">
             {sessionPlayers.map((player, index) => (
-              <div key={player}>
+              <div key={`${index}-${player}`}>
                 <p className="text-xs text-slate-500">
                   Player {index + 1}
                 </p>

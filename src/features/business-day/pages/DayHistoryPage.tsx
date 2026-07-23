@@ -115,7 +115,7 @@ function DayHistoryPage() {
     location.pathname.startsWith("/admin");
   const dashboardPath = isAdmin
     ? "/admin"
-    : "/operator";
+    : "/operator/business-day";
 
   const days = useBusinessDayStore(
     (state) => state.days

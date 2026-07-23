@@ -20,6 +20,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { EmptyState } from "@/components/ui/empty-state";
+import { BillContextMenu, type BillContextMenuAction } from "@/components/ui/bill-context-menu";
+import { useToast } from "@/components/ui/toast";
 import { useBusinessDayStore } from "@/features/business-day/store/businessDayStore";
 import { useSalesStore } from "@/features/sales/store/salesStore";
 import { useTableStore } from "@/store/tableStore";
@@ -453,6 +456,7 @@ function accountMatchesSession(
 function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
   useAppDateTimeFormats();
   const navigate = useNavigate();
+  const toast = useToast();
   const defaultPaymentMethod = useClubSettingsStore(
     (state) => state.settings.defaultPaymentMethod
   );
@@ -544,6 +548,12 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
     useState<TableFilter>("all");
   const [selectedId, setSelectedId] =
     useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    account: CustomerAccount;
+    x: number;
+    y: number;
+  } | null>(null);
+  const [contextAccountId, setContextAccountId] = useState<string | null>(null);
   const [discountText, setDiscountText] =
     useState("0");
   const [paymentMethod, setPaymentMethod] =
@@ -1032,7 +1042,10 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
     setSelectedId(null);
     setIsEditingCustomer(false);
     setError("");
-    setMessage("Bill deleted.");
+    toast.success({
+      title: "Bill Deleted",
+      description: `${getBillPrimaryLabel(selectedAccount)} was deleted successfully.`,
+    });
   };
 
   const handleApplyDiscount = () => {
@@ -1438,11 +1451,12 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
       removePendingBill(`BILL-${sessionId}`);
     });
 
-    setMessage(
-      partialCredit
-        ? `${formatCurrency(receivedAmount)} received and ${formatCurrency(creditAmount)} moved to Credit Ledger.`
-        : `Payment received for ${selectedAccount.customerName}.`
-    );
+    toast.success({
+      title: "Payment Received",
+      description: partialCredit
+        ? `${formatCurrency(receivedAmount)} received · ${formatCurrency(creditAmount)} moved to Credit Ledger.`
+        : getBillPrimaryLabel(selectedAccount),
+    });
     setSelectedId(null);
     setPaymentMethod(defaultPaymentMethod);
     setPaymentSplits([]);
@@ -1842,7 +1856,7 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
                       const timestamp = getBillTimestamp(account);
                       const totals = getBillTotals(account);
                       const selected =
-                        selectedAccount?.id === account.id;
+                        selectedAccount?.id === account.id || contextAccountId === account.id;
                       const tableLabel =
                         getBillTableLabel(account) ||
                         runningTable?.name ||
@@ -1852,6 +1866,12 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
                         <tr
                           key={account.id}
                           tabIndex={0}
+                          onContextMenu={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setContextAccountId(account.id);
+                            setContextMenu({ account, x: event.clientX, y: event.clientY });
+                          }}
                           onClick={() => openBill(account)}
                           onKeyDown={(event) => {
                             if (event.key === "Enter") {
@@ -1964,9 +1984,22 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
                     <tr>
                       <td
                         colSpan={10}
-                        className="px-4 py-10 text-center text-slate-500"
+                        className="p-4"
                       >
-                        No {billStatusFilter === "paid" ? "paid" : billStatusFilter === "cancelled" ? "cancelled" : billStatusFilter === "all" ? "customer" : "open customer"} bills.
+                        <EmptyState
+                          compact
+                          icon={Search}
+                          title={accounts.length === 0 ? "No Customer Bills Yet" : "No Matching Bills"}
+                          description={accounts.length === 0 ? "Bills will appear here after a table session, canteen order, or accessory charge is created." : "Try changing your search or filters."}
+                          actionLabel={accounts.length === 0 ? undefined : "Clear Filters"}
+                          onAction={accounts.length === 0 ? undefined : () => {
+                            setSearch("");
+                            setDateFilter("all");
+                            setBillTypeFilter("all");
+                            setBillStatusFilter("unpaid");
+                            setTableFilter("all");
+                          }}
+                        />
                       </td>
                     </tr>
                   )}
@@ -1974,6 +2007,50 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
               </table>
             </div>
           </Card>
+
+          {contextMenu && (
+            <BillContextMenu
+              x={contextMenu.x}
+              y={contextMenu.y}
+              onClose={() => {
+                setContextMenu(null);
+                setContextAccountId(null);
+              }}
+              actions={([
+                {
+                  id: "view",
+                  label: "View Details",
+                  onSelect: () => openBill(contextMenu.account),
+                },
+                ...(contextMenu.account.paymentStatus !== "paid" && !contextMenu.account.cancelledAt
+                  ? [{
+                      id: "payment" as const,
+                      label: "Collect Payment",
+                      onSelect: () => navigate(`/operator/billing?customerBillId=${contextMenu.account.id}`),
+                    },
+                    {
+                      id: "edit" as const,
+                      label: "Edit Customer Details",
+                      onSelect: () => {
+                        openBill(contextMenu.account);
+                        setIsEditingCustomer(true);
+                      },
+                    }]
+                  : []),
+                ...(canCancelBills && !contextMenu.account.cancelledAt
+                  ? [{
+                      id: "delete" as const,
+                      label: "Delete Bill",
+                      destructive: true,
+                      onSelect: () => {
+                        openBill(contextMenu.account);
+                        handleDeleteSelectedBill();
+                      },
+                    }]
+                  : []),
+              ] satisfies BillContextMenuAction[])}
+            />
+          )}
 
           {selectedAccount && (
             <div

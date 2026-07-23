@@ -11,48 +11,168 @@ import {
   Settings,
   SlidersHorizontal,
   WalletCards,
+  Wrench,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import BusinessSummaryCards from "@/features/sales/components/BusinessSummaryCards";
+import { useAdminModeStore } from "@/features/admin-mode/adminModeStore";
+import type { AppPermission } from "@/features/admin-mode/permissions";
 import { useCheckoutStore } from "@/features/billing/store/checkoutStore";
 import { useBusinessDayStore } from "@/features/business-day/store/businessDayStore";
 import { calculateBusinessDaySummary } from "@/features/business-day/utils/businessDaySummary";
-import { useSalesStore } from "@/features/sales/store/salesStore";
+import { useCafeStore } from "@/features/cafe/store/cafeStore";
 import { useExpensesStore } from "@/features/expenses/store/expensesStore";
 import { useOutsidePurchaseStore } from "@/features/outside-purchases/store/outsidePurchaseStore";
-import { useCafeStore } from "@/features/cafe/store/cafeStore";
+import BusinessSummaryCards from "@/features/sales/components/BusinessSummaryCards";
+import { useSalesStore } from "@/features/sales/store/salesStore";
+
+import { AdminNavigationCard } from "./components/AdminNavigationCard";
+
+interface AdminDestination {
+  title: string;
+  description: string;
+  path: string;
+  icon: LucideIcon;
+  permission: AppPermission;
+}
+
+const destinationGroups: Array<{
+  title: string;
+  description: string;
+  items: AdminDestination[];
+}> = [
+  {
+    title: "Reports",
+    description: "Review sales, profitability, and completed operating history.",
+    items: [
+      {
+        title: "Sales History",
+        description: "Review completed sales and payment records.",
+        path: "/admin/sales",
+        icon: ReceiptText,
+        permission: "view_management_reports",
+      },
+      {
+        title: "Profit / Loss",
+        description: "Review revenue, expenses, and profit.",
+        path: "/admin/profit-loss",
+        icon: BarChart3,
+        permission: "view_management_reports",
+      },
+      {
+        title: "Canteen Profit Report",
+        description: "Review canteen sales, cost, and profit.",
+        path: "/admin/canteen-profit",
+        icon: Coffee,
+        permission: "view_management_reports",
+      },
+      {
+        title: "Day History",
+        description: "Review completed Business Days.",
+        path: "/admin/day-history",
+        icon: CalendarDays,
+        permission: "view_management_reports",
+      },
+      {
+        title: "Table History",
+        description: "Review completed table and room sessions.",
+        path: "/admin/table-history",
+        icon: History,
+        permission: "view_management_reports",
+      },
+    ],
+  },
+  {
+    title: "Operations & Management",
+    description: "Maintain expenses, canteen products, deliveries, and accessories.",
+    items: [
+      {
+        title: "Expenses",
+        description: "Record and review club expenses.",
+        path: "/admin/expenses",
+        icon: WalletCards,
+        permission: "view_management_reports",
+      },
+      {
+        title: "Menu Management",
+        description: "Manage canteen products, prices, and stock tracking.",
+        path: "/admin/menu",
+        icon: Coffee,
+        permission: "manage_canteen",
+      },
+      {
+        title: "Vendor Restocking",
+        description: "Record packaged-product deliveries and stock increases.",
+        path: "/admin/menu/vendor-restocking",
+        icon: PackagePlus,
+        permission: "manage_vendor_restocking",
+      },
+      {
+        title: "Accessories Management",
+        description: "Manage accessory products, prices, and stock.",
+        path: "/admin/accessories",
+        icon: Package,
+        permission: "manage_inventory",
+      },
+    ],
+  },
+  {
+    title: "Settings & System",
+    description: "Configure the club, application preferences, and local data tools.",
+    items: [
+      {
+        title: "Club Settings",
+        description: "Manage club branding, rates, operators, and business defaults.",
+        path: "/operator/club-settings",
+        icon: SlidersHorizontal,
+        permission: "manage_settings",
+      },
+      {
+        title: "General Settings",
+        description: "Manage interface scale, density, theme, date, and time preferences.",
+        path: "/operator/general-settings",
+        icon: Settings,
+        permission: "manage_settings",
+      },
+      {
+        title: "Backup & Restore",
+        description: "Export or restore the local application data.",
+        path: "/operator/backup-restore",
+        icon: DatabaseBackup,
+        permission: "manage_backups",
+      },
+      {
+        title: "Developer Tools",
+        description: "Open testing and maintenance tools.",
+        path: "/admin/developer-tools",
+        icon: Wrench,
+        permission: "manage_settings",
+      },
+    ],
+  },
+];
+
+function money(value: number) {
+  return `Rs. ${Math.round(value).toLocaleString()}`;
+}
 
 function AdminDashboard() {
   const navigate = useNavigate();
-  const pendingBillsCount =
-    useCheckoutStore(
-      (state) =>
-        state.pendingBills.filter(
-          (bill) =>
-            bill.status !== "cancelled"
-        ).length
-    );
-  const pendingBills =
-    useCheckoutStore(
-      (state) => state.pendingBills
-    );
-  const sales = useSalesStore(
-    (state) => state.sales
+  const can = useAdminModeStore((state) => state.can);
+  const pendingBills = useCheckoutStore((state) => state.pendingBills);
+  const pendingBillsCount = pendingBills.filter(
+    (bill) => bill.status !== "cancelled",
+  ).length;
+  const sales = useSalesStore((state) => state.sales);
+  const expenses = useExpensesStore((state) => state.expenses);
+  const activeDay = useBusinessDayStore((state) => state.getActiveBusinessDay());
+  const outsidePurchases = useOutsidePurchaseStore((state) => state.purchases);
+  const vendorRestockingRecords = useCafeStore(
+    (state) => state.vendorRestockingRecords,
   );
-  const expenses = useExpensesStore(
-    (state) => state.expenses
-  );
-  const activeDay =
-    useBusinessDayStore((state) =>
-      state.getActiveBusinessDay()
-    );
-  const outsidePurchases = useOutsidePurchaseStore(
-    (state) => state.purchases
-  );
-  const vendorRestockingRecords = useCafeStore((state) => state.vendorRestockingRecords);
   const daySummary = activeDay
     ? calculateBusinessDaySummary({
         day: activeDay,
@@ -64,225 +184,79 @@ function AdminDashboard() {
       })
     : undefined;
 
+  const dayItems = [
+    { label: "Active Day / Operator", value: activeDay?.openedBy ?? "No active day" },
+    { label: "Current Day Sales", value: money(daySummary?.totalSales ?? 0) },
+    { label: "Current Day Expenses", value: money(daySummary?.totalExpenses ?? 0) },
+    { label: "Expected Cash", value: money(daySummary?.expectedCash ?? 0), accent: true },
+    { label: "Pending Bills", value: String(pendingBillsCount) },
+  ];
+
   return (
-    <main className="min-h-screen bg-slate-100 px-6 py-6">
-      <div className="mx-auto max-w-7xl">
-        <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-950">
-              Admin Dashboard
-            </h1>
-            <p className="text-sm text-slate-500">
-              Review sales, expenses, profit, and business reports.
-            </p>
-          </div>
+    <main className="min-h-screen bg-slate-100 px-4 py-5 sm:px-5 lg:px-6 lg:py-6">
+      <div className="mx-auto max-w-7xl space-y-5 lg:space-y-6">
+        <header>
+          <h1 className="text-2xl font-bold text-slate-950">Admin Dashboard</h1>
+          <p className="mt-1 text-sm text-slate-500">
+            Review sales, expenses, profit, and business reports.
+          </p>
+        </header>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              variant="outline"
-              className="gap-2"
-              size="lg"
-              onClick={() =>
-                navigate("/admin/sales")
-              }
-            >
-              <ReceiptText className="h-4 w-4" />
-              Sales History
-            </Button>
-
-            <Button
-              variant="outline"
-              className="gap-2"
-              size="lg"
-              onClick={() =>
-                navigate("/admin/profit-loss")
-              }
-            >
-              <BarChart3 className="h-4 w-4" />
-              Profit / Loss
-            </Button>
-
-            <Button
-              variant="outline"
-              className="gap-2"
-              size="lg"
-              onClick={() => navigate("/admin/canteen-profit")}
-            >
-              <Coffee className="h-4 w-4" />
-              Canteen Profit Report
-            </Button>
-
-            <Button
-              variant="outline"
-              className="gap-2"
-              size="lg"
-              onClick={() =>
-                navigate("/admin/day-history")
-              }
-            >
-              <CalendarDays className="h-4 w-4" />
-              Day History
-            </Button>
-
-            <Button
-              variant="outline"
-              className="gap-2"
-              size="lg"
-              onClick={() =>
-                navigate("/admin/table-history")
-              }
-            >
-              <History className="h-4 w-4" />
-              Table History
-            </Button>
-
-            <Button
-              variant="outline"
-              className="gap-2"
-              size="lg"
-              onClick={() =>
-                navigate("/admin/menu")
-              }
-            >
-              <Coffee className="h-4 w-4" />
-              Menu Management
-            </Button>
-
-            <Button
-              variant="outline"
-              className="gap-2"
-              size="lg"
-              onClick={() =>
-                navigate("/admin/menu/vendor-restocking")
-              }
-            >
-              <PackagePlus className="h-4 w-4" />
-              Vendor Restocking
-            </Button>
-
-            <Button
-              variant="outline"
-              className="gap-2"
-              size="lg"
-              onClick={() =>
-                navigate("/admin/accessories")
-              }
-            >
-              <Package className="h-4 w-4" />
-              Accessories Management
-            </Button>
-
-            <Button
-              variant="outline"
-              className="gap-2"
-              size="lg"
-              onClick={() =>
-                navigate("/operator/club-settings")
-              }
-            >
-              <SlidersHorizontal className="h-4 w-4" />
-              Club Settings
-            </Button>
-
-            <Button
-              variant="outline"
-              className="gap-2"
-              size="lg"
-              onClick={() =>
-                navigate("/operator/backup-restore")
-              }
-            >
-              <DatabaseBackup className="h-4 w-4" />
-              Backup & Restore
-            </Button>
-
-            <Button
-              variant="outline"
-              className="gap-2"
-              size="lg"
-              onClick={() =>
-                navigate("/admin/developer-tools")
-              }
-            >
-              <Settings className="h-4 w-4" />
-              Developer Tools
-            </Button>
-
-            <Button
-              variant="outline"
-              className="gap-2"
-              size="lg"
-              onClick={() =>
-                navigate("/admin/expenses")
-              }
-            >
-              <WalletCards className="h-4 w-4" />
-              Expenses
-            </Button>
-
-            <Button
-              className="gap-2 bg-emerald-950 hover:bg-emerald-900"
-              size="lg"
-              onClick={() =>
-                navigate("/operator")
-              }
-            >
-              <ArrowLeftRight className="h-4 w-4" />
-              Operator View
-            </Button>
-          </div>
-        </div>
-
-        <Card className="mb-4 p-4">
-          <div className="grid gap-4 md:grid-cols-5">
-            <div>
-              <p className="text-sm text-slate-500">
-                Active Day
-              </p>
-              <p className="mt-1 text-xl font-bold text-slate-950">
-                {activeDay
-                  ? activeDay.openedBy
-                  : "No active day"}
-              </p>
-            </div>
-            <div>
-              <p className="text-sm text-slate-500">
-                Current Day Sales
-              </p>
-              <p className="mt-1 text-xl font-bold text-slate-950">
-                Rs. {daySummary?.totalSales ?? 0}
-              </p>
-            </div>
-            <div>
-              <p className="text-sm text-slate-500">
-                Current Day Expenses
-              </p>
-              <p className="mt-1 text-xl font-bold text-slate-950">
-                Rs.{" "}
-                {daySummary?.totalExpenses ?? 0}
-              </p>
-            </div>
-            <div>
-              <p className="text-sm text-slate-500">
-                Expected Cash
-              </p>
-              <p className="mt-1 text-xl font-bold text-emerald-700">
-                Rs.{" "}
-                {daySummary?.expectedCash ?? 0}
-              </p>
-            </div>
-            <div>
-              <p className="text-sm text-slate-500">
-                Pending Bills
-              </p>
-              <p className="mt-1 text-xl font-bold text-slate-950">
-                {pendingBillsCount}
-              </p>
-            </div>
+        <Card className="p-4">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+            {dayItems.map((item) => (
+              <div key={item.label} className="min-w-0">
+                <p className="text-xs font-medium text-slate-500">{item.label}</p>
+                <p
+                  className={`mt-1 truncate text-lg font-bold tabular-nums ${
+                    item.accent ? "text-emerald-700" : "text-slate-950"
+                  }`}
+                  title={item.value}
+                >
+                  {item.value}
+                </p>
+              </div>
+            ))}
           </div>
         </Card>
 
         <BusinessSummaryCards />
+
+        {destinationGroups.map((group) => {
+          const visibleItems = group.items.filter((item) => can(item.permission));
+          if (visibleItems.length === 0) return null;
+
+          return (
+            <section key={group.title}>
+              <div className="mb-3">
+                <h2 className="text-lg font-bold text-slate-950">{group.title}</h2>
+                <p className="mt-0.5 text-sm text-slate-500">{group.description}</p>
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                {visibleItems.map((item) => (
+                  <AdminNavigationCard
+                    key={item.path}
+                    icon={item.icon}
+                    title={item.title}
+                    description={item.description}
+                    onClick={() => navigate(item.path)}
+                  />
+                ))}
+              </div>
+            </section>
+          );
+        })}
+
+        <div className="flex justify-end border-t border-slate-200 pt-4">
+          <Button
+            variant="outline"
+            className="gap-2"
+            onClick={() => navigate("/operator")}
+          >
+            <ArrowLeftRight className="h-4 w-4" />
+            Switch to Operator View
+          </Button>
+        </div>
       </div>
     </main>
   );
