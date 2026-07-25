@@ -13,6 +13,7 @@ import {
   WalletCards,
   ShieldCheck,
   CreditCard,
+  ShoppingBag,
   UserRound,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -104,6 +105,7 @@ const navigationGroups: NavigationGroup[] = [
       { label: "Customer Bills", path: "/operator/customer-bills", icon: ReceiptText },
       { label: "Collect Payment", path: "/operator/billing", icon: CreditCard, badge: "collect-payment" },
       { label: "Credit Ledger", path: "/operator/credit-ledger", icon: WalletCards, exact: true, badge: "credit-ledger" },
+      { label: "Customer Outside Purchases", path: "/operator/outside-purchases", icon: ShoppingBag, exact: true, badge: "outside-purchases" },
       { label: "Advance Games", path: "/operator/credit-ledger", hash: "#advance-games", icon: Trophy },
     ],
   },

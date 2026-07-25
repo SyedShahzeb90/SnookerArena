@@ -31,6 +31,7 @@ import VendorRestockingPage from "@/features/cafe/pages/VendorRestockingPage";
 import CanteenProfitReportPage from "@/features/reports/pages/CanteenProfitReportPage";
 import RequirePermission from "@/features/admin-mode/RequirePermission";
 import AccessoriesManagementPage from "@/features/accessories/pages/AccessoriesManagementPage";
+import OutsidePurchasesPage from "@/features/outside-purchases/pages/OutsidePurchasesPage";
 
 function App() {
   return (
@@ -82,6 +83,11 @@ function App() {
           <Route
             path="/operator/credit-ledger"
             element={<CreditLedgerPage />}
+          />
+
+          <Route
+            path="/operator/outside-purchases"
+            element={<OutsidePurchasesPage />}
           />
 
           <Route

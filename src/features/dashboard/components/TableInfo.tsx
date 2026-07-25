@@ -339,32 +339,24 @@ function TableInfo({
         : sessionPlayers.join(" / ");
 
     return (
-      <div className="space-y-2.5">
-        <div className="rounded-lg bg-slate-50 px-3 py-2.5">
-          <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
-            <Users className="h-4 w-4 shrink-0" />
-            {doubleTeams ? "Teams" : "Players"}
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2.5 rounded-md border border-slate-200 bg-white px-2.5 py-2">
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500">
+            <Users className="h-3.5 w-3.5 shrink-0" />
+            {doubleTeams ? "Teams" : "Player / Customer"}
           </div>
           <p
-            className="mt-1 truncate font-semibold text-slate-950"
+            className="mt-0.5 truncate text-sm font-semibold text-slate-950"
             title={identityLabel}
           >
             {identityLabel}
           </p>
         </div>
-        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5">
-          <div className="min-w-0">
-            <p className="text-xs font-medium text-slate-500">Current game</p>
-            <p className="mt-0.5 truncate font-semibold text-slate-950">
-              {getGameCountLabel() ?? session.sessionType}
-            </p>
-          </div>
-          <div className="text-right">
-            <p className="text-xs font-medium text-slate-500">Current Bill</p>
-            <p className="whitespace-nowrap text-xl font-bold tabular-nums text-slate-950">
-              Rs. {Math.round(currentBill).toLocaleString()}
-            </p>
-          </div>
+        <div className="shrink-0 text-right">
+          <p className="text-[11px] font-medium text-slate-500">Current Bill</p>
+          <p className="whitespace-nowrap text-lg font-bold tabular-nums text-slate-950">
+            Rs. {Math.round(currentBill).toLocaleString()}
+          </p>
         </div>
       </div>
     );

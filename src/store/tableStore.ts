@@ -673,7 +673,24 @@ function addSessionGameChargesToCustomers(
           opponent: effect.role === "winner" ? line.loserName : line.winnerName,
         };
         if (effect.advanceGamesDelta > 0) {
-          useAdvanceGamesStore.getState().earn(input);
+          const advanceStore = useAdvanceGamesStore.getState();
+          advanceStore.earn(input);
+          const settlementId = `FINAL-BILL-OFFSET-${session.id}-${line.id}-${index}`;
+          const gamesApplied =
+            customerStore.applyFinalGamesToExistingBill(
+              customerId,
+              effect.advanceGamesDelta,
+              settlementId
+            );
+
+          if (gamesApplied > 0) {
+            advanceStore.recordSessionOffset({
+              ...input,
+              transactionId: settlementId,
+              games: gamesApplied,
+            });
+            customerStore.markCustomerBillSettledByAdvance(customerId);
+          }
         } else {
           useAdvanceGamesStore.getState().recordSessionOffset(input);
         }

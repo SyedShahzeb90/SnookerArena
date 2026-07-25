@@ -124,7 +124,13 @@ export function calculateFinalSettlement(session: Session, sourceLines?: TableCh
 
   const settledLines = lines.map((line) => {
     if (!line.loserName && !line.losingTeam) return line;
-    const finalGames = line.isFinal && Number.isInteger(line.finalGames) && (line.finalGames ?? 0) > 0 ? line.finalGames! : 0;
+    const parsedFinalGames = Number(line.finalGames);
+    const finalGames =
+      line.isFinal &&
+      Number.isInteger(parsedFinalGames) &&
+      parsedFinalGames > 0
+        ? parsedFinalGames
+        : 0;
     const effects: FrameSettlementEffect[] = [];
     if (line.type === "singleGame") {
       const { loser, winner } = singleOwners(session, line);

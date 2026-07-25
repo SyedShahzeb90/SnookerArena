@@ -209,7 +209,11 @@ export function calculateBusinessDaySummary({
     (purchase) => purchase.businessDayId === day.id
   );
   const outsidePurchasesPaidFromDrawer = dayOutsidePurchases.reduce(
-    (total, purchase) => total + purchase.amountPaidFromDrawer,
+    (total, purchase) =>
+      total +
+      ((purchase.paymentMethod ?? "cash") === "cash"
+        ? purchase.amountPaidFromDrawer
+        : 0),
     0
   );
   const outsidePurchaseCashRestored = outsidePurchases
@@ -219,7 +223,11 @@ export function calculateBusinessDaySummary({
         purchase.cancelledBusinessDayId === day.id
     )
     .reduce(
-      (total, purchase) => total + purchase.amountPaidFromDrawer,
+      (total, purchase) =>
+        total +
+        ((purchase.paymentMethod ?? "cash") === "cash"
+          ? purchase.amountPaidFromDrawer
+          : 0),
       0
     );
   const dayReimbursements = outsidePurchases.flatMap(

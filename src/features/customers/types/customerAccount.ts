@@ -109,6 +109,9 @@ export interface CustomerAccount {
   advanceGamesApplied?: number;
   advanceReduction?: number;
   advanceApplicationId?: string;
+  finalGamesOffsetApplied?: number;
+  finalGamesOffsetReduction?: number;
+  finalGamesOffsetIds?: string[];
   lastTableName?: string;
   lastActivityAt?: string;
 }

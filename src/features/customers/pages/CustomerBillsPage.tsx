@@ -4,6 +4,7 @@ import {
   Package,
   ReceiptText,
   Search,
+  ShoppingBag,
   Trash2,
   X,
 } from "lucide-react";
@@ -24,6 +25,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { BillContextMenu, type BillContextMenuAction } from "@/components/ui/bill-context-menu";
 import { useToast } from "@/components/ui/toast";
 import { useBusinessDayStore } from "@/features/business-day/store/businessDayStore";
+import { paymentMethodLabels } from "@/features/business-day/types/businessDay";
 import { useSalesStore } from "@/features/sales/store/salesStore";
 import { useTableStore } from "@/store/tableStore";
 import { useCustomerAccountStore } from "../store/customerAccountStore";
@@ -38,6 +40,8 @@ import { useCafeStore } from "@/features/cafe/store/cafeStore";
 import { useTableHistoryStore } from "@/features/table-history/store/tableHistoryStore";
 import { useClubSettingsStore } from "@/features/settings/store/clubSettingsStore";
 import { useAdminModeStore } from "@/features/admin-mode/adminModeStore";
+import OutsidePurchaseDialog from "@/features/outside-purchases/components/OutsidePurchaseDialog";
+import { useOutsidePurchaseStore } from "@/features/outside-purchases/store/outsidePurchaseStore";
 import {
   compareChargeTimestamps,
   formatAppDate,
@@ -536,6 +540,9 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
     useBusinessDayStore((state) =>
       state.getActiveBusinessDay()
     );
+  const outsidePurchases = useOutsidePurchaseStore(
+    (state) => state.purchases
+  );
 
   const [search, setSearch] = useState("");
   const [dateFilter, setDateFilter] =
@@ -595,6 +602,8 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
     useState("");
   const [advanceGamesText, setAdvanceGamesText] =
     useState("1");
+  const [isOutsidePurchaseOpen, setIsOutsidePurchaseOpen] =
+    useState(false);
 
   useEffect(() => {
     splitGenericWalkInBills();
@@ -816,6 +825,44 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
   const selectedAccountIsCancelled = Boolean(selectedAccount?.cancelledAt);
   const selectedTotals = selectedAccount
     ? getBillTotals(selectedAccount)
+    : undefined;
+  const selectedOutsidePurchases = selectedAccount
+    ? outsidePurchases.filter(
+        (purchase) =>
+          purchase.customerAccountId === selectedAccount.id ||
+          purchase.customerId === selectedAccount.id
+      )
+    : [];
+  const selectedOutsidePurchaseContext = selectedAccount
+    ? {
+        tableId:
+          selectedAccount.gameCharges.find((charge) => charge.tableId)
+            ?.tableId ??
+          selectedAccount.cafeCharges.find((charge) => charge.tableId)
+            ?.tableId ??
+          selectedAccount.accessoryCharges?.find((charge) => charge.tableId)
+            ?.tableId ??
+          0,
+        tableName:
+          selectedAccount.lastTableName ||
+          selectedAccount.gameCharges.find((charge) => charge.tableName)
+            ?.tableName ||
+          selectedAccount.cafeCharges.find((charge) => charge.tableName)
+            ?.tableName ||
+          selectedAccount.accessoryCharges?.find(
+            (charge) => charge.tableName
+          )?.tableName ||
+          "No table",
+        sessionId:
+          selectedAccount.gameCharges.find((charge) => charge.sessionId)
+            ?.sessionId ||
+          selectedAccount.cafeCharges.find((charge) => charge.sessionId)
+            ?.sessionId ||
+          selectedAccount.accessoryCharges?.find(
+            (charge) => charge.sessionId
+          )?.sessionId ||
+          `CUSTOMER-BILL-${selectedAccount.id}`,
+      }
     : undefined;
   const selectedSessionSummary =
     selectedAccount
@@ -2113,6 +2160,84 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
                           }
                           placeholder="Phone optional"
                         />
+                        {(selectedAccount.paymentStatus === "unpaid" ||
+                          selectedOutsidePurchases.length > 0) && (
+                          <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div>
+                                <p className="font-bold text-slate-950">
+                                  Customer Outside Purchases
+                                </p>
+                                <p className="text-xs text-slate-600">
+                                  Record an outside item paid for this bill owner.
+                                </p>
+                              </div>
+                              {selectedAccount.paymentStatus === "unpaid" &&
+                                !selectedAccountIsCancelled && (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    className="gap-2"
+                                    onClick={() =>
+                                      setIsOutsidePurchaseOpen(true)
+                                    }
+                                  >
+                                    <ShoppingBag className="h-4 w-4" />
+                                    Add Outside Purchase
+                                  </Button>
+                                )}
+                            </div>
+
+                            <div className="mt-2 max-h-36 space-y-2 overflow-y-auto">
+                              {selectedOutsidePurchases.map((purchase) => (
+                                <div
+                                  key={purchase.id}
+                                  className="flex items-center justify-between gap-3 rounded-md border bg-white px-3 py-2 text-sm"
+                                >
+                                  <div className="min-w-0">
+                                    <p className="truncate font-semibold text-slate-950">
+                                      {purchase.description}
+                                    </p>
+                                    <p className="text-xs text-slate-500">
+                                      {purchase.status === "pending"
+                                        ? "Reimbursement Pending"
+                                        : purchase.status === "partial"
+                                          ? "Partially Reimbursed"
+                                          : purchase.status === "reimbursed"
+                                            ? "Reimbursed"
+                                            : "Cancelled"}
+                                      {" · "}
+                                      {purchase.paymentMethod
+                                        ? paymentMethodLabels[
+                                            purchase.paymentMethod
+                                          ]
+                                        : "Cash Drawer"}
+                                    </p>
+                                  </div>
+                                  <div className="shrink-0 text-right">
+                                    <p className="font-bold">
+                                      {formatCurrency(
+                                        purchase.amountPaidFromDrawer
+                                      )}
+                                    </p>
+                                    <p className="text-xs text-amber-700">
+                                      Outstanding{" "}
+                                      {formatCurrency(
+                                        purchase.outstandingAmount
+                                      )}
+                                    </p>
+                                  </div>
+                                </div>
+                              ))}
+
+                              {selectedOutsidePurchases.length === 0 && (
+                                <p className="text-sm text-slate-500">
+                                  No outside purchases attached to this bill.
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        )}
                         <div className="flex gap-2">
                           <Button
                             size="sm"
@@ -2454,6 +2579,7 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
                     )}
                   </div>
                 </section>
+
               </div>
 
               <div className="max-h-[52vh] space-y-1 overflow-y-auto border-t bg-white px-5 py-2.5 text-sm shadow-[0_-10px_24px_rgba(15,23,42,0.08)] [scrollbar-color:#cbd5e1_transparent] [scrollbar-width:thin]">
@@ -3018,6 +3144,24 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
               </div>
             );
           })()}
+
+        {selectedAccount && selectedOutsidePurchaseContext && (
+          <OutsidePurchaseDialog
+            open={isOutsidePurchaseOpen}
+            tableId={selectedOutsidePurchaseContext.tableId}
+            tableName={selectedOutsidePurchaseContext.tableName}
+            sessionId={selectedOutsidePurchaseContext.sessionId}
+            owners={[
+              {
+                customerId: selectedAccount.id,
+                customerAccountId: selectedAccount.id,
+                customerToken: selectedAccount.customerToken,
+                customerName: selectedAccount.customerName,
+              },
+            ]}
+            onOpenChange={setIsOutsidePurchaseOpen}
+          />
+        )}
       </div>
     </main>
   );

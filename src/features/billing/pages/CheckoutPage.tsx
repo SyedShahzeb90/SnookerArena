@@ -1844,17 +1844,17 @@ function CheckoutPage() {
           </div>{" "}
           <div className="max-h-[calc(100vh-22rem)] min-h-[220px] w-full overflow-x-auto overflow-y-auto overscroll-x-contain pb-2">
             {" "}
-            <table className="w-full min-w-[992px] table-fixed text-left text-sm">
+            <table className="w-full min-w-[900px] max-w-[1180px] table-fixed text-left text-sm">
               <colgroup>
-                <col className="w-[5rem]" />
-                <col className="w-[5rem]" />
-                <col className="w-[12rem]" />
-                <col className="w-[6rem]" />
-                <col className="w-[5rem]" />
-                <col className="w-[6rem]" />
-                <col className="w-[6rem]" />
-                <col className="w-[8rem]" />
+                <col className="w-[4.75rem]" />
+                <col className="w-[4.75rem]" />
                 <col className="w-[9rem]" />
+                <col className="w-[6.25rem]" />
+                <col className="w-[5.25rem]" />
+                <col className="w-[6rem]" />
+                <col className="w-[6rem]" />
+                <col className="w-[7.5rem]" />
+                <col className="w-[12rem]" />
               </colgroup>
               <thead className="sticky top-0 z-10 bg-slate-50 text-xs uppercase text-slate-500 shadow-sm">
                 <tr>
@@ -1864,7 +1864,7 @@ function CheckoutPage() {
                   <th className="whitespace-nowrap px-2 py-2.5 sm:px-3">
                     Ended At
                   </th>
-                  <th className="whitespace-nowrap px-3 py-2.5">
+                  <th className="whitespace-nowrap px-2 py-2.5">
                     Customer / Table
                   </th>
                   <th className="whitespace-nowrap px-2 py-2.5 text-right sm:px-3">Table Charges</th>
@@ -1872,7 +1872,7 @@ function CheckoutPage() {
                   <th className="whitespace-nowrap px-2 py-2.5 text-right sm:px-3">Accessories</th>
                   <th className="whitespace-nowrap px-2 py-2.5 text-right sm:px-3">Total</th>
                   <th className="whitespace-nowrap px-2 py-2.5 sm:px-3">Status</th>
-                  <th className="sticky right-0 z-20 whitespace-nowrap bg-slate-50 px-3 py-2.5 text-right shadow-[-8px_0_12px_-12px_rgba(15,23,42,0.35)] dark:bg-slate-900">Action</th>
+                  <th className="sticky right-0 z-20 whitespace-nowrap bg-slate-50 px-2 py-2.5 text-right shadow-[-8px_0_12px_-12px_rgba(15,23,42,0.35)] dark:bg-slate-900">Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -1964,7 +1964,7 @@ function CheckoutPage() {
                           </span>
                         )}
                       </td>
-                      <td className="overflow-hidden px-3 py-3 align-middle">
+                      <td className="max-w-[9rem] overflow-hidden px-2 py-3 align-middle">
                         <span
                           className="block truncate whitespace-nowrap font-semibold text-slate-950 dark:text-slate-100"
                           title={fullIdentityTitle}
@@ -2013,17 +2013,17 @@ function CheckoutPage() {
                         )}
                       </td>
                       <td
-                        className={`sticky right-0 z-10 px-3 py-3 text-right align-middle shadow-[-8px_0_12px_-12px_rgba(15,23,42,0.35)] ${
+                        className={`sticky right-0 z-10 px-2 py-3 text-right align-middle shadow-[-8px_0_12px_-12px_rgba(15,23,42,0.35)] ${
                           rowIsSelected
                             ? "bg-amber-50 dark:bg-amber-950"
                             : "bg-white group-hover:bg-slate-50 dark:bg-slate-950 dark:group-hover:bg-slate-800"
                         }`}
                       >
                         {row.type === "pending" || row.type === "account" ? (
-                          <div className="flex flex-wrap justify-end gap-1.5">
+                          <div className="flex flex-wrap justify-end gap-1">
                             <Button
                               size="sm"
-                              className="h-8 whitespace-nowrap px-2.5"
+                              className="h-8 whitespace-nowrap px-2"
                               variant={
                                 row.type === "pending" &&
                                 row.bill.status === "cancelled"
@@ -2046,7 +2046,7 @@ function CheckoutPage() {
                                   type="button"
                                   variant="outline"
                                   size="sm"
-                                  className="gap-1 whitespace-nowrap border-red-200 px-2.5 text-red-700 hover:bg-red-50"
+                                  className="gap-1 whitespace-nowrap border-red-200 px-2 text-red-700 hover:bg-red-50"
                                   onClick={(event) => {
                                     event.stopPropagation();
                                     handleCancelPendingBill(row.bill);
@@ -2060,7 +2060,7 @@ function CheckoutPage() {
                                 type="button"
                                 variant="outline"
                                 size="sm"
-                                className="gap-1 whitespace-nowrap border-red-200 px-2.5 text-red-700 hover:bg-red-50"
+                                className="gap-1 whitespace-nowrap border-red-200 px-2 text-red-700 hover:bg-red-50"
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   handleCancelAccountBill(row.account);

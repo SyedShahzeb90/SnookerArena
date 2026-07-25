@@ -167,6 +167,19 @@ export const useClubSettingsStore = create<ClubSettingsStore>()(
     }),
     {
       name: "snooker-arena-club-settings",
+      version: 1,
+      migrate: (persistedState, version) => {
+        if (version >= 1) return persistedState;
+
+        const stored = persistedState as Partial<ClubSettingsStore> | undefined;
+        return {
+          ...stored,
+          settings: {
+            ...(stored?.settings ?? {}),
+            runningTableCardView: "compact-expand" as const,
+          },
+        };
+      },
       merge: (persisted, current) => {
         const stored = persisted as Partial<ClubSettingsStore> | undefined;
         return {

@@ -10,6 +10,7 @@ import {
 import { useTableStore } from "@/store/tableStore";
 import { useCustomerAccountStore } from "@/features/customers/store/customerAccountStore";
 import { isWalkInName } from "@/features/sessions/utils/walkInLabel";
+import { editCurrentGameChargeLine } from "@/features/sessions/utils/editCurrentGameChargeLine";
 import { useClubSettingsStore } from "@/features/settings/store/clubSettingsStore";
 
 import type { Table } from "@/types/table";
@@ -222,30 +223,16 @@ function EditSessionDialog({
                           : settings.tableBookingRatePerMinute,
                     },
                   ]
-                : existingChargeLines.map((line, index, lines) =>
-                    index === lines.length - 1 &&
-                    nextGameLineType &&
-                    (line.type === "singleGame" || line.type === "doubleGame")
-                      ? {
-                          ...line,
-                          type: nextGameLineType,
-                          label:
-                            nextGameLineType === "doubleGame"
-                              ? "Double Game"
-                              : "Single Game",
-                          unitRate:
-                            nextGameLineType === "doubleGame"
-                              ? settings.doubleGameRate
-                              : settings.singleGameRate,
-                          amount:
-                            nextGameLineType === "doubleGame"
-                              ? settings.doubleGameRate
-                              : settings.singleGameRate,
-                          isFinal: data.isFinal,
-                          finalGames: data.isFinal ? data.finalGames : undefined,
-                        }
-                      : line
-                  );
+                : nextGameLineType
+                  ? editCurrentGameChargeLine({
+                      lines: existingChargeLines,
+                      type: nextGameLineType,
+                      singleGameRate: settings.singleGameRate,
+                      doubleGameRate: settings.doubleGameRate,
+                      isFinal: data.isFinal,
+                      finalGames: data.finalGames,
+                    })
+                  : existingChargeLines;
             const player1Name =
               data.player1.trim() ||
               "Walk-in Customer";

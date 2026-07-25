@@ -128,7 +128,7 @@ function OutsidePurchasesPanel() {
     <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-3">
         {[
-          ["Paid From Drawer", summary.paidFromDrawer],
+          ["Paid Out", summary.paidOut],
           ["Reimbursed", summary.reimbursed],
           ["Outstanding", summary.outstanding],
         ].map(([label, value]) => (
@@ -137,6 +137,13 @@ function OutsidePurchasesPanel() {
             <p className="mt-1 text-xl font-bold tabular-nums text-slate-950">{money(Number(value))}</p>
           </Card>
         ))}
+      </div>
+      <div className="flex flex-wrap gap-x-5 gap-y-2 rounded-md border bg-white px-4 py-3 text-sm">
+        <span className="font-semibold text-slate-700">Purchase Funding</span>
+        <span>Cash Drawer: <strong>{money(summary.fundingByMethod.cash)}</strong></span>
+        <span>Easypaisa: <strong>{money(summary.fundingByMethod.easypaisa)}</strong></span>
+        <span>JazzCash: <strong>{money(summary.fundingByMethod.jazzcash)}</strong></span>
+        <span>Card: <strong>{money(summary.fundingByMethod.card)}</strong></span>
       </div>
       <div className="flex flex-wrap gap-x-5 gap-y-2 rounded-md border bg-white px-4 py-3 text-sm">
         <span className="font-semibold text-slate-700">Customer Reimbursements</span>
@@ -172,7 +179,14 @@ function OutsidePurchasesPanel() {
                   <td className="px-3 py-3">{item.tableName}</td>
                   <td className="px-3 py-3 font-semibold">{item.customerName}</td>
                   <td className="px-3 py-3">{item.description}</td>
-                  <td className="px-3 py-3 font-semibold">{money(item.amountPaidFromDrawer)}</td>
+                  <td className="px-3 py-3 font-semibold">
+                    <span className="whitespace-nowrap">{money(item.amountPaidFromDrawer)}</span>
+                    <span className="block text-xs font-normal text-slate-500">
+                      {item.paymentMethod
+                        ? paymentMethodLabels[item.paymentMethod]
+                        : "Cash Drawer"}
+                    </span>
+                  </td>
                   <td className="px-3 py-3">{money(item.totalReimbursed)}</td>
                   <td className="px-3 py-3 font-bold text-amber-700">{money(item.outstandingAmount)}</td>
                   <td className="px-3 py-3"><span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700">{statusLabels[item.status]}</span></td>
@@ -209,7 +223,12 @@ function OutsidePurchasesPanel() {
         <DialogContent>
           <DialogHeader><DialogTitle>Void Customer Outside Purchase</DialogTitle></DialogHeader>
           <div className="grid gap-3">
-            <p className="text-sm text-slate-600">Confirm that {money(voiding?.amountPaidFromDrawer ?? 0)} was physically returned to the cash drawer.</p>
+            <p className="text-sm text-slate-600">
+              Confirm that {money(voiding?.amountPaidFromDrawer ?? 0)} was reversed through{" "}
+              {voiding?.paymentMethod
+                ? paymentMethodLabels[voiding.paymentMethod]
+                : "Cash Drawer"}.
+            </p>
             <div><Label>Reason</Label><Textarea value={reason} onChange={(event) => setReason(event.target.value)} /></div>
             {error && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
             <Button variant="destructive" onClick={submitVoid}>Confirm Void and Restore Cash</Button>
@@ -226,10 +245,11 @@ function OutsidePurchasesPanel() {
                 <span>Table: <strong>{selected.tableName}</strong></span>
                 <span>Customer: <strong>{selected.customerName}</strong></span>
                 <span>Paid out: <strong>{money(selected.amountPaidFromDrawer)}</strong></span>
+                <span>Paid using: <strong>{selected.paymentMethod ? paymentMethodLabels[selected.paymentMethod] : "Cash Drawer"}</strong></span>
                 <span>Outstanding: <strong>{money(selected.outstandingAmount)}</strong></span>
               </div>
               <div className="space-y-2 border-l-2 border-slate-200 pl-3">
-                <div><p className="font-semibold">{formatAppDateTime(selected.createdAt)}</p><p>{money(selected.amountPaidFromDrawer)} paid from cash drawer by {selected.operator}</p></div>
+                <div><p className="font-semibold">{formatAppDateTime(selected.createdAt)}</p><p>{money(selected.amountPaidFromDrawer)} paid through {selected.paymentMethod ? paymentMethodLabels[selected.paymentMethod] : "Cash Drawer"} by {selected.operator}</p></div>
                 {selected.reimbursements.map((item) => <div key={item.id}><p className="font-semibold">{formatAppDateTime(item.createdAt)}</p><p>{money(item.amount)} reimbursed through {paymentMethodLabels[item.paymentMethod]} by {item.operator}</p>{item.note && <p className="text-slate-500">{item.note}</p>}</div>)}
                 {selected.cancelledAt && <div><p className="font-semibold">{formatAppDateTime(selected.cancelledAt)}</p><p>Voided by {selected.cancelledBy}: {selected.cancellationReason}</p></div>}
               </div>

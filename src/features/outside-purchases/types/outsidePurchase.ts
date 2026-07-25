@@ -27,6 +27,7 @@ export interface OutsidePurchase {
   customerName: string;
   description: string;
   note?: string;
+  paymentMethod?: PaymentMethod;
   amountPaidFromDrawer: number;
   totalReimbursed: number;
   outstandingAmount: number;
@@ -52,6 +53,7 @@ export interface OutsidePurchaseInput {
   customerName: string;
   description: string;
   note?: string;
+  paymentMethod: PaymentMethod;
   amountPaidFromDrawer: number;
   operator: string;
   businessDayId: string;

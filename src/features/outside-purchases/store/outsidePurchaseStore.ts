@@ -184,7 +184,12 @@ export function getOutsidePurchaseSummary(purchases: OutsidePurchase[]) {
   return purchases.reduce(
     (summary, purchase) => {
       if (purchase.status === "cancelled") return summary;
-      summary.paidFromDrawer += purchase.amountPaidFromDrawer;
+      const paymentMethod = purchase.paymentMethod ?? "cash";
+      summary.paidOut += purchase.amountPaidFromDrawer;
+      summary.fundingByMethod[paymentMethod] += purchase.amountPaidFromDrawer;
+      if (paymentMethod === "cash") {
+        summary.paidFromDrawer += purchase.amountPaidFromDrawer;
+      }
       summary.reimbursed += purchase.totalReimbursed;
       summary.outstanding += purchase.outstandingAmount;
       purchase.reimbursements.forEach((item) => {
@@ -193,9 +198,11 @@ export function getOutsidePurchaseSummary(purchases: OutsidePurchase[]) {
       return summary;
     },
     {
+      paidOut: 0,
       paidFromDrawer: 0,
       reimbursed: 0,
       outstanding: 0,
+      fundingByMethod: { cash: 0, card: 0, jazzcash: 0, easypaisa: 0 },
       byMethod: { cash: 0, card: 0, jazzcash: 0, easypaisa: 0 },
     }
   );

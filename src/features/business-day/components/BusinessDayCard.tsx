@@ -118,7 +118,6 @@ function BusinessDayCard() {
     actualCashNumber - cashLeftNumber;
   const difference =
     actualCashNumber - expectedCash;
-
   const openStart = (prefill?: number) => {
     setOperatorId(activeOperators[0]?.id ?? "");
     setOpeningCash(
@@ -367,45 +366,16 @@ function BusinessDayCard() {
                 </div>
               </div>
 
-              <div className="flex h-[144px] flex-col rounded-lg border border-blue-100 bg-blue-50/40 p-3.5 dark:!border-blue-800 dark:!bg-blue-950/55">
+              <div className="flex h-[144px] flex-col rounded-lg border border-emerald-100 bg-emerald-50/40 p-3.5 dark:!border-emerald-800 dark:!bg-emerald-950/55">
                 <p className="text-xs font-semibold text-slate-500">
-                  Cash Position
+                  Canteen Sales Today
                 </p>
-                <div className="mt-auto space-y-1 pt-1 text-xs">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-slate-500">
-                      Opening Cash
-                    </span>
-                    <span className="font-semibold tabular-nums text-slate-800">
-                      {money(activeDay.openingCash)}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-slate-500">
-                      Cash Sales
-                    </span>
-                    <span className="font-semibold tabular-nums text-slate-800">
-                      {money(summary?.cashSales ?? 0)}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between gap-2 text-[11px]">
-                    <span className="whitespace-nowrap text-slate-500">Outside cash</span>
-                    <span className="whitespace-nowrap font-semibold tabular-nums text-slate-800">
-                      -{money(summary?.outsidePurchasesPaidFromDrawer ?? 0)} / +{money(
-                        (summary?.cashCustomerReimbursements ?? 0) +
-                          (summary?.digitalCustomerReimbursements ?? 0)
-                      )}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between gap-2 rounded-md bg-blue-100/50 px-2 py-1 dark:!bg-blue-900/80">
-                    <span className="text-slate-600 dark:!text-blue-100">
-                      Expected Cash
-                    </span>
-                    <span className="text-base font-bold text-blue-800 dark:!text-blue-200">
-                      {money(summary?.expectedCash ?? 0)}
-                    </span>
-                  </div>
-                </div>
+                <p className="mt-2 text-2xl font-bold text-emerald-700">
+                  {money(summary?.cafeSales ?? 0)}
+                </p>
+                <p className="mt-auto pt-2 text-xs text-slate-500">
+                  Paid canteen revenue
+                </p>
               </div>
 
               <button
@@ -720,6 +690,126 @@ function BusinessDayCard() {
           </div>
         </DialogContent>
       </Dialog>
+    </>
+  );
+}
+
+export function CashPositionSummaryCard() {
+  const activeDay = useBusinessDayStore((state) =>
+    state.getActiveBusinessDay()
+  );
+  const sales = useSalesStore((state) => state.sales);
+  const expenses = useExpensesStore((state) => state.expenses);
+  const pendingBills = useCheckoutStore((state) => state.pendingBills);
+  const outsidePurchases = useOutsidePurchaseStore((state) => state.purchases);
+  const vendorRestockingRecords = useCafeStore(
+    (state) => state.vendorRestockingRecords
+  );
+  const summary = useMemo(
+    () =>
+      activeDay
+        ? calculateBusinessDaySummary({
+            day: activeDay,
+            sales,
+            expenses,
+            pendingBills,
+            outsidePurchases,
+            vendorRestockingRecords,
+          })
+        : undefined,
+    [
+      activeDay,
+      expenses,
+      outsidePurchases,
+      pendingBills,
+      sales,
+      vendorRestockingRecords,
+    ]
+  );
+  const reimbursementBreakdown = [
+    ["Cash", summary?.cashCustomerReimbursements ?? 0],
+    ["Card", summary?.cardCustomerReimbursements ?? 0],
+    ["JazzCash", summary?.jazzCashCustomerReimbursements ?? 0],
+    ["Easypaisa", summary?.easypaisaCustomerReimbursements ?? 0],
+  ].filter(([, amount]) => Number(amount) > 0);
+  const totalReimbursed = reimbursementBreakdown.reduce(
+    (total, [, amount]) => total + Number(amount),
+    0
+  );
+
+  return (
+    <>
+      <Card className="flex min-h-[184px] flex-col rounded-lg border-blue-100 bg-blue-50/40 p-4 shadow-sm dark:!border-blue-800 dark:!bg-blue-950/55">
+        <div>
+          <p className="text-xs font-semibold text-slate-500">Cash Position</p>
+          <p className="mt-1 text-sm text-slate-500">
+            Physical drawer movement
+          </p>
+        </div>
+        <div className="mt-4 space-y-2 text-sm">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-slate-500">Opening Cash</span>
+            <strong className="whitespace-nowrap tabular-nums text-slate-800">
+              {money(activeDay?.openingCash ?? 0)}
+            </strong>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-slate-500">Cash Sales</span>
+            <strong className="whitespace-nowrap tabular-nums text-slate-800">
+              {money(summary?.cashSales ?? 0)}
+            </strong>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-slate-500">Outside Cash Paid</span>
+            <strong className="whitespace-nowrap tabular-nums text-red-700">
+              -{money(summary?.outsidePurchasesPaidFromDrawer ?? 0)}
+            </strong>
+          </div>
+        </div>
+        <div className="mt-auto flex items-center justify-between gap-3 rounded-md bg-blue-100/60 px-3 py-2 dark:!bg-blue-900/80">
+          <span className="font-medium text-slate-600 dark:!text-blue-100">
+            Expected Cash
+          </span>
+          <strong className="whitespace-nowrap text-xl text-blue-800 dark:!text-blue-200">
+            {money(summary?.expectedCash ?? activeDay?.openingCash ?? 0)}
+          </strong>
+        </div>
+      </Card>
+
+      <Card className="flex min-h-[184px] flex-col rounded-lg border-emerald-100 bg-emerald-50/40 p-4 shadow-sm dark:!border-emerald-800 dark:!bg-emerald-950/55">
+        <div>
+          <p className="text-xs font-semibold text-slate-500">
+            Customer Reimbursements
+          </p>
+          <p className="mt-1 text-2xl font-bold text-emerald-700">
+            {money(totalReimbursed)}
+          </p>
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-x-5 gap-y-1.5 text-xs">
+          {[
+            ["Cash", summary?.cashCustomerReimbursements ?? 0],
+            ["Easypaisa", summary?.easypaisaCustomerReimbursements ?? 0],
+            ["JazzCash", summary?.jazzCashCustomerReimbursements ?? 0],
+            ["Card", summary?.cardCustomerReimbursements ?? 0],
+          ].map(([method, amount]) => (
+            <div
+              key={String(method)}
+              className="flex items-center justify-between gap-2"
+            >
+              <span className="text-slate-500">{method}</span>
+              <strong className="whitespace-nowrap tabular-nums text-slate-800">
+                {money(Number(amount))}
+              </strong>
+            </div>
+          ))}
+        </div>
+        <div className="mt-auto flex items-center justify-between gap-3 border-t border-emerald-100 pt-2 text-xs dark:border-emerald-800">
+          <span className="text-slate-500">Still outstanding</span>
+          <strong className="whitespace-nowrap tabular-nums text-amber-700">
+            {money(summary?.outstandingCustomerReimbursements ?? 0)}
+          </strong>
+        </div>
+      </Card>
     </>
   );
 }

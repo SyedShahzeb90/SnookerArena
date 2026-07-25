@@ -258,7 +258,7 @@ function TableGrid() {
           </div>
 
           {section.items.length > 0 ? (
-            <div className="grid grid-cols-1 items-start gap-x-4 gap-y-5 md:grid-cols-2 xl:grid-cols-3">
+            <div className="grid grid-cols-1 items-start gap-3 min-[800px]:grid-cols-2 min-[1280px]:grid-cols-3 min-[1920px]:gap-4">
               {section.items.map((table) => (
                 <TableCard
                   key={table.id}

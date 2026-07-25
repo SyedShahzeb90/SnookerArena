@@ -120,6 +120,11 @@ interface CustomerAccountStore {
     games: number,
     applicationId: string
   ) => boolean;
+  applyFinalGamesToExistingBill: (
+    customerId: string,
+    games: number,
+    settlementId: string
+  ) => number;
   undoAdvanceGamesFromBill: (
     customerId: string,
     applicationId: string
@@ -210,13 +215,16 @@ function calculateTotals(
   > & {
     accessoryCharges?: CustomerAccessoryCharge[];
     advanceReduction?: number;
+    finalGamesOffsetReduction?: number;
   }
 ): CustomerTotals {
   const totalGameAmount =
     Math.max(0, account.gameCharges.reduce(
       (total, charge) => total + charge.amount,
       0
-    ) - (account.advanceReduction ?? 0));
+    ) -
+      (account.advanceReduction ?? 0) -
+      (account.finalGamesOffsetReduction ?? 0));
   const totalCafeAmount =
     account.cafeCharges
       .filter(
@@ -976,6 +984,72 @@ export const useCustomerAccountStore =
           return true;
         },
 
+        applyFinalGamesToExistingBill: (
+          customerId,
+          games,
+          settlementId
+        ) => {
+          const account = get().accounts.find(
+            (item) => item.id === customerId
+          );
+          if (
+            !account ||
+            account.status !== "active" ||
+            account.paymentStatus !== "unpaid" ||
+            !Number.isInteger(games) ||
+            games < 1 ||
+            (account.finalGamesOffsetIds ?? []).includes(settlementId)
+          ) {
+            return 0;
+          }
+
+          const totalGames = account.gameCharges.reduce(
+            (sum, charge) => sum + getChargeGameCount(charge),
+            0
+          );
+          const alreadyOffsetGames =
+            (account.advanceGamesApplied ?? 0) +
+            (account.finalGamesOffsetApplied ?? 0);
+          const appliedGames = Math.min(
+            games,
+            Math.max(0, totalGames - alreadyOffsetGames)
+          );
+
+          if (appliedGames < 1) return 0;
+
+          const previousReduction = getAdvanceReduction(
+            account.gameCharges,
+            alreadyOffsetGames
+          );
+          const nextReduction = getAdvanceReduction(
+            account.gameCharges,
+            alreadyOffsetGames + appliedGames
+          );
+          const now = new Date().toISOString();
+
+          set((state) => ({
+            accounts: state.accounts.map((item) =>
+              item.id === customerId
+                ? withTotals({
+                    ...item,
+                    finalGamesOffsetApplied:
+                      (item.finalGamesOffsetApplied ?? 0) + appliedGames,
+                    finalGamesOffsetReduction:
+                      (item.finalGamesOffsetReduction ?? 0) +
+                      (nextReduction - previousReduction),
+                    finalGamesOffsetIds: [
+                      ...(item.finalGamesOffsetIds ?? []),
+                      settlementId,
+                    ],
+                    updatedAt: now,
+                  })
+                : item
+            ),
+          }));
+
+          return appliedGames;
+        },
+
         undoAdvanceGamesFromBill: (customerId, applicationId) => {
           const account = get().accounts.find((item) => item.id === customerId);
           if (!account || account.status !== "active" || account.paymentStatus !== "unpaid" || account.advanceApplicationId !== applicationId) return false;
@@ -1039,7 +1113,10 @@ export const useCustomerAccountStore =
               if (
                 settledAccount.paymentStatus !== "unpaid" ||
                 settledAccount.grandTotal > 0 ||
-                !settledAccount.advanceGamesApplied
+                (
+                  !settledAccount.advanceGamesApplied &&
+                  !settledAccount.finalGamesOffsetApplied
+                )
               ) {
                 return account;
               }

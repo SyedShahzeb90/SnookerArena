@@ -11,6 +11,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useBusinessDayStore } from "@/features/business-day/store/businessDayStore";
+import { paymentMethodLabels } from "@/features/business-day/types/businessDay";
+import type { PaymentMethod } from "@/types/session";
 import { useOutsidePurchaseStore } from "../store/outsidePurchaseStore";
 
 export interface OutsidePurchaseOwner {
@@ -48,6 +50,7 @@ function OutsidePurchaseDialog({
   const [ownerIndex, setOwnerIndex] = useState("0");
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
   const submitting = useRef(false);
@@ -63,6 +66,7 @@ function OutsidePurchaseDialog({
     setOwnerIndex("0");
     setDescription("");
     setAmount("");
+    setPaymentMethod("cash");
     setNote("");
     setError("");
     submitting.current = false;
@@ -75,7 +79,7 @@ function OutsidePurchaseDialog({
     const parsedAmount = Number(amount);
 
     if (!activeDay) {
-      setError("Start the business day before paying cash from the drawer.");
+      setError("Start the business day before recording an outside purchase.");
       return;
     }
     if (!owner) {
@@ -87,7 +91,7 @@ function OutsidePurchaseDialog({
       return;
     }
     if (!amount.trim() || !Number.isFinite(parsedAmount) || parsedAmount <= 0) {
-      setError("Amount Paid From Drawer must be greater than zero.");
+      setError("Amount paid must be greater than zero.");
       return;
     }
 
@@ -100,6 +104,7 @@ function OutsidePurchaseDialog({
       ...owner,
       description,
       note,
+      paymentMethod,
       amountPaidFromDrawer: parsedAmount,
       operator: activeDay.openedBy,
       businessDayId: activeDay.id,
@@ -151,7 +156,22 @@ function OutsidePurchaseDialog({
             />
           </div>
           <div>
-            <Label>Amount Paid From Drawer</Label>
+            <Label>Paid Using</Label>
+            <select
+              className="h-10 w-full rounded-md border bg-white px-3 text-sm"
+              value={paymentMethod}
+              onChange={(event) =>
+                setPaymentMethod(event.target.value as PaymentMethod)
+              }
+            >
+              <option value="cash">Cash Drawer</option>
+              <option value="easypaisa">{paymentMethodLabels.easypaisa}</option>
+              <option value="card">{paymentMethodLabels.card}</option>
+              <option value="jazzcash">{paymentMethodLabels.jazzcash}</option>
+            </select>
+          </div>
+          <div>
+            <Label>Amount Paid</Label>
             <Input
               type="number"
               min="0.01"
@@ -173,7 +193,9 @@ function OutsidePurchaseDialog({
             <Button variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button onClick={confirm}>Confirm Cash Paid Out</Button>
+            <Button onClick={confirm}>
+              Confirm {paymentMethodLabels[paymentMethod]} Paid Out
+            </Button>
           </div>
         </div>
       </DialogContent>

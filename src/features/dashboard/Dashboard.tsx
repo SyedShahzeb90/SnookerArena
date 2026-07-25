@@ -180,6 +180,7 @@ export function TablesRoomsPage() {
           title="Tables & Rooms"
           description="Manage active sessions, availability, and table bookings."
         />
+        <TestDataBanner />
         <TableStatusStats />
         <section>
           <div className="mb-4 flex flex-col gap-3 border-b border-slate-200 pb-3 sm:flex-row sm:items-end sm:justify-between">

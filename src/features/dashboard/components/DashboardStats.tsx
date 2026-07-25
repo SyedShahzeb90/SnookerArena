@@ -9,6 +9,7 @@ import { useCafeStore } from "@/features/cafe/store/cafeStore";
 import { useSalesStore } from "@/features/sales/store/salesStore";
 import { calculatePaymentTotals } from "@/features/sales/utils/salesReports";
 import { useTableStore } from "@/store/tableStore";
+import { CashPositionSummaryCard } from "@/features/business-day/components/BusinessDayCard";
 
 import { DashboardMetricCard } from "./DashboardMetricCard";
 
@@ -67,7 +68,6 @@ function useDashboardStats() {
         isToday(sale.paidAt ?? sale.createdAt),
     ),
   );
-
   return {
     total,
     standardTableCount,
@@ -87,15 +87,8 @@ function useDashboardStats() {
 }
 
 export function BusinessDayStats() {
-  const { todayCafeTotal, todayPaymentTotals } = useDashboardStats();
+  const { todayPaymentTotals } = useDashboardStats();
   const stats = [
-    {
-      label: "Canteen Sales Today",
-      value: money(todayCafeTotal),
-      tone: "text-emerald-700",
-      bg: "bg-emerald-50",
-      supportingText: "Paid canteen revenue",
-    },
     {
       label: "Digital Payments",
       value: money(
@@ -110,11 +103,13 @@ export function BusinessDayStats() {
         { label: "Easypaisa", value: money(todayPaymentTotals.easypaisa) },
         { label: "Card", value: money(todayPaymentTotals.card) },
       ],
+      supportingText: "Paid digital sales",
     },
   ];
 
   return (
-    <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
+    <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <CashPositionSummaryCard />
       {stats.map((stat) => (
         <DashboardMetricCard
           key={stat.label}

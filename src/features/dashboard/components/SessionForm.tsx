@@ -494,8 +494,18 @@ function SessionForm({
           !session.player4
       );
 
+      const currentLine =
+        session.tableChargeLines?.at(-1);
       setSessionType(
-        session.sessionType
+        currentLine?.type === "doubleGame"
+          ? "double"
+          : currentLine?.type === "singleGame"
+            ? "single"
+            : currentLine?.type === "tableBooking"
+              ? tableType === "private-room"
+                ? "private"
+                : "time"
+              : session.sessionType
       );
 
       setStartTime(
@@ -508,7 +518,6 @@ function SessionForm({
       setStartTimeEdited(false);
       setManualEndEnabled(false);
       setEndTime("");
-      const currentLine = session.tableChargeLines?.at(-1);
       setFinalEnabled(Boolean(currentLine?.isFinal));
       setFinalValue(currentLine?.isFinal ? String(currentLine.finalGames ?? "") : "");
       setTimeError("");

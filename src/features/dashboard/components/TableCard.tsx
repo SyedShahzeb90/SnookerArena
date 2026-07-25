@@ -793,16 +793,24 @@ const TableCard = forwardRef<TableCardHandle, Props>(function TableCard({
         }}
         className={`flex cursor-pointer flex-col rounded-lg shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 ${
           usesCompactExpandableView && !showRunningDetails
-            ? "min-h-[210px]"
+            ? "min-h-[184px] p-3"
             : "min-h-[230px]"
         } ${
-          isRunningOrPaused ? "p-4" : "p-5"
+          usesCompactExpandableView && !showRunningDetails
+            ? ""
+            : isRunningOrPaused
+              ? "p-4"
+              : "p-5"
         } ${runningTimeWarningClass}`}
       >
         {isRunningOrPaused ? (
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-3">
-              <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md ${
+          <div className={`flex items-start justify-between ${usesCompactExpandableView && !showRunningDetails ? "gap-2" : "gap-3"}`}>
+            <div className={`flex min-w-0 items-center ${usesCompactExpandableView && !showRunningDetails ? "gap-2" : "gap-3"}`}>
+              <div className={`flex shrink-0 items-center justify-center rounded-md ${
+                usesCompactExpandableView && !showRunningDetails
+                  ? "h-8 w-8"
+                  : "h-9 w-9"
+              } ${
                 table.status === "paused"
                   ? "bg-amber-50 text-amber-700"
                   : "bg-red-50 text-red-700"
@@ -827,7 +835,11 @@ const TableCard = forwardRef<TableCardHandle, Props>(function TableCard({
             </div>
             <div className="shrink-0 text-right">
               <p className="text-[11px] font-medium text-slate-500">Elapsed</p>
-              <p className={`font-mono text-2xl font-extrabold tabular-nums leading-tight ${elapsedTimerClass}`}>
+              <p className={`font-mono font-extrabold tabular-nums leading-tight ${
+                usesCompactExpandableView && !showRunningDetails
+                  ? "text-xl"
+                  : "text-2xl"
+              } ${elapsedTimerClass}`}>
                 {elapsed}
               </p>
             </div>
@@ -854,9 +866,15 @@ const TableCard = forwardRef<TableCardHandle, Props>(function TableCard({
           </div>
         )}
 
-        <div className={`${isRunningOrPaused ? "mt-3 space-y-3" : "mt-5 space-y-4"} flex flex-1 flex-col`}>
+        <div className={`${
+          usesCompactExpandableView && !showRunningDetails
+            ? "mt-2.5 space-y-2"
+            : isRunningOrPaused
+              ? "mt-3 space-y-3"
+              : "mt-5 space-y-4"
+        } flex flex-1 flex-col`}>
           {table.session && usesCompactExpandableView && !showRunningDetails && (
-            <div className="motion-fade-in space-y-3">
+            <div className="motion-fade-in space-y-2">
               <TableInfo
                 session={table.session}
                 tableId={table.id}
@@ -868,18 +886,8 @@ const TableCard = forwardRef<TableCardHandle, Props>(function TableCard({
                 onAccessoriesClick={onAccessoriesClick}
               />
 
-              {table.type !== "private-room" &&
-                ["singleGame", "doubleGame"].includes(
-                  table.session.tableChargeLines?.at(-1)?.type ?? ""
-                ) &&
-                table.session.tableChargeLines?.at(-1)?.isFinal && (
-                <div className="self-start rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-bold text-amber-800">
-                  Final {table.session.tableChargeLines.at(-1)?.finalGames}
-                </div>
-              )}
-
               {isRunningOrPaused && (
-                <div className="flex items-center justify-between rounded-md bg-slate-50 px-3 py-2">
+                <div className="flex items-center justify-between rounded-md bg-slate-50 px-2.5 py-1.5">
                   <p className="text-xs font-medium text-slate-500">
                     {currentFrameType === "tableBooking"
                       ? "Current booking"
@@ -891,7 +899,7 @@ const TableCard = forwardRef<TableCardHandle, Props>(function TableCard({
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-1.5">
                 {table.status === "payment-pending" ? (
                   <Button
                     className="h-9 gap-1.5"

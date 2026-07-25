@@ -1159,7 +1159,7 @@ function CafePage() {
         );
         setLastSavedTotal(null);
         if (returnToDashboard) {
-          navigate("/operator");
+          navigate("/operator/tables-rooms");
         }
         return;
       }
@@ -1252,7 +1252,7 @@ function CafePage() {
         );
         setLastSavedTotal(null);
         if (returnToDashboard) {
-          navigate("/operator");
+          navigate("/operator/tables-rooms");
         }
         return;
       }
@@ -1335,7 +1335,7 @@ function CafePage() {
         savedOrder.totalAmount
       );
       if (returnToDashboard) {
-        navigate("/operator");
+        navigate("/operator/tables-rooms");
       }
     } catch (error) {
       console.error(error);

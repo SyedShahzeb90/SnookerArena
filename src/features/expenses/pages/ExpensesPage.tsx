@@ -21,7 +21,6 @@ import ExpenseDialog from "../components/ExpenseDialog";
 import ExpenseSummaryCards from "../components/ExpenseSummaryCards";
 import { useExpensesStore } from "../store/expensesStore";
 import { useBusinessDayStore } from "@/features/business-day/store/businessDayStore";
-import OutsidePurchasesPanel from "@/features/outside-purchases/components/OutsidePurchasesPanel";
 import type { PaymentMethod } from "@/types/session";
 import type {
   Expense,
@@ -173,10 +172,6 @@ function ExpensesPage() {
     useState("");
   const [isCancelling, setIsCancelling] =
     useState(false);
-  const [activeTab, setActiveTab] = useState<
-    "expenses" | "outside-purchases"
-  >("expenses");
-
   useEffect(() => {
     if (messageTimeoutRef.current) {
       window.clearTimeout(
@@ -439,34 +434,16 @@ function ExpensesPage() {
             </p>
           </div>
 
-          {activeTab === "expenses" && <Button
+          <Button
             size="lg"
             className="gap-2 bg-red-700 hover:bg-red-800"
             onClick={handleAddClick}
           >
             <Plus className="h-4 w-4" />
             Add Expense
-          </Button>}
-        </div>
-
-        <div className="mb-5 flex w-fit rounded-md border border-slate-200 bg-white p-1">
-          <Button
-            variant={activeTab === "expenses" ? "default" : "ghost"}
-            className="h-9"
-            onClick={() => setActiveTab("expenses")}
-          >
-            Business Expenses
-          </Button>
-          <Button
-            variant={activeTab === "outside-purchases" ? "default" : "ghost"}
-            className="h-9"
-            onClick={() => setActiveTab("outside-purchases")}
-          >
-            Customer Outside Purchases
           </Button>
         </div>
 
-        {activeTab === "expenses" ? <>
         <ExpenseSummaryCards
           expenses={expenses}
         />
@@ -849,7 +826,6 @@ function ExpensesPage() {
             </table>
           </div>
         </Card>
-        </> : <OutsidePurchasesPanel />}
       </div>
 
       <ExpenseDialog
