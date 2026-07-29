@@ -10,7 +10,11 @@ import { calculateGamePrice } from "@/features/pricing/utils/calculateGamePrice"
 import { useCustomerAccountStore } from "@/features/customers/store/customerAccountStore";
 import { useSalesStore } from "@/features/sales/store/salesStore";
 import { createSaleFromTable } from "@/features/sales/utils/createSale";
-import { getSessionPlayers } from "@/features/sessions/utils/sessionPlayers";
+import {
+  getSessionParticipantKey,
+  getSessionPlayerEntries,
+  getSessionPlayers,
+} from "@/features/sessions/utils/sessionPlayers";
 import {
   calculateDoubleGamePayerBreakdown,
   calculateTableChargeLinePayerBreakdown,
@@ -115,34 +119,19 @@ function buildPlayerBreakdown(
   tableAmount: number,
   tableChargeLines: TableChargeLine[] = []
 ) {
-  const players = [
-    {
-      playerName: session.player1,
-      customerId: session.player1CustomerId,
-    },
-    {
-      playerName: session.player2,
-      customerId: session.player2CustomerId,
-    },
-    {
-      playerName: session.player3,
-      customerId: session.player3CustomerId,
-    },
-    {
-      playerName: session.player4,
-      customerId: session.player4CustomerId,
-    },
-  ].filter(
-    (player): player is {
-      playerName: string;
-      customerId: string | undefined;
-    } => Boolean(player.playerName?.trim())
-  );
-  return players.map(({ playerName, customerId }) => {
+  const players = getSessionPlayerEntries(session);
+  return players.map(({ name: playerName, customerId, slot }) => {
     const cafeItems =
       getPlayerCafeItems(
         session,
-        playerName
+        {
+          playerName,
+          customerId,
+          participantKey: getSessionParticipantKey(
+            session.id,
+            slot
+          ),
+        }
       );
     const cafeAmount =
       cafeItems.reduce(
@@ -259,8 +248,6 @@ function createInitialChargeLine(
 ): TableChargeLine {
   const type =
     sessionTypeToChargeLineType(sessionType);
-  const endedAt =
-    type === "tableBooking" ? undefined : startedAt;
   const settings = useClubSettingsStore.getState().settings;
   const unitRate =
     type === "singleGame"
@@ -277,19 +264,12 @@ function createInitialChargeLine(
     type,
     label: getChargeLineLabel(type, tableType),
     startedAt: startedAt.toISOString(),
-    endedAt: endedAt?.toISOString(),
-    durationMinutes:
-      type === "tableBooking" ? undefined : 0,
+    endedAt: undefined,
+    durationMinutes: undefined,
     amount:
       type === "tableBooking"
         ? 0
-        : getChargeLineAmount({
-            type,
-            tableType,
-            startedAt,
-            endedAt: endedAt!,
-            unitRate,
-          }),
+        : unitRate,
     unitRate,
     isFinal: Boolean(final?.isFinal),
     finalGames: final?.isFinal ? final.finalGames : undefined,
@@ -301,11 +281,18 @@ function finalizeChargeLine(
   tableType: Table["type"],
   endedAt: Date
 ): TableChargeLine {
-  if (line.endedAt && line.type !== "tableBooking") {
+  const startedAt = new Date(line.startedAt);
+  const storedEndedAt = line.endedAt
+    ? new Date(line.endedAt)
+    : undefined;
+
+  if (
+    storedEndedAt &&
+    storedEndedAt.getTime() > startedAt.getTime()
+  ) {
     return line;
   }
 
-  const startedAt = new Date(line.startedAt);
   const durationMinutes = Math.max(
     0,
     Math.ceil(
@@ -363,9 +350,14 @@ function getFinalTableChargeLines(
     session.tableChargeLines ?? [];
 
   if (existingLines.length > 0) {
-    return existingLines.map((line) =>
-      finalizeChargeLine(line, table.type, endedAt)
-    );
+    return existingLines.map((line, index) => {
+      const nextLine = existingLines[index + 1];
+      const lineEndedAt = nextLine
+        ? new Date(nextLine.startedAt)
+        : endedAt;
+
+      return finalizeChargeLine(line, table.type, lineEndedAt);
+    });
   }
 
   return [
@@ -655,16 +647,30 @@ function addSessionGameChargesToCustomers(
 
     });
 
+    const remainingAdvanceAwards = new Map(
+      settlement.owners.map((owner) => [
+        owner.customerId || owner.key,
+        owner.advanceGames,
+      ])
+    );
+
     settlement.lines.forEach((line) => {
       (line.settlement ?? []).forEach((effect, index) => {
         if (effect.advanceGamesDelta === 0 || isWalkInName(effect.customerName)) return;
         const customerId = resolvedCustomerIds.get(effect.customerId);
         if (!customerId) return;
+        const remainingAdvance =
+          remainingAdvanceAwards.get(effect.customerId) ?? 0;
+        const games =
+          effect.advanceGamesDelta > 0
+            ? Math.min(effect.advanceGamesDelta, remainingAdvance)
+            : Math.abs(effect.advanceGamesDelta);
+        if (games === 0) return;
         const input = {
           transactionId: `ADV-${effect.advanceGamesDelta > 0 ? "EARN" : "OFFSET"}-${session.id}-${line.id}-${index}`,
           customerId,
           customerName: effect.customerName,
-          games: Math.abs(effect.advanceGamesDelta),
+          games,
           tableId: table.id,
           tableName: table.name,
           sessionId: session.id,
@@ -673,24 +679,14 @@ function addSessionGameChargesToCustomers(
           opponent: effect.role === "winner" ? line.loserName : line.winnerName,
         };
         if (effect.advanceGamesDelta > 0) {
-          const advanceStore = useAdvanceGamesStore.getState();
-          advanceStore.earn(input);
-          const settlementId = `FINAL-BILL-OFFSET-${session.id}-${line.id}-${index}`;
-          const gamesApplied =
-            customerStore.applyFinalGamesToExistingBill(
-              customerId,
-              effect.advanceGamesDelta,
-              settlementId
-            );
-
-          if (gamesApplied > 0) {
-            advanceStore.recordSessionOffset({
-              ...input,
-              transactionId: settlementId,
-              games: gamesApplied,
-            });
-            customerStore.markCustomerBillSettledByAdvance(customerId);
-          }
+          remainingAdvanceAwards.set(
+            effect.customerId,
+            Math.max(0, remainingAdvance - games)
+          );
+          useAdvanceGamesStore.getState().stageEarn({
+            ...input,
+            billId: customerId,
+          });
         } else {
           useAdvanceGamesStore.getState().recordSessionOffset(input);
         }
@@ -1083,6 +1079,15 @@ export const useTableStore =
           };
 
           if (data.endTime) {
+            session = {
+              ...session,
+              tableChargeLines: getFinalTableChargeLines(
+                table,
+                session,
+                data.endTime
+              ),
+            };
+
             if (table.id >= 1 && table.id <= 7 && (session.sessionType === "single" || session.sessionType === "double")) {
               const settlement = calculateFinalSettlement(session);
               const settledAt = new Date().toISOString();
@@ -1460,8 +1465,6 @@ export const useTableStore =
                   losingTeam,
                 };
           });
-          const endedAt =
-            type === "tableBooking" ? undefined : now;
           const settings = useClubSettingsStore.getState().settings;
           const unitRate =
             type === "singleGame"
@@ -1480,21 +1483,12 @@ export const useTableStore =
               table.type
             ),
             startedAt: now.toISOString(),
-            endedAt: endedAt?.toISOString(),
-            durationMinutes:
-              type === "tableBooking"
-                ? undefined
-                : 0,
+            endedAt: undefined,
+            durationMinutes: undefined,
             amount:
               type === "tableBooking"
                 ? 0
-                : getChargeLineAmount({
-                    type,
-                    tableType: table.type,
-                    startedAt: now,
-                    endedAt: endedAt!,
-                    unitRate,
-                  }),
+                : unitRate,
             unitRate,
             isFinal: Boolean(isFinal),
             finalGames: isFinal ? finalGames : undefined,

@@ -1,61 +1,128 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
+import { useAdvanceGamesStore } from "@/features/advance-games/store/advanceGamesStore";
 import { useCustomerAccountStore } from "./customerAccountStore";
 
-describe("Final game offsets on existing customer bills", () => {
+describe("customer bill advance award lifecycle", () => {
   beforeEach(() => {
-    useCustomerAccountStore.getState().resetCustomerAccountsForTesting();
+    useCustomerAccountStore
+      .getState()
+      .resetCustomerAccountsForTesting();
+    useAdvanceGamesStore
+      .getState()
+      .resetAdvanceGamesStore();
   });
 
-  it("clears two existing games exactly once after winning Final 2", () => {
-    const store = useCustomerAccountStore.getState();
-    const account = store.createCustomerAccount({
-      customerName: "adeel",
-    });
+  it("releases a pending award only when its linked bill is paid", () => {
+    const winner = useCustomerAccountStore
+      .getState()
+      .createCustomerAccount({
+        customerName: "Winner",
+      });
+    const loser = useCustomerAccountStore
+      .getState()
+      .createCustomerAccount({
+        customerName: "Loser",
+      });
 
-    store.addGameChargeToCustomer({
-      customerId: account.id,
-      customerName: "adeel",
-      sessionId: "OLD-SESSION",
+    useAdvanceGamesStore.getState().stageEarn({
+      transactionId: "ADV-SESSION-1-FRAME-1",
+      customerId: winner.id,
+      customerName: winner.customerName,
+      games: 3,
       tableId: 1,
       tableName: "Table 1",
-      tableType: "table",
-      sessionType: "single",
-      startedAt: "2026-07-24T00:00:00.000Z",
-      endedAt: "2026-07-24T00:20:00.000Z",
-      durationMinutes: 20,
-      payerName: "adeel",
-      amount: 600,
-      shareType: "full",
-      gameCount: 2,
-      originalAmount: 600,
-      sourceFrameIds: ["FRAME-1", "FRAME-2"],
+      sessionId: "SESSION-1",
+      frameId: "FRAME-1",
+      finalGames: 3,
+      billId: winner.id,
     });
-
-    expect(
-      store.applyFinalGamesToExistingBill(
-        account.id,
-        2,
-        "FINAL-2-WIN"
-      )
-    ).toBe(2);
-    expect(
-      useCustomerAccountStore.getState().getCustomerById(account.id)
-        ?.totalGameAmount
-    ).toBe(0);
 
     useCustomerAccountStore
       .getState()
-      .markCustomerBillSettledByAdvance(account.id);
-    expect(
-      useCustomerAccountStore.getState().getCustomerById(account.id)
-        ?.paymentStatus
-    ).toBe("paid");
+      .markCustomerBillPaid({
+        customerId: loser.id,
+        paymentMethod: "cash",
+      });
 
     expect(
-      useCustomerAccountStore
+      useAdvanceGamesStore
         .getState()
-        .applyFinalGamesToExistingBill(account.id, 2, "FINAL-2-WIN")
+        .getBalance(winner.id)
     ).toBe(0);
+    expect(
+      useAdvanceGamesStore.getState().pendingAwards
+    ).toHaveLength(1);
+
+    useCustomerAccountStore
+      .getState()
+      .markCustomerBillPaid({
+        customerId: winner.id,
+        paymentMethod: "cash",
+      });
+
+    expect(
+      useAdvanceGamesStore
+        .getState()
+        .getBalance(winner.id)
+    ).toBe(3);
+    expect(
+      useAdvanceGamesStore.getState().pendingAwards
+    ).toHaveLength(0);
+
+    useCustomerAccountStore
+      .getState()
+      .markCustomerBillPaid({
+        customerId: winner.id,
+        paymentMethod: "cash",
+      });
+    expect(
+      useAdvanceGamesStore
+        .getState()
+        .getBalance(winner.id)
+    ).toBe(3);
+  });
+
+  it("deleting one bill cancels only that bill's staged award", () => {
+    const first = useCustomerAccountStore
+      .getState()
+      .createCustomerAccount({
+        customerName: "First",
+      });
+    const second = useCustomerAccountStore
+      .getState()
+      .createCustomerAccount({
+        customerName: "Second",
+      });
+
+    for (const [index, account] of [
+      first,
+      second,
+    ].entries()) {
+      useAdvanceGamesStore.getState().stageEarn({
+        transactionId: `ADV-SHARED-${index}`,
+        customerId: account.id,
+        customerName: account.customerName,
+        games: index + 2,
+        tableId: 1,
+        tableName: "Table 1",
+        sessionId: "SHARED-SESSION",
+        frameId: `FRAME-${index}`,
+        finalGames: index + 2,
+        billId: account.id,
+      });
+    }
+
+    useCustomerAccountStore
+      .getState()
+      .deleteCustomerAccount(first.id);
+
+    expect(
+      useAdvanceGamesStore.getState().pendingAwards
+    ).toEqual([
+      expect.objectContaining({
+        billId: second.id,
+      }),
+    ]);
   });
 });

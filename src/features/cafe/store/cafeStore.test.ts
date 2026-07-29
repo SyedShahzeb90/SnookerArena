@@ -178,6 +178,134 @@ describe("running table cafe orders", () => {
     ).toHaveLength(2);
   });
 
+  it("keeps same-name player orders separate across a legitimate customer ID change", async () => {
+    const { useCafeStore } = await loadStores();
+    const player1Key = "S1:player1";
+    const player2Key = "S1:player2";
+
+    useCafeStore
+      .getState()
+      .addItemToPlayer(
+        1,
+        "S1",
+        "Ali",
+        tea,
+        "OLD-CUST-1",
+        player1Key
+      );
+
+    expect(
+      useCafeStore
+        .getState()
+        .getPlayerOrder(
+          1,
+          "Ali",
+          "NEW-CUST-1",
+          "S1",
+          player1Key
+        )
+        ?.totalAmount
+    ).toBe(100);
+    expect(
+      useCafeStore
+        .getState()
+        .getPlayerOrder(
+          1,
+          "Ali",
+          "CUST-2",
+          "S1",
+          player2Key
+        )
+    ).toBeUndefined();
+
+    useCafeStore
+      .getState()
+      .addItemToPlayer(
+        1,
+        "S1",
+        "Ali",
+        fries,
+        "CUST-2",
+        player2Key
+      );
+
+    expect(
+      useCafeStore
+        .getState()
+        .getPlayerOrder(
+          1,
+          "Ali",
+          "NEW-CUST-1",
+          "S1",
+          player1Key
+        )
+        ?.totalAmount
+    ).toBe(100);
+    expect(
+      useCafeStore
+        .getState()
+        .getPlayerOrder(
+          1,
+          "Ali",
+          "CUST-2",
+          "S1",
+          player2Key
+        )
+        ?.totalAmount
+    ).toBe(250);
+  });
+
+  it("finds a saved same-name cafe order by participant key after its customer ID changes", async () => {
+    const { useCafeStore } = await loadStores();
+    const participantKey = "S1:player1";
+
+    useCafeStore
+      .getState()
+      .addItemToPlayer(
+        1,
+        "S1",
+        "Ali",
+        tea,
+        "OLD-CUST-1",
+        participantKey
+      );
+    useCafeStore.getState().saveOrder({
+      tableId: 1,
+      tableName: "Table 1",
+      sessionId: "S1",
+      customerName: "Ali",
+      customerAccountId: "OLD-CUST-1",
+      participantKey,
+      orderItems:
+        useCafeStore
+          .getState()
+          .getPlayerOrder(
+            1,
+            "Ali",
+            "OLD-CUST-1",
+            "S1",
+            participantKey
+          )
+          ?.orderItems ?? [],
+    });
+
+    const savedOrder =
+      useCafeStore
+        .getState()
+        .getSavedOrderForTable(
+          1,
+          "S1",
+          "Ali",
+          "NEW-CUST-1",
+          participantKey
+        );
+
+    expect(savedOrder?.totalAmount).toBe(100);
+    expect(savedOrder?.participantKey).toBe(
+      participantKey
+    );
+  });
+
   it("updates the active session aggregate cafe total for both players", async () => {
     const { useCafeStore, useTableStore } =
       await loadStores();

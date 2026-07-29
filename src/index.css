@@ -170,6 +170,30 @@
     animation: motion-fade-in 220ms ease-out both;
   }
 
+  .table-card-selection {
+    transition:
+      border-color 210ms ease-out,
+      background-color 210ms ease-out,
+      box-shadow 210ms ease-out,
+      transform 210ms ease-out;
+  }
+
+  .table-card-selection[data-details-selected="true"] {
+    transform: translateY(-2px);
+    box-shadow:
+      0 10px 24px -16px rgb(15 23 42 / 0.42),
+      0 3px 8px -5px rgb(15 23 42 / 0.22);
+  }
+
+  .table-details-enter {
+    animation: table-details-enter 130ms ease-out both;
+  }
+
+  .table-details-exit {
+    pointer-events: none;
+    animation: table-details-exit 90ms ease-in both;
+  }
+
   .motion-menu-in {
     animation: motion-menu-in 180ms ease-out both;
   }
@@ -182,9 +206,50 @@
     animation: motion-row-in 180ms ease-out both;
   }
 
+  .motion-value-change {
+    animation: motion-value-change 220ms ease-out both;
+  }
+
+  .motion-item-in {
+    animation: motion-item-in 200ms ease-out both;
+  }
+
+  .summary-metric-attention-running {
+    animation: summary-metric-attention-running 500ms ease-out;
+  }
+
+  .summary-metric-attention-pending {
+    animation: summary-metric-attention-pending 500ms ease-out;
+  }
+
+  .table-filter-transition {
+    transition:
+      opacity 100ms ease,
+      transform 100ms ease;
+  }
+
+  .table-filter-transition[data-filter-transition="out"] {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  .table-filter-transition[data-filter-transition="in"] {
+    animation: table-filter-enter 120ms ease-out both;
+  }
+
   @keyframes motion-fade-in {
     from { opacity: 0; }
     to { opacity: 1; }
+  }
+
+  @keyframes table-details-enter {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes table-details-exit {
+    from { opacity: 1; transform: translateY(0); }
+    to { opacity: 0; transform: translateY(-6px); }
   }
 
   @keyframes motion-menu-in {
@@ -200,6 +265,63 @@
   @keyframes motion-row-in {
     from { opacity: 0; transform: translateY(3px); }
     to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes motion-value-change {
+    0% {
+      opacity: 0.45;
+      transform: translateY(5px);
+      background-color: rgb(219 234 254 / 0.75);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0);
+      background-color: transparent;
+    }
+  }
+
+  @keyframes motion-item-in {
+    0% {
+      opacity: 0;
+      transform: translateY(5px);
+      background-color: rgb(209 250 229 / 0.75);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0);
+      background-color: transparent;
+    }
+  }
+
+  @keyframes summary-metric-attention-running {
+    0%,
+    100% {
+      box-shadow: inset 0 0 0 0 rgb(16 185 129 / 0);
+    }
+    35% {
+      box-shadow: inset 0 0 0 999px rgb(16 185 129 / 0.1);
+    }
+  }
+
+  @keyframes summary-metric-attention-pending {
+    0%,
+    100% {
+      box-shadow: inset 0 0 0 0 rgb(245 158 11 / 0);
+    }
+    35% {
+      box-shadow: inset 0 0 0 999px rgb(245 158 11 / 0.13);
+    }
+  }
+
+  @keyframes table-filter-enter {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 
   .dark .bg-white {

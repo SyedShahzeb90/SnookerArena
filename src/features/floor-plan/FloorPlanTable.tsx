@@ -233,11 +233,27 @@ function FloorPlanTable({
   return (
     <Card
       onClick={editMode ? undefined : onClick}
+      onKeyDown={(event) => {
+        if (
+          editMode ||
+          (event.key !== "Enter" && event.key !== " ")
+        ) {
+          return;
+        }
+
+        event.preventDefault();
+        onClick();
+      }}
       onPointerDown={
         editMode ? onPointerDown : undefined
       }
-      className={`absolute w-[clamp(135px,14vw,185px)] cursor-pointer select-none rounded-lg p-3 shadow-sm transition-all duration-200 hover:scale-[1.02] hover:shadow-xl ${timeWarningStyle.border} ${timeWarningStyle.card} ${
-        editMode ? "cursor-grab active:cursor-grabbing" : ""
+      role={editMode ? undefined : "button"}
+      tabIndex={editMode ? -1 : 0}
+      aria-label={`${table.name}, ${status.label}`}
+      className={`absolute w-[clamp(135px,14vw,185px)] select-none rounded-lg p-3 shadow-sm transition-[box-shadow,filter,background-color,border-color] duration-200 ${timeWarningStyle.border} ${timeWarningStyle.card} ${
+        editMode
+          ? "cursor-grab active:cursor-grabbing"
+          : "cursor-pointer hover:brightness-[0.98] hover:shadow-xl active:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
       }`}
       style={{
         left: `${position.x}%`,

@@ -44,12 +44,33 @@ interface EarnInput {
   operator?: string;
 }
 
+interface PendingAdvanceGameAward extends EarnInput {
+  billId: string;
+  stagedAt: string;
+}
+
 interface AdvanceGamesStore {
   transactions: AdvanceGameTransaction[];
+  pendingAwards: PendingAdvanceGameAward[];
   customersInClub: Record<string, boolean>;
   getBalance: (customerId: string) => number;
   setCustomerInClub: (customerId: string, isInClub: boolean) => void;
   earn: (input: EarnInput) => boolean;
+  stageEarn: (
+    input: EarnInput & { billId: string }
+  ) => boolean;
+  releasePendingAwardsForBill: (
+    billId: string
+  ) => number;
+  releasePendingAwardsForSession: (
+    sessionId: string
+  ) => number;
+  cancelPendingAwardsForBill: (
+    billId: string
+  ) => number;
+  cancelPendingAwardsForSession: (
+    sessionId: string
+  ) => number;
   recordSessionOffset: (input: EarnInput) => boolean;
   applyToBill: (input: {
     transactionId: string;
@@ -93,6 +114,7 @@ export const useAdvanceGamesStore = create<AdvanceGamesStore>()(
   persist(
     (set, get) => ({
       transactions: [],
+      pendingAwards: [],
       customersInClub: {},
       getBalance: (customerId) =>
         safeTransactions(get().transactions)
@@ -126,6 +148,161 @@ export const useAdvanceGamesStore = create<AdvanceGamesStore>()(
         };
         set((state) => ({ transactions: [transaction, ...(state.transactions ?? [])] }));
         return true;
+      },
+      stageEarn: (input) => {
+        if (!wholePositive(input.games)) return false;
+        if (
+          safeTransactions(get().transactions).some(
+            (item) => item.id === input.transactionId
+          ) ||
+          (get().pendingAwards ?? []).some(
+            (item) => item.transactionId === input.transactionId
+          )
+        ) {
+          return false;
+        }
+        set((state) => ({
+          pendingAwards: [
+            {
+              ...input,
+              stagedAt: new Date().toISOString(),
+            },
+            ...(state.pendingAwards ?? []),
+          ],
+        }));
+        return true;
+      },
+      releasePendingAwardsForBill: (billId) => {
+        const awards = (get().pendingAwards ?? []).filter(
+          (item) => item.billId === billId
+        );
+        if (awards.length === 0) return 0;
+        const existingIds = new Set(
+          safeTransactions(get().transactions).map(
+            (item) => item.id
+          )
+        );
+        const releasedAt = new Date().toISOString();
+        const transactions = awards
+          .filter(
+            (item) =>
+              !existingIds.has(item.transactionId)
+          )
+          .map<AdvanceGameTransaction>((item) => ({
+            id: item.transactionId,
+            type: "earned",
+            customerId: item.customerId,
+            customerName: item.customerName,
+            games: item.games,
+            balanceDelta: item.games,
+            createdAt: releasedAt,
+            tableId: item.tableId,
+            tableName: item.tableName,
+            sessionId: item.sessionId,
+            frameId: item.frameId,
+            finalGames: item.finalGames,
+            opponent: item.opponent,
+            operator: item.operator,
+            relatedBillId: item.billId,
+          }));
+        set((state) => ({
+          transactions: [
+            ...transactions,
+            ...safeTransactions(state.transactions),
+          ],
+          pendingAwards: (
+            state.pendingAwards ?? []
+          ).filter(
+            (item) => item.billId !== billId
+          ),
+        }));
+        return transactions.reduce(
+          (total, item) => total + item.games,
+          0
+        );
+      },
+      releasePendingAwardsForSession: (sessionId) => {
+        const awards = (get().pendingAwards ?? []).filter(
+          (item) => item.sessionId === sessionId
+        );
+        if (awards.length === 0) return 0;
+        const existingIds = new Set(
+          safeTransactions(get().transactions).map(
+            (item) => item.id
+          )
+        );
+        const releasedAt = new Date().toISOString();
+        const transactions = awards
+          .filter(
+            (item) =>
+              !existingIds.has(item.transactionId)
+          )
+          .map<AdvanceGameTransaction>((item) => ({
+            id: item.transactionId,
+            type: "earned",
+            customerId: item.customerId,
+            customerName: item.customerName,
+            games: item.games,
+            balanceDelta: item.games,
+            createdAt: releasedAt,
+            tableId: item.tableId,
+            tableName: item.tableName,
+            sessionId: item.sessionId,
+            frameId: item.frameId,
+            finalGames: item.finalGames,
+            opponent: item.opponent,
+            operator: item.operator,
+            relatedBillId: item.billId,
+          }));
+        set((state) => ({
+          transactions: [
+            ...transactions,
+            ...safeTransactions(state.transactions),
+          ],
+          pendingAwards: (
+            state.pendingAwards ?? []
+          ).filter(
+            (item) => item.sessionId !== sessionId
+          ),
+        }));
+        return transactions.reduce(
+          (total, item) => total + item.games,
+          0
+        );
+      },
+      cancelPendingAwardsForBill: (billId) => {
+        const awards = (get().pendingAwards ?? []).filter(
+          (item) => item.billId === billId
+        );
+        if (awards.length === 0) return 0;
+        set((state) => ({
+          pendingAwards: (
+            state.pendingAwards ?? []
+          ).filter(
+            (item) => item.billId !== billId
+          ),
+        }));
+        return awards.reduce(
+          (total, item) => total + item.games,
+          0
+        );
+      },
+      cancelPendingAwardsForSession: (sessionId) => {
+        const awards = (get().pendingAwards ?? []).filter(
+          (item) => item.sessionId === sessionId
+        );
+        if (awards.length === 0) return 0;
+        set((state) => ({
+          pendingAwards: (
+            state.pendingAwards ?? []
+          ).filter(
+            (item) => item.sessionId !== sessionId
+          ),
+        }));
+        return awards.reduce(
+          (total, item) => total + item.games,
+          0
+        );
       },
       recordSessionOffset: (input) => {
         if (!wholePositive(input.games)) return false;
@@ -200,6 +377,7 @@ export const useAdvanceGamesStore = create<AdvanceGamesStore>()(
       },
       resetAdvanceGamesStore: () => set({
         transactions: [],
+        pendingAwards: [],
         customersInClub: {},
       }),
     }),

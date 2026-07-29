@@ -107,11 +107,15 @@ export function calculateFinalSettlement(session: Session, sourceLines?: TableCh
   };
   const addPayable = (item: OwnerPosition, games: number, frameId: string) => {
     const balance = getBalance(item);
-    const offset = Math.min(balance.advanceGames, games);
-    balance.advanceGames -= offset;
-    balance.payableGames += games - offset;
+    const advanceReduction = Math.min(balance.advanceGames, games);
+    const payableIncrease = games - advanceReduction;
+    balance.advanceGames -= advanceReduction;
+    balance.payableGames += payableIncrease;
     if (!balance.sourceFrameIds.includes(frameId)) balance.sourceFrameIds.push(frameId);
-    return { payableGamesDelta: games - offset, advanceGamesDelta: -offset };
+    return {
+      payableGamesDelta: payableIncrease,
+      advanceGamesDelta: -advanceReduction,
+    };
   };
   const reducePayable = (item: OwnerPosition, games: number, frameId: string) => {
     const balance = getBalance(item);

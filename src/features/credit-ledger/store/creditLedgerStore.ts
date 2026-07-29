@@ -9,6 +9,15 @@ import type {
 } from "@/features/customers/types/customerAccount";
 import type { PaymentMethod } from "@/types/session";
 import type { PaymentSplit } from "@/features/sales/types/sale";
+import {
+  appendOperatorAuditEvent,
+  createOperatorAuditEvent,
+  getActiveOperatorSnapshot,
+} from "@/lib/operatorAttribution";
+import type {
+  OperatorSnapshot,
+  TransactionAuditEvent,
+} from "@/types/operatorAudit";
 
 export type CreditLedgerStatus =
   | "outstanding"
@@ -29,6 +38,10 @@ export interface CreditLedgerEntry {
   openedAt: string;
   creditedAt: string;
   creditedBusinessDayId?: string;
+  issuedBy?: OperatorSnapshot;
+  recoveredBy?: OperatorSnapshot;
+  cancelledBy?: OperatorSnapshot;
+  operatorAudit?: TransactionAuditEvent[];
   creditNote?: string;
   gameCharges: CustomerGameCharge[];
   cafeCharges: CustomerCafeCharge[];
@@ -142,6 +155,11 @@ export const useCreditLedgerStore =
             creditedAt: now,
             creditedBusinessDayId:
               input.businessDayId,
+            issuedBy: getActiveOperatorSnapshot(),
+            operatorAudit: appendOperatorAuditEvent(
+              undefined,
+              createOperatorAuditEvent("credit_issued", { occurredAt: now }),
+            ),
             creditNote:
               input.creditNote?.trim() ||
               undefined,
@@ -201,6 +219,11 @@ export const useCreditLedgerStore =
                     paymentSplits:
                       input.paymentSplits,
                     saleId: input.saleId,
+                    recoveredBy: getActiveOperatorSnapshot(),
+                    operatorAudit: appendOperatorAuditEvent(
+                      entry.operatorAudit,
+                      createOperatorAuditEvent("credit_recovered"),
+                    ),
                   }
                 : entry
             ),
@@ -236,6 +259,13 @@ export const useCreditLedgerStore =
                     cancelledAt:
                       new Date().toISOString(),
                     cancelReason: reason.trim(),
+                    cancelledBy: getActiveOperatorSnapshot(),
+                    operatorAudit: appendOperatorAuditEvent(
+                      entry.operatorAudit,
+                      createOperatorAuditEvent("cancelled", {
+                        note: reason,
+                      }),
+                    ),
                   }
                 : entry
             ),

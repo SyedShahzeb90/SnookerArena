@@ -6,6 +6,7 @@ import "./index.css";
 import App from "./app/App";
 
 import BillingProvider from "@/features/billing/BillingProvider";
+import { DeferredPaymentProvider } from "@/features/billing/DeferredPaymentProvider";
 import { ToastProvider } from "@/components/ui/toast";
 import {
   initializeInterfaceScale,
@@ -26,9 +27,11 @@ createRoot(document.getElementById("root")!).render(
       <InterfaceScaleProvider>
         <DisplayDensityProvider>
           <ToastProvider>
-          <BillingProvider>
-            <App />
-          </BillingProvider>
+            <DeferredPaymentProvider>
+              <BillingProvider>
+                <App />
+              </BillingProvider>
+            </DeferredPaymentProvider>
           </ToastProvider>
         </DisplayDensityProvider>
       </InterfaceScaleProvider>

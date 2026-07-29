@@ -27,6 +27,28 @@ function gameLine(
   };
 }
 
+function singleGameLine(
+  id: string,
+  loserName: string,
+  winnerName: string,
+  options: { isFinal?: boolean; finalGames?: number } = {}
+): TableChargeLine {
+  return {
+    id,
+    sessionId: "SESSION-2",
+    type: "singleGame",
+    label: "Single Game",
+    startedAt: `2026-07-26T00:0${id.at(-1)}:00.000Z`,
+    endedAt: `2026-07-26T00:0${id.at(-1)}:30.000Z`,
+    amount: 300,
+    unitRate: 300,
+    loserName,
+    winnerName,
+    isFinal: options.isFinal,
+    finalGames: options.finalGames,
+  };
+}
+
 describe("calculateFinalSettlement", () => {
   it("offsets two Adeel games and leaves Sherry with six after Sherry loses Final 2", () => {
     const session = {
@@ -62,5 +84,72 @@ describe("calculateFinalSettlement", () => {
 
     expect(balances.adeel).toBe(0);
     expect(balances.sherry).toBe(6);
+  });
+
+  it("uses advance games earned earlier in the session against later losses", () => {
+    const session = {
+      id: "SESSION-2",
+      tableId: 3,
+      sessionType: "single",
+      player1: "shadab",
+      player1CustomerId: "SHADAB",
+      player2: "janzeb",
+      player2CustomerId: "JANZEB",
+    } as Session;
+    const lines = [
+      singleGameLine(
+        "LINE-1",
+        "janzeb",
+        "shadab",
+        { isFinal: true, finalGames: 3 }
+      ),
+      singleGameLine(
+        "LINE-2",
+        "shadab",
+        "janzeb"
+      ),
+    ];
+
+    const settlement =
+      calculateFinalSettlement(session, lines);
+    const shadab = settlement.owners.find(
+      (item) => item.customerId === "SHADAB"
+    );
+
+    expect(shadab?.payableGames).toBe(0);
+    expect(shadab?.advanceGames).toBe(2);
+  });
+
+  it("charges only the losses remaining after earlier advance games are used", () => {
+    const session = {
+      id: "SESSION-3",
+      tableId: 3,
+      sessionType: "single",
+      player1: "shadab",
+      player1CustomerId: "SHADAB",
+      player2: "janzeb",
+      player2CustomerId: "JANZEB",
+    } as Session;
+    const lines = [
+      singleGameLine(
+        "LINE-1",
+        "janzeb",
+        "shadab",
+        { isFinal: true, finalGames: 3 }
+      ),
+      singleGameLine("LINE-2", "shadab", "janzeb"),
+      singleGameLine("LINE-3", "shadab", "janzeb"),
+      singleGameLine("LINE-4", "shadab", "janzeb"),
+      singleGameLine("LINE-5", "shadab", "janzeb"),
+    ];
+
+    const settlement =
+      calculateFinalSettlement(session, lines);
+    const shadab = settlement.owners.find(
+      (item) => item.customerId === "SHADAB"
+    );
+
+    expect(shadab?.payableGames).toBe(1);
+    expect(shadab?.advanceGames).toBe(0);
   });
 });

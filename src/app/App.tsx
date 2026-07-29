@@ -117,7 +117,7 @@ function App() {
 
           <Route
             path="/operator/day-history"
-            element={<DayHistoryPage />}
+            element={<RequirePermission permission="view_management_reports"><DayHistoryPage /></RequirePermission>}
           />
 
           <Route

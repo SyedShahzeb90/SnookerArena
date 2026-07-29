@@ -1,0 +1,198 @@
+warning: in the working copy of 'eslint.config.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/app/App.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/components/ui/button.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/components/ui/dialog.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/components/ui/progress-indicator.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/components/ui/toast.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/accessories/AccessoriesPage.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/accessories/pages/AccessoriesManagementPage.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/admin/AdminDashboard.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/admin/MenuManagementPage.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/advance-games/store/advanceGamesStore.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/advance-games/utils/finalSettlement.test.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/advance-games/utils/finalSettlement.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/backup/pages/BackupRestorePage.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/backup/storageOwnership.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/billing/components/BillingDialog.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/billing/components/PaymentMethodSelector.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/billing/pages/CheckoutPage.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/billing/store/checkoutStore.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/billing/utils/playerBillIdentity.test.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/billing/utils/playerBillIdentity.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/business-day/components/BusinessDayCard.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/cafe/CafePage.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/cafe/components/MenuCard.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/cafe/components/MenuPanel.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/cafe/components/OrderCart.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/cafe/pages/VendorRestockingPage.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/cafe/store/cafeStore.test.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/cafe/store/cafeStore.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/cafe/types/menu.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/credit-ledger/pages/CreditLedgerPage.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/credit-ledger/store/creditLedgerStore.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/customers/pages/CustomerBillsPage.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/customers/store/customerAccountStore.test.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/customers/store/customerAccountStore.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/customers/types/customerAccount.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/dashboard/Dashboard.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/dashboard/components/DashboardStats.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/dashboard/components/OperatorShell.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/dashboard/components/RunningPanel.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/dashboard/components/TableCard.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/dashboard/components/TableGrid.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/dashboard/components/TableInfo.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/expenses/pages/ExpensesPage.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/expenses/store/expensesStore.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/expenses/types/expense.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/floor-plan/FloorPlanTable.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/floor-plan/FloorPlanView.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/outside-purchases/components/OutsidePurchasesPanel.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/outside-purchases/pages/OutsidePurchasesPage.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/outside-purchases/store/outsidePurchaseStore.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/outside-purchases/types/outsidePurchase.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/reports/pages/CanteenProfitReportPage.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/reports/pages/ProfitLossPage.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/sales/components/BusinessSummaryCards.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/sales/pages/SalesHistoryPage.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/sales/store/salesStore.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/sales/types/sale.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/sessions/utils/sessionPlayers.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/settings/interfaceScale.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/settings/pages/ClubSettingsPage.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/settings/pages/GeneralSettingsPage.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/settings/store/clubSettingsStore.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/table-history/pages/TableHistoryPage.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/index.css', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/main.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/store/tableStore.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/types/session.ts', LF will be replaced by CRLF the next time Git touches it
+[1mdiff --git a/eslint.config.js b/eslint.config.js[m
+[1mindex ef614d2..5873b21 100644[m
+[1m--- a/eslint.config.js[m
+[1m+++ b/eslint.config.js[m
+[36m@@ -6,7 +6,7 @@[m [mimport tseslint from 'typescript-eslint'[m
+ import { defineConfig, globalIgnores } from 'eslint/config'[m
+ [m
+ export default defineConfig([[m
+[31m-  globalIgnores(['dist']),[m
+[32m+[m[32m  globalIgnores(['dist/**', 'src-tauri/target/**', 'coverage/**']),[m
+   {[m
+     files: ['**/*.{ts,tsx}'],[m
+     extends: [[m
+[1mdiff --git a/src/app/App.tsx b/src/app/App.tsx[m
+[1mindex a0bad13..75fb911 100644[m
+[1m--- a/src/app/App.tsx[m
+[1m+++ b/src/app/App.tsx[m
+[36m@@ -117,7 +117,7 @@[m [mfunction App() {[m
+ [m
+           <Route[m
+             path="/operator/day-history"[m
+[31m-            element={<DayHistoryPage />}[m
+[32m+[m[32m            element={<RequirePermission permission="view_management_reports"><DayHistoryPage /></RequirePermission>}[m
+           />[m
+ [m
+           <Route[m
+[1mdiff --git a/src/components/ui/button.tsx b/src/components/ui/button.tsx[m
+[1mindex b033601..cb4c20c 100644[m
+[1m--- a/src/components/ui/button.tsx[m
+[1m+++ b/src/components/ui/button.tsx[m
+[36m@@ -4,7 +4,7 @@[m [mimport { cva, type VariantProps } from "class-variance-authority"[m
+ import { cn } from "@/lib/utils"[m
+ [m
+ const buttonVariants = cva([m
+[31m-  "group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",[m
+[32m+[m[32m  "group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-[color,background-color,border-color,box-shadow,transform,opacity] duration-100 outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:not-aria-[haspopup]:scale-[0.98] disabled:pointer-events-none disabled:opacity-50 disabled:active:scale-100 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",[m
+   {[m
+     variants: {[m
+       variant: {[m
+[1mdiff --git a/src/components/ui/dialog.tsx b/src/components/ui/dialog.tsx[m
+[1mindex a7c6b10..53bded3 100644[m
+[1m--- a/src/components/ui/dialog.tsx[m
+[1m+++ b/src/components/ui/dialog.tsx[m
+[36m@@ -29,7 +29,7 @@[m [mfunction DialogOverlay({[m
+     <DialogPrimitive.Backdrop[m
+       data-slot="dialog-overlay"[m
+       className={cn([m
+[31m-        "fixed inset-0 isolate z-50 bg-black/10 duration-100 supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",[m
+[32m+[m[32m        "fixed inset-0 isolate z-50 bg-black/10 duration-200 supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",[m
+         className[m
+       )}[m
+       {...props}[m
+[36m@@ -51,7 +51,7 @@[m [mfunction DialogContent({[m
+       <DialogPrimitive.Popup[m
+         data-slot="dialog-content"[m
+         className={cn([m
+[31m-          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",[m
+[32m+[m[32m          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-200 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:slide-in-from-top-2 data-closed:animate-out data-closed:fade-out-0 data-closed:slide-out-to-top-2",[m
+           className[m
+         )}[m
+         {...props}[m
+[1mdiff --git a/src/components/ui/progress-indicator.tsx b/src/components/ui/progress-indicator.tsx[m
+[1mindex 46a2200..fece64c 100644[m
+[1m--- a/src/components/ui/progress-indicator.tsx[m
+[1m+++ b/src/components/ui/progress-indicator.tsx[m
+[36m@@ -1,23 +1,56 @@[m
+[32m+[m[32mimport { useAnimatedNumber } from "@/hooks/useAnimatedNumber";[m
+[32m+[m
+ type ProgressIndicatorProps = {[m
+   label: string;[m
+   current: number;[m
+   maximum: number;[m
+   supportingText: string;[m
+   status?: string;[m
+[32m+[m[32m  animate?: boolean;[m
+ };[m
+ [m
+[31m-export function ProgressIndicator({ label, current, maximum, supportingText, status }: ProgressIndicatorProps) {[m
+[31m-  const percentage = maximum > 0 ? Math.min(100, Math.max(0, (current / maximum) * 100)) : 0;[m
+[32m+[m[32mexport function ProgressIndicator({[m
+[32m+[m[32m  label,[m
+[32m+[m[32m  current,[m
+[32m+[m[32m  maximum,[m
+[32m+[m[32m  supportingText,[m
+[32m+[m[32m  status,[m
+[32m+[m[32m  animate = false,[m
+[32m+[m[32m}: ProgressIndicatorProps) {[m
+[32m+[m[32m  const percentage =[m
+[32m+[m[32m    maximum > 0[m
+[32m+[m[32m      ? Math.min(100, Math.max(0, (current / maximum) * 100))[m
+[32m+[m[32m      : 0;[m
+[32m+[m[32m  const animatedPercentage = useAnimatedNumber(percentage, animate ? 300 : 0);[m
+[32m+[m[32m  const displayedPercentage = animate ? animatedPercentage : percentage;[m
+[32m+[m
+   return ([m
+     <div className="space-y-1.5">[m
+       <div className="flex items-center justify-between gap-2 text-xs">[m
+[31m-        <span className="font-medium text-slate-600 dark:text-slate-300">{label}</span>[m
+[31m-        <span className="font-bold tabular-nums text-slate-800 dark:text-slate-100">{Math.round(percentage)}%</span>[m
+[32m+[m[32m        <span className="font-medium text-slate-600 dark:text-slate-300">[m
+[32m+[m[32m          {label}[m
+[32m+[m[32m        </span>[m
+[32m+[m[32m        <span className="font-bold tabular-nums text-slate-800 dark:text-slate-100">[m
+[32m+[m[32m          {Math.round(displayedPercentage)}%[m
+[32m+[m[32m        </span>[m
+       </div>[m
+[31m-      <div className="h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700" role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={maximum} aria-valuenow={current}>[m
+[31m-        <div className="h-full rounded-full bg-emerald-500 transition-[width] duration-300 motion-reduce:transition-none" style={{ width: `${percentage}%` }} />[m
+[32m+[m[32m      <div[m
+[32m+[m[32m        className="h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700"[m
+[32m+[m[32m        role="progressbar"[m
+[32m+[m[32m        aria-label={label}[m
+[32m+[m[32m        aria-valuemin={0}[m
+[32m+[m[32m        aria-valuemax={maximum}[m
+[32m+[m[32m        aria-valuenow={current}[m
+[32m+[m[32m      >[m
+[32m+[m[32m        <div[m
+[32m+[m[32m          className="h-full rounded-full bg-emerald-500"[m
+[32m+[m[32m          style={{ width: `${displayedPercentage}%` }}[m
+[32m+[m[32m        />[m
+       </div>[m
+[31m-      <p className="text-[11px] text-slate-500 dark:text-slate-400">{supportingText}{status ? ` · ${status}` : ""}</p>[m
+[32m+[m[32m      <p className="text-[11px] text-slate-500 dark:text-slate-400">[m
+[32m+[m[32m        {supportingText}[m
+[32m+[m[32m        {status ? ` · ${status}` : ""}[m
+[32m+[m[32m      </p>[m
+     </div>[m
+   );[m
+ }[m
+[1mdiff --git a/src/components/ui/toast.tsx b/src/components/ui/toast.tsx[

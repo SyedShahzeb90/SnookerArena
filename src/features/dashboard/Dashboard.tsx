@@ -4,10 +4,12 @@ import {
   LayoutDashboard,
   Map,
 } from "lucide-react";
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Navigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/toast";
+import { PageBanner, PageHeading, PageShell } from "@/components/layout/page-layout";
 import { clearTestDataForTesting } from "@/features/admin/DeveloperToolsPage";
 import { useAdvanceGamesStore } from "@/features/advance-games/store/advanceGamesStore";
 import { useCheckoutStore } from "@/features/billing/store/checkoutStore";
@@ -21,6 +23,7 @@ import FloorPlanView from "@/features/floor-plan/FloorPlanView";
 import { useOutsidePurchaseStore } from "@/features/outside-purchases/store/outsidePurchaseStore";
 import { useSalesStore } from "@/features/sales/store/salesStore";
 import { useTableHistoryStore } from "@/features/table-history/store/tableHistoryStore";
+import { usePrefersReducedMotion } from "@/hooks/useAnimatedNumber";
 import { useTableStore } from "@/store/tableStore";
 
 import type { DashboardView } from "./components/DashboardHeader";
@@ -28,36 +31,12 @@ import {
   BusinessDayStats,
   TableStatusStats,
 } from "./components/DashboardStats";
+import type { TableStatusFilter } from "./components/DashboardStats";
 import TableGrid from "./components/TableGrid";
-
-const pageClassName =
-  "mx-auto max-w-7xl px-4 py-4 sm:px-5 sm:py-5 lg:px-6 lg:py-6";
-
-function PageHeader({
-  title,
-  description,
-  icon: Icon,
-}: {
-  title: string;
-  description: string;
-  icon: typeof LayoutDashboard;
-}) {
-  return (
-    <div className="flex items-center gap-3">
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white text-slate-700 ring-1 ring-slate-200">
-        <Icon className="h-5 w-5" />
-      </div>
-      <div className="min-w-0">
-        <h1 className="text-xl font-bold text-slate-950">{title}</h1>
-        <p className="mt-0.5 text-sm leading-5 text-slate-500">{description}</p>
-      </div>
-    </div>
-  );
-}
 
 function TestDataBanner() {
   const [isClearing, setIsClearing] = useState(false);
-  const [message, setMessage] = useState("");
+  const toast = useToast();
   const resetSalesStore = useSalesStore((state) => state.resetSalesStore);
   const resetBillingStore = useCheckoutStore((state) => state.resetBillingStore);
   const resetCafeTestData = useCafeStore((state) => state.resetCafeTestData);
@@ -84,12 +63,11 @@ function TestDataBanner() {
     (state) => state.resetTableStoreToDefault,
   );
 
-  if (!import.meta.env.DEV && !message) return null;
+  if (!import.meta.env.DEV) return null;
 
   const handleClearTestData = () => {
     if (isClearing) return;
     setIsClearing(true);
-    setMessage("");
     try {
       clearTestDataForTesting({
         resetSalesStore,
@@ -104,39 +82,46 @@ function TestDataBanner() {
         resetOutsidePurchaseStore,
         resetTableStoreToDefault,
       });
-      setMessage("Test data cleared successfully.");
+      toast.success({
+        title: "Test Data Cleared",
+        description: "The local test data set was cleared successfully.",
+      });
     } catch {
-      setMessage("Unable to clear test data.");
+      toast.error({
+        title: "Unable to Clear Test Data",
+        description: "Please try again.",
+      });
     } finally {
       setIsClearing(false);
     }
   };
 
   return (
-    <div className="space-y-3">
-      {import.meta.env.DEV && (
-        <div className="flex flex-col gap-3 rounded-lg border border-red-200 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase text-red-700">Testing only</p>
-            <p className="text-sm text-slate-600">
-              Clear the local test data set from Operator view.
-            </p>
-          </div>
-          <Button
-            className="shrink-0 bg-red-700 text-white hover:bg-red-800"
-            disabled={isClearing}
-            onClick={handleClearTestData}
-          >
-            Clear Test Data
-          </Button>
-        </div>
-      )}
-      {message && (
-        <p className="rounded-lg bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800 ring-1 ring-amber-200">
-          {message}
+    <PageBanner className="border-red-200 dark:border-red-900/70">
+      <details className="group">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm marker:hidden">
+        <span className="font-semibold text-red-700 dark:text-red-400">
+          Testing tools
+        </span>
+        <span className="text-xs text-slate-500 group-open:hidden dark:text-slate-400">
+          Clear local test data
+        </span>
+      </summary>
+      <div className="mt-2 flex flex-col gap-2 border-t border-red-100 pt-2 sm:flex-row sm:items-center sm:justify-between dark:border-red-900/50">
+        <p className="text-xs text-slate-600 dark:text-slate-300">
+          Clear the local test data set from Operator view.
         </p>
-      )}
-    </div>
+        <Button
+          size="sm"
+          className="h-8 shrink-0 bg-red-700 px-3 text-white hover:bg-red-800"
+          disabled={isClearing}
+          onClick={handleClearTestData}
+        >
+          {isClearing ? "Clearing..." : "Clear Test Data"}
+        </Button>
+      </div>
+      </details>
+    </PageBanner>
   );
 }
 
@@ -154,9 +139,8 @@ export function OperatorLandingRedirect() {
 
 export function BusinessDayPage() {
   return (
-    <main className={pageClassName}>
-      <div className="space-y-5 lg:space-y-6">
-        <PageHeader
+    <PageShell>
+        <PageHeading
           icon={CalendarClock}
           title="Business Day"
           description="Start, monitor, and close the current business day."
@@ -164,30 +148,89 @@ export function BusinessDayPage() {
         <TestDataBanner />
         <BusinessDayCard />
         <BusinessDayStats />
-      </div>
-    </main>
+    </PageShell>
   );
 }
 
 export function TablesRoomsPage() {
   const [activeView, setActiveView] = useState<DashboardView>("grid");
+  const [focusedTableId, setFocusedTableId] = useState<number | null>(null);
+  const [statusFilter, setStatusFilter] =
+    useState<TableStatusFilter>("all");
+  const [renderedStatusFilter, setRenderedStatusFilter] =
+    useState<TableStatusFilter>("all");
+  const [filterTransition, setFilterTransition] =
+    useState<"idle" | "out" | "in">("idle");
+  const filterTimerRef = useRef<number | null>(null);
+  const prefersReducedMotion = usePrefersReducedMotion();
+
+  const handleStatusFilterChange = useCallback(
+    (nextFilter: TableStatusFilter) => {
+      setStatusFilter(nextFilter);
+
+      if (filterTimerRef.current !== null) {
+        window.clearTimeout(filterTimerRef.current);
+      }
+
+      if (prefersReducedMotion) {
+        setRenderedStatusFilter(nextFilter);
+        setFilterTransition("idle");
+        return;
+      }
+
+      setFilterTransition("out");
+      filterTimerRef.current = window.setTimeout(() => {
+        setRenderedStatusFilter(nextFilter);
+        setFilterTransition("in");
+        filterTimerRef.current = window.setTimeout(() => {
+          setFilterTransition("idle");
+          filterTimerRef.current = null;
+        }, 120);
+      }, 90);
+    },
+    [prefersReducedMotion],
+  );
+
+  useEffect(
+    () => () => {
+      if (filterTimerRef.current !== null) {
+        window.clearTimeout(filterTimerRef.current);
+      }
+    },
+    [],
+  );
+
+  const handleFloorPlanTableOpen = useCallback((tableId: number) => {
+    setFocusedTableId(tableId);
+    setActiveView("grid");
+  }, []);
+
+  const handleTableFocusComplete = useCallback(() => {
+    setFocusedTableId(null);
+  }, []);
 
   return (
-    <main className={pageClassName}>
-      <div className="space-y-5 lg:space-y-6">
-        <PageHeader
+    <PageShell>
+        <PageHeading
           icon={LayoutDashboard}
           title="Tables & Rooms"
           description="Manage active sessions, availability, and table bookings."
         />
         <TestDataBanner />
-        <TableStatusStats />
+        <TableStatusStats
+          activeFilter={statusFilter}
+          onFilterChange={handleStatusFilterChange}
+        />
         <section>
           <div className="mb-4 flex flex-col gap-3 border-b border-slate-200 pb-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <h2 className="text-lg font-bold text-slate-950">Floor View</h2>
+              <h2 className="text-lg font-bold text-slate-950">
+                {activeView === "grid" ? "Grid View" : "Floor View"}
+              </h2>
               <p className="mt-0.5 text-sm text-slate-500">
-                Start sessions and manage active tables and private rooms.
+                {activeView === "grid"
+                  ? "Manage active sessions, availability, and table bookings."
+                  : "View and manage tables and private rooms from the club layout."}
               </p>
             </div>
             <div className="flex w-fit rounded-md border border-slate-200 bg-white p-1">
@@ -217,16 +260,27 @@ export function TablesRoomsPage() {
               </Button>
             </div>
           </div>
-          {activeView === "grid" ? (
-            <div className="animate-in fade-in duration-300">
-              <TableGrid />
-            </div>
-          ) : (
-            <FloorPlanView />
-          )}
+          <div
+            className="table-filter-transition"
+            data-filter-transition={filterTransition}
+          >
+            {activeView === "grid" ? (
+              <div className="animate-in fade-in duration-300">
+                <TableGrid
+                  focusTableId={focusedTableId}
+                  onFocusComplete={handleTableFocusComplete}
+                  statusFilter={renderedStatusFilter}
+                />
+              </div>
+            ) : (
+              <FloorPlanView
+                onTableOpen={handleFloorPlanTableOpen}
+                statusFilter={renderedStatusFilter}
+              />
+            )}
+          </div>
         </section>
-      </div>
-    </main>
+    </PageShell>
   );
 }
 

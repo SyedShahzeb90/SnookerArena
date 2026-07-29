@@ -167,16 +167,21 @@ export const useClubSettingsStore = create<ClubSettingsStore>()(
     }),
     {
       name: "snooker-arena-club-settings",
-      version: 1,
+      version: 2,
       migrate: (persistedState, version) => {
-        if (version >= 1) return persistedState;
-
         const stored = persistedState as Partial<ClubSettingsStore> | undefined;
+        const storedSettings: Partial<ClubSettings> = stored?.settings ?? {};
+
         return {
           ...stored,
           settings: {
-            ...(stored?.settings ?? {}),
-            runningTableCardView: "compact-expand" as const,
+            ...storedSettings,
+            ...(version < 1
+              ? { runningTableCardView: "compact-expand" as const }
+              : {}),
+            ...(version < 2 && storedSettings.interfaceScale === 80
+              ? { interfaceScale: 100 as const }
+              : {}),
           },
         };
       },

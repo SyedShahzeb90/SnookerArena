@@ -5,6 +5,7 @@ import type { Session } from "@/types/session";
 import {
   getPlayerCafeAmount,
   getPlayerCafeItems,
+  getSessionPlayerBillingIdentities,
   getSessionPlayerCustomerId,
   hasPlayerName,
 } from "./playerBillIdentity";
@@ -139,6 +140,60 @@ describe("player bill identity", () => {
     expect(
       getPlayerCafeAmount(session, "Ali")
     ).toBe(120);
+  });
+
+  it("keeps same-name players separate by their session participant key after an id change", () => {
+    const session = makeSession({
+      player1: "Ali",
+      player1CustomerId: "CUST-ALI-EDITED",
+      player2: "Ali",
+      player2CustomerId: "CUST-ALI-SECOND",
+      cafeOrders: [
+        {
+          menuItemId: "TEA",
+          name: "Tea",
+          price: 120,
+          quantity: 1,
+          subtotal: 120,
+          timeAdded: new Date("2026-07-13T12:05:00"),
+          tableId: 1,
+          sessionId: "S1",
+          playerName: "Ali",
+          playerId: "CUST-ALI-ORIGINAL",
+          participantKey: "S1:player1",
+        },
+      ],
+    });
+    const [player1, player2] =
+      getSessionPlayerBillingIdentities(session);
+
+    expect(getPlayerCafeAmount(session, player1)).toBe(120);
+    expect(getPlayerCafeAmount(session, player2)).toBe(0);
+  });
+
+  it("does not assign an older name-only charge when same-name players are ambiguous", () => {
+    const session = makeSession({
+      player1: "Ali",
+      player1CustomerId: undefined,
+      player2: "Ali",
+      player2CustomerId: undefined,
+      cafeOrders: [
+        {
+          menuItemId: "TEA",
+          name: "Tea",
+          price: 120,
+          quantity: 1,
+          subtotal: 120,
+          timeAdded: new Date("2026-07-13T12:05:00"),
+          playerName: "Ali",
+        },
+      ],
+    });
+    const [player1, player2] =
+      getSessionPlayerBillingIdentities(session);
+
+    expect(getPlayerCafeAmount(session, player1)).toBe(0);
+    expect(getPlayerCafeAmount(session, player2)).toBe(0);
   });
 
   it("compares paid player names after normalization", () => {

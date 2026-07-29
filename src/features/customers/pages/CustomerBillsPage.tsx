@@ -20,6 +20,7 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { PageShell } from "@/components/layout/page-layout";
 import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/ui/empty-state";
 import { BillContextMenu, type BillContextMenuAction } from "@/components/ui/bill-context-menu";
@@ -34,6 +35,7 @@ import type { PaymentMethod } from "@/types/session";
 import type { PaymentSplit } from "@/features/sales/types/sale";
 import PaymentMethodSelector from "@/features/billing/components/PaymentMethodSelector";
 import { useCheckoutStore } from "@/features/billing/store/checkoutStore";
+import { useDeferredPayment } from "@/features/billing/DeferredPaymentProvider";
 import { useCreditLedgerStore } from "@/features/credit-ledger/store/creditLedgerStore";
 import { useAdvanceGamesStore } from "@/features/advance-games/store/advanceGamesStore";
 import { useCafeStore } from "@/features/cafe/store/cafeStore";
@@ -461,6 +463,7 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
   useAppDateTimeFormats();
   const navigate = useNavigate();
   const toast = useToast();
+  const { pendingPaymentKeys, schedulePayment } = useDeferredPayment();
   const defaultPaymentMethod = useClubSettingsStore(
     (state) => state.settings.defaultPaymentMethod
   );
@@ -643,6 +646,9 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
     () =>
       dedupeOpenAccounts(
         accounts.filter((account) => {
+          if (pendingPaymentKeys.has(`account:${account.id}`)) {
+            return false;
+          }
           const isUnpaidBill =
             account.status === "active" &&
             account.paymentStatus === "unpaid";
@@ -693,7 +699,7 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
           return !hasRunningSession;
         })
       ),
-    [accounts, billStatusFilter, tables]
+    [accounts, billStatusFilter, pendingPaymentKeys, tables]
   );
 
   const tableOptions = useMemo(() => {
@@ -1293,6 +1299,14 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
       return;
     }
 
+    const accountSnapshot = selectedAccount;
+    const paymentMethodSnapshot = paymentMethod;
+    const paymentSplitsSnapshot = paymentSplits.map((split) => ({ ...split }));
+    const partialCreditSnapshot = partialCredit
+      ? { ...partialCredit }
+      : undefined;
+
+    const finalizePayment = () => {
     const now = new Date().toISOString();
     const invoiceNumber =
       salesStore.getNextInvoiceNumber();
@@ -1497,22 +1511,38 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
     paidSessionIds.forEach((sessionId) => {
       removePendingBill(`BILL-${sessionId}`);
     });
+    if (paymentMode) {
+      navigate("/operator/billing", { replace: true });
+    }
+    };
 
-    toast.success({
-      title: "Payment Received",
-      description: partialCredit
-        ? `${formatCurrency(receivedAmount)} received · ${formatCurrency(creditAmount)} moved to Credit Ledger.`
-        : getBillPrimaryLabel(selectedAccount),
+    const scheduled = schedulePayment({
+      key: `account:${accountSnapshot.id}`,
+      label: partialCreditSnapshot
+        ? `${formatCurrency(receivedAmount)} received; ${formatCurrency(creditAmount)} will move to Credit Ledger`
+        : getBillPrimaryLabel(accountSnapshot),
+      commit: finalizePayment,
+      onUndo: () => {
+        setSelectedId(accountSnapshot.id);
+        setPaymentMethod(paymentMethodSnapshot);
+        setPaymentSplits(paymentSplitsSnapshot);
+        if (partialCreditSnapshot) {
+          setPartialPaymentText(String(partialCreditSnapshot.paidAmount));
+          setIsPartialCreditDialogOpen(true);
+        }
+      },
     });
+    if (!scheduled) {
+      setPayingCustomerId(null);
+      return;
+    }
+
     setSelectedId(null);
     setPaymentMethod(defaultPaymentMethod);
     setPaymentSplits([]);
     setPayingCustomerId(null);
     setIsPartialCreditDialogOpen(false);
     setPartialPaymentText("");
-    if (paymentMode) {
-      navigate("/operator/billing", { replace: true });
-    }
   };
 
   const handleOpenCreditDialog = () => {
@@ -1663,8 +1693,8 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
   };
 
   return (
-    <main className="min-h-screen bg-slate-100 px-6 py-8">
-      <div className="mx-auto max-w-7xl">
+    <PageShell contentClassName="space-y-0">
+      <div>
         <Button
           variant="ghost"
           className="mb-4 gap-2"
@@ -2037,7 +2067,7 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
                           compact
                           icon={Search}
                           title={accounts.length === 0 ? "No Customer Bills Yet" : "No Matching Bills"}
-                          description={accounts.length === 0 ? "Bills will appear here after a table session, canteen order, or accessory charge is created." : "Try changing your search or filters."}
+                          description={accounts.length === 0 ? "Bills will appear here after a table session, cafe order, or accessory charge is created." : "Try changing your search or filters."}
                           actionLabel={accounts.length === 0 ? undefined : "Clear Filters"}
                           onAction={accounts.length === 0 ? undefined : () => {
                             setSearch("");
@@ -2685,6 +2715,9 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
                 {selectedAccountIsCancelled ? (
                   <div className="mt-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
                     <p className="font-bold">Bill cancelled</p>
+                    <p className="mt-1">
+                      Cancelled by: {selectedAccount.cancelledBy?.operatorName ?? "Not recorded (legacy)"}
+                    </p>
                     {selectedAccount.cancelledReason && <p className="mt-1">{selectedAccount.cancelledReason}</p>}
                     {selectedAccount.cancelledNote && <p className="mt-1 text-red-700">{selectedAccount.cancelledNote}</p>}
                   </div>
@@ -2700,6 +2733,9 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
                           {selectedAccount.paymentMethod
                             ? ` \u00B7 ${paymentLabel(selectedAccount.paymentMethod)}`
                             : ""}
+                        </p>
+                        <p className="mt-1">
+                          Received by: {selectedAccount.paidBy?.operatorName ?? "Not recorded (legacy)"}
                         </p>
                       </div>
                       {canCorrectPayments && !isEditingPaidPayment && (
@@ -3163,7 +3199,7 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
           />
         )}
       </div>
-    </main>
+    </PageShell>
   );
 }
 

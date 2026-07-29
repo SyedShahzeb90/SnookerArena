@@ -9,6 +9,7 @@ import type {
 import {
   isActiveExpense,
 } from "../utils/expenseHelpers";
+import { getActiveOperatorSnapshot } from "@/lib/operatorAttribution";
 import {
   getExpensesByCategory as filterByCategory,
   getExpensesByDateRange as filterByDateRange,
@@ -55,6 +56,8 @@ export const useExpensesStore =
             id: `EXP-${Date.now()}`,
             ...input,
             status: "active",
+            createdByOperator:
+              getActiveOperatorSnapshot(),
             createdAt:
               new Date().toISOString(),
           };
@@ -105,6 +108,8 @@ export const useExpensesStore =
                       cancellationReason:
                         reason?.trim() ||
                         undefined,
+                      cancelledByOperator:
+                        getActiveOperatorSnapshot(),
                     }
                   : expense
             ),

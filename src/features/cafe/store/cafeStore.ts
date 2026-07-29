@@ -4,6 +4,8 @@ import { persist } from "zustand/middleware";
 import { menuItems as initialMenu } from "../data/menu";
 
 import type { PaymentMethod } from "@/types/session";
+import type { OperatorSnapshot } from "@/types/operatorAudit";
+import { getActiveOperatorSnapshot } from "@/lib/operatorAttribution";
 import type {
   MenuItem,
   OrderItem,
@@ -25,6 +27,8 @@ export interface PlayerOrder {
 
   playerKey?: string;
 
+  participantKey?: string;
+
   orderItems: OrderItem[];
 
   totalAmount: number;
@@ -37,6 +41,7 @@ export interface SavedCafeOrder {
   sessionId?: string;
   customerName: string;
   customerAccountId?: string;
+  participantKey?: string;
   customerType?: "waiting_customer" | "table_player";
   orderItems: OrderItem[];
   totalAmount: number;
@@ -57,6 +62,7 @@ interface SaveOrderInput {
   sessionId?: string;
   customerName: string;
   customerAccountId?: string;
+  participantKey?: string;
   orderItems: OrderItem[];
   customerType?: "waiting_customer" | "table_player";
 }
@@ -67,6 +73,7 @@ export interface MenuItemInput {
   price: number;
   emoji?: string;
   imageDataUrl?: string;
+  imageKey?: string;
   isAvailable: boolean;
   trackStock: boolean;
   currentStock: number;
@@ -106,17 +113,20 @@ export interface VendorRestockingRecord {
   purchaseDate: string;
   note?: string;
   createdBy: string;
+  createdByOperator?: OperatorSnapshot;
   createdAt: string;
   businessDayId?: string;
   status: "active" | "cancelled";
   cancelledAt?: string;
   cancelledBy?: string;
+  cancelledByOperator?: OperatorSnapshot;
   cancellationNote?: string;
   cancelledBusinessDayId?: string;
   creditPaidAt?: string;
   creditPaymentSource?: Exclude<VendorRestockingPaymentSource, "vendor_credit">;
   creditPaidBusinessDayId?: string;
   creditPaidBy?: string;
+  creditPaidByOperator?: OperatorSnapshot;
 }
 
 export interface VendorRestockingInput {
@@ -138,6 +148,7 @@ interface OrderItemContext {
   customerName?: string;
   playerName?: string;
   playerId?: string;
+  participantKey?: string;
 }
 
 interface CafeStore {
@@ -170,6 +181,8 @@ interface CafeStore {
 
   deleteMenuItem: (id: string) => void;
 
+  migrateMenuImageReference: (id: string, imageKey: string) => void;
+
   adjustStock: (menuItemId: string, type: StockAdjustmentType, quantity: number, note: string) => void;
 
   confirmStockForCharge: (sourceId: string, items: OrderItem[]) => void;
@@ -190,14 +203,16 @@ interface CafeStore {
     tableId: number,
     sessionId: string,
     playerName: string,
-    playerId?: string
+    playerId?: string,
+    participantKey?: string
   ) => void;
 
   getPlayerOrder: (
     tableId: number,
     playerName: string,
     playerId?: string,
-    sessionId?: string
+    sessionId?: string,
+    participantKey?: string
   ) => PlayerOrder | undefined;
 
   getWaitingCustomerOrder: (
@@ -216,7 +231,8 @@ interface CafeStore {
     tableId: number,
     sessionId?: string,
     customerName?: string,
-    customerAccountId?: string
+    customerAccountId?: string,
+    participantKey?: string
   ) => SavedCafeOrder | undefined;
 
   addItemToPlayer: (
@@ -224,7 +240,8 @@ interface CafeStore {
     sessionId: string,
     playerName: string,
     item: MenuItem,
-    playerId?: string
+    playerId?: string,
+    participantKey?: string
   ) => void;
 
   increasePlayerItem: (
@@ -232,7 +249,8 @@ interface CafeStore {
     playerName: string,
     menuItemId: string,
     playerId?: string,
-    sessionId?: string
+    sessionId?: string,
+    participantKey?: string
   ) => void;
 
   decreasePlayerItem: (
@@ -240,7 +258,8 @@ interface CafeStore {
     playerName: string,
     menuItemId: string,
     playerId?: string,
-    sessionId?: string
+    sessionId?: string,
+    participantKey?: string
   ) => void;
 
   addItemToWaitingCustomer: (
@@ -342,6 +361,7 @@ const upsertOrderItem = (
         context.playerName,
       playerName: context.playerName,
       playerId: context.playerId,
+      participantKey: context.participantKey,
       orderedAt:
         new Date().toISOString(),
       lineId: `CAFE-LINE-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -419,6 +439,7 @@ export const useCafeStore =
         price: input.price,
         emoji: input.emoji,
         imageDataUrl: input.imageDataUrl,
+        imageKey: input.imageKey,
         available: input.isAvailable,
         isAvailable: input.isAvailable,
         createdAt: now,
@@ -447,6 +468,7 @@ export const useCafeStore =
                 price: input.price,
                 emoji: input.emoji,
                 imageDataUrl: input.imageDataUrl,
+                imageKey: input.imageKey,
                 available:
                   input.isAvailable,
                 isAvailable:
@@ -490,6 +512,20 @@ export const useCafeStore =
       set((state) => ({
         menu: state.menu.filter(
           (item) => item.id !== id
+        ),
+      })),
+
+    migrateMenuImageReference: (id, imageKey) =>
+      set((state) => ({
+        menu: state.menu.map((item) =>
+          item.id === id
+            ? {
+                ...item,
+                imageKey,
+                imageDataUrl: undefined,
+                updatedAt: new Date().toISOString(),
+              }
+            : item
         ),
       })),
 
@@ -629,6 +665,7 @@ export const useCafeStore =
         purchaseDate: input.purchaseDate,
         note: input.note?.trim() || undefined,
         createdBy,
+        createdByOperator: getActiveOperatorSnapshot(),
         createdAt: now,
         businessDayId: input.businessDayId,
         status: "active",
@@ -676,6 +713,7 @@ export const useCafeStore =
           status: "cancelled",
           cancelledAt: now,
           cancelledBy: input.cancelledBy.trim() || "Operator",
+          cancelledByOperator: getActiveOperatorSnapshot(),
           cancellationNote: input.cancellationNote.trim(),
           cancelledBusinessDayId: input.businessDayId,
         } : entry),
@@ -709,6 +747,7 @@ export const useCafeStore =
           creditPaymentSource: input.paymentSource,
           creditPaidBusinessDayId: input.businessDayId,
           creditPaidBy: input.paidBy.trim() || "Operator",
+          creditPaidByOperator: getActiveOperatorSnapshot(),
         } : entry),
       }));
     },
@@ -737,7 +776,8 @@ export const useCafeStore =
       tableId,
       sessionId,
       playerName,
-      playerId
+      playerId,
+      participantKey
     ) =>
       set((state) => {
         const playerKey =
@@ -750,11 +790,13 @@ export const useCafeStore =
             (p) =>
               p.tableId === tableId &&
               p.sessionId === sessionId &&
-              isSamePlayerIdentity(p, {
-                playerId,
-                playerKey,
-                playerName,
-              })
+              (participantKey && p.participantKey
+                ? participantKey === p.participantKey
+                : isSamePlayerIdentity(p, {
+                    playerId,
+                    playerKey,
+                    playerName,
+                  }))
           );
 
         if (exists) return state;
@@ -768,6 +810,7 @@ export const useCafeStore =
               playerName,
               playerId,
               playerKey,
+              participantKey,
               orderItems: [],
               totalAmount: 0,
             },
@@ -779,16 +822,19 @@ export const useCafeStore =
       tableId,
       playerName,
       playerId,
-      sessionId
+      sessionId,
+      participantKey
     ) =>
       get().playerOrders.find(
         (p) =>
           p.tableId === tableId &&
           (!sessionId || p.sessionId === sessionId) &&
-          isSamePlayerIdentity(p, {
-            playerId,
-            playerName,
-          })
+          (participantKey && p.participantKey
+            ? participantKey === p.participantKey
+            : isSamePlayerIdentity(p, {
+                playerId,
+                playerName,
+              }))
       ),
 
     getWaitingCustomerOrder: (
@@ -825,9 +871,14 @@ export const useCafeStore =
       tableId,
       sessionId,
       customerName,
-      customerAccountId
+      customerAccountId,
+      participantKey
     ) =>
       get().savedOrders.find((order) => {
+        if (participantKey && order.participantKey) {
+          return order.participantKey === participantKey;
+        }
+
         if (
           customerAccountId &&
           order.customerAccountId &&
@@ -864,7 +915,8 @@ addItemToPlayer: (
   sessionId,
   playerName,
   item,
-  playerId
+  playerId,
+  participantKey
 ) =>
   set((state) => {
     const playerKey =
@@ -877,11 +929,13 @@ addItemToPlayer: (
         (player) =>
           player.tableId === tableId &&
           player.sessionId === sessionId &&
-          isSamePlayerIdentity(player, {
-            playerId,
-            playerKey,
-            playerName,
-          })
+          (participantKey && player.participantKey
+            ? participantKey === player.participantKey
+            : isSamePlayerIdentity(player, {
+                playerId,
+                playerKey,
+                playerName,
+              }))
       );
 
     const playerOrders = exists
@@ -894,6 +948,7 @@ addItemToPlayer: (
             playerName,
             playerId,
             playerKey,
+            participantKey,
             orderItems: [],
             totalAmount: 0,
           },
@@ -905,11 +960,13 @@ addItemToPlayer: (
           if (
             player.tableId !== tableId ||
             player.sessionId !== sessionId ||
-            !isSamePlayerIdentity(player, {
-              playerId,
-              playerKey,
-              playerName,
-            })
+            !(participantKey && player.participantKey
+              ? participantKey === player.participantKey
+              : isSamePlayerIdentity(player, {
+                  playerId,
+                  playerKey,
+                  playerName,
+                }))
           ) {
             return player;
           }
@@ -926,6 +983,7 @@ addItemToPlayer: (
                 customerName: playerName,
                 playerName,
                 playerId,
+                participantKey,
               }
             );
 
@@ -945,7 +1003,8 @@ increasePlayerItem: (
   playerName,
   menuItemId,
   playerId,
-  sessionId
+  sessionId,
+  participantKey
 ) =>
   set((state) => ({
     playerOrders:
@@ -955,10 +1014,12 @@ increasePlayerItem: (
             player.tableId !==
               tableId ||
             (sessionId && player.sessionId !== sessionId) ||
-            !isSamePlayerIdentity(player, {
-              playerId,
-              playerName,
-            })
+            !(participantKey && player.participantKey
+              ? participantKey === player.participantKey
+              : isSamePlayerIdentity(player, {
+                  playerId,
+                  playerName,
+                }))
           )
             return player;
 
@@ -985,7 +1046,8 @@ decreasePlayerItem: (
   playerName,
   menuItemId,
   playerId,
-  sessionId
+  sessionId,
+  participantKey
 ) =>
   set((state) => ({
     playerOrders:
@@ -995,10 +1057,12 @@ decreasePlayerItem: (
             player.tableId !==
               tableId ||
             (sessionId && player.sessionId !== sessionId) ||
-            !isSamePlayerIdentity(player, {
-              playerId,
-              playerName,
-            })
+            !(participantKey && player.participantKey
+              ? participantKey === player.participantKey
+              : isSamePlayerIdentity(player, {
+                  playerId,
+                  playerName,
+                }))
           )
             return player;
 
@@ -1197,17 +1261,19 @@ saveOrder: (input) => {
       if (
         input.sessionId &&
         order.sessionId === input.sessionId &&
-        isSamePlayerIdentity(
-          {
-            customerId: order.customerAccountId,
-            playerName: order.customerName,
-          },
-          {
-            customerId:
-              input.customerAccountId,
-            playerName: input.customerName,
-          }
-        )
+        (input.participantKey && order.participantKey
+          ? input.participantKey === order.participantKey
+          : isSamePlayerIdentity(
+              {
+                customerId: order.customerAccountId,
+                playerName: order.customerName,
+              },
+              {
+                customerId:
+                  input.customerAccountId,
+                playerName: input.customerName,
+              }
+            ))
       ) {
         return true;
       }
@@ -1240,6 +1306,7 @@ saveOrder: (input) => {
     customerName: input.customerName,
     customerAccountId:
       input.customerAccountId,
+    participantKey: input.participantKey,
     customerType:
       input.customerType ??
       (input.tableId === undefined

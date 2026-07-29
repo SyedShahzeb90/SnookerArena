@@ -8,6 +8,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { PageShell } from "@/components/layout/page-layout";
 import { Input } from "@/components/ui/input";
 import PaymentMethodSelector from "@/features/billing/components/PaymentMethodSelector";
 import { useBusinessDayStore } from "@/features/business-day/store/businessDayStore";
@@ -77,6 +78,14 @@ function CreditLedgerPage() {
     );
   const salesStore = useSalesStore();
   const advanceTransactions = useAdvanceGamesStore((state) => state.transactions);
+  const pendingAdvanceAwards = useAdvanceGamesStore(
+    (state) => state.pendingAwards ?? []
+  );
+  const releasePendingAwardsForSession =
+    useAdvanceGamesStore(
+      (state) =>
+        state.releasePendingAwardsForSession
+    );
   const safeAdvanceTransactions = Array.isArray(advanceTransactions) ? advanceTransactions : [];
   const transferAdvanceGames = useAdvanceGamesStore((state) => state.transfer);
   const customersInClub = useAdvanceGamesStore((state) => state.customersInClub ?? {});
@@ -119,6 +128,57 @@ function CreditLedgerPage() {
         : "credit"
     );
   }, [location.hash]);
+
+  useEffect(() => {
+    if (pendingAdvanceAwards.length === 0) {
+      return;
+    }
+
+    const pendingSessionIds = [
+      ...new Set(
+        pendingAdvanceAwards.map(
+          (award) => award.sessionId
+        )
+      ),
+    ];
+
+    pendingSessionIds.forEach((sessionId) => {
+      const hasOutstandingBill =
+        customerAccounts.some((account) => {
+          if (
+            account.paymentStatus !== "unpaid" ||
+            account.cancelledAt ||
+            account.grandTotal <= 0 ||
+            !account.gameCharges.some(
+              (charge) =>
+                charge.sessionId === sessionId
+            )
+          ) {
+            return false;
+          }
+
+          const creditEntry = entries.find(
+            (entry) =>
+              entry.sourceCustomerAccountId ===
+                account.id &&
+              entry.status !== "cancelled"
+          );
+
+          return creditEntry
+            ? creditEntry.status === "outstanding"
+            : true;
+        });
+
+      if (!hasOutstandingBill) {
+        releasePendingAwardsForSession(sessionId);
+      }
+    });
+  }, [
+    customerAccounts,
+    entries,
+    pendingAdvanceAwards,
+    releasePendingAwardsForSession,
+  ]);
 
   const advanceBalances = useMemo(() => {
     const balances = new Map<string, { customerId: string; customerName: string; games: number }>();
@@ -391,6 +451,22 @@ function CreditLedgerPage() {
     }
 
     cancelCredit(cancelEntry.id, reason);
+    const advanceGamesStore =
+      useAdvanceGamesStore.getState();
+    advanceGamesStore.cancelPendingAwardsForBill(
+      cancelEntry.sourceCustomerAccountId
+    );
+    [
+      ...new Set(
+        cancelEntry.gameCharges.map(
+          (charge) => charge.sessionId
+        )
+      ),
+    ].forEach((sessionId) =>
+      advanceGamesStore.cancelPendingAwardsForSession(
+        sessionId
+      )
+    );
     setCancelEntryId(null);
     setCancelReason("");
     setMessage("Credit cancelled.");
@@ -456,8 +532,8 @@ function CreditLedgerPage() {
   );
 
   return (
-    <main className="min-h-screen bg-slate-100 px-6 py-8">
-      <div className="mx-auto max-w-7xl">
+    <PageShell contentClassName="space-y-0">
+      <div>
         <Button
           variant="ghost"
           className="mb-4 gap-2"
@@ -470,17 +546,16 @@ function CreditLedgerPage() {
         <div className="mb-6 flex items-end justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-slate-950">
-              Credit Ledger
+              {ledgerTab === "advance"
+                ? "Advance Games"
+                : "Credit Ledger"}
             </h1>
             <p className="text-sm text-slate-500">
-              Track customer bills moved to credit and recovered later.
+              {ledgerTab === "advance"
+                ? "Manage advance-game balances, availability, transfers, and history."
+                : "Track customer bills moved to credit and recovered later."}
             </p>
           </div>
-        </div>
-
-        <div className="mb-4 flex gap-2">
-          <Button variant={ledgerTab === "credit" ? "default" : "outline"} onClick={() => navigate("/operator/credit-ledger")}>Customer Credit</Button>
-          <Button variant={ledgerTab === "advance" ? "default" : "outline"} onClick={() => navigate("/operator/credit-ledger#advance-games")}>Advance Games</Button>
         </div>
 
         {message && (
@@ -717,6 +792,51 @@ function CreditLedgerPage() {
                 <p><strong>Sale Ref:</strong> {selectedEntry.saleId ?? "-"}</p>
               </div>
 
+              <section className="mt-5">
+                <h3 className="font-bold">Operator activity</h3>
+                {selectedEntry.operatorAudit?.length ? (
+                  <div className="mt-2 divide-y overflow-hidden rounded-lg border text-sm">
+                    {[...selectedEntry.operatorAudit]
+                      .sort(
+                        (a, b) =>
+                          new Date(a.occurredAt).getTime() -
+                          new Date(b.occurredAt).getTime(),
+                      )
+                      .map((event) => (
+                        <div
+                          key={event.id}
+                          className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-3 py-2"
+                        >
+                          <div>
+                            <strong>
+                              {event.action === "credit_issued"
+                                ? "Credit issued"
+                                : event.action === "credit_recovered"
+                                  ? "Credit recovered"
+                                  : event.action === "cancelled"
+                                    ? "Credit cancelled"
+                                    : event.action.replace(/_/g, " ")}
+                            </strong>{" "}
+                            by {event.operator.operatorName}
+                            {event.note ? (
+                              <p className="mt-0.5 text-xs text-slate-500">
+                                {event.note}
+                              </p>
+                            ) : null}
+                          </div>
+                          <span className="text-xs text-slate-500">
+                            {formatDateTime(event.occurredAt)}
+                          </span>
+                        </div>
+                      ))}
+                  </div>
+                ) : (
+                  <p className="mt-2 rounded-lg border border-dashed px-3 py-2 text-sm text-slate-500">
+                    Operator activity was not recorded for this legacy credit entry.
+                  </p>
+                )}
+              </section>
+
               <div className="mt-5 space-y-5">
                 <section>
                   <h3 className="font-bold">Table / Game Charges</h3>
@@ -896,7 +1016,7 @@ function CreditLedgerPage() {
           </div>
         )}
       </div>
-    </main>
+    </PageShell>
   );
 }
 

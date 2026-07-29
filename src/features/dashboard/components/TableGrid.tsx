@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 
 import TableCard from "./TableCard";
 import type { TableCardHandle } from "./TableCard";
+import type { TableStatusFilter } from "./DashboardStats";
 import StartSessionDialog from "./StartSessionDialog";
 
 import BillingDialog from "@/features/billing/components/BillingDialog";
@@ -13,16 +14,29 @@ import { useClubSettingsStore } from "@/features/settings/store/clubSettingsStor
 import type { PaymentMethod } from "@/types/session";
 import type { Table } from "@/types/table";
 
-function TableGrid() {
+interface TableGridProps {
+  focusTableId?: number | null;
+  onFocusComplete?: () => void;
+  statusFilter?: TableStatusFilter;
+}
+
+function TableGrid({
+  focusTableId = null,
+  onFocusComplete,
+  statusFilter = "all",
+}: TableGridProps) {
   const navigate = useNavigate();
   const tables = useTableStore((state) => state.tables);
   const runningTableCardView = useClubSettingsStore(
     (state) => state.settings.runningTableCardView
   );
-  const standardTables = tables.filter(
+  const visibleTables = tables.filter(
+    (table) => statusFilter === "all" || table.status === statusFilter
+  );
+  const standardTables = visibleTables.filter(
     (table) => table.type === "table"
   );
-  const privateRooms = tables.filter(
+  const privateRooms = visibleTables.filter(
     (table) => table.type === "private-room"
   );
 
@@ -57,9 +71,61 @@ function TableGrid() {
   >(null);
   const [expandedTableId, setExpandedTableId] =
     useState<number | null>(null);
+  const [exitingTableId, setExitingTableId] =
+    useState<number | null>(null);
+  const expansionSwitchTimerRef =
+    useRef<number | null>(null);
   const cardRefs = useRef(
     new Map<number, TableCardHandle>()
   );
+
+  const clearExpansionSwitch = () => {
+    if (expansionSwitchTimerRef.current !== null) {
+      window.clearTimeout(expansionSwitchTimerRef.current);
+      expansionSwitchTimerRef.current = null;
+    }
+    setExitingTableId(null);
+  };
+
+  const handleDetailsExpandedChange = (
+    tableId: number,
+    expanded: boolean
+  ) => {
+    clearExpansionSwitch();
+
+    if (!expanded) {
+      if (expandedTableId === tableId) {
+        setExitingTableId(tableId);
+        expansionSwitchTimerRef.current = window.setTimeout(
+          () => {
+            setExpandedTableId(null);
+            setExitingTableId(null);
+            expansionSwitchTimerRef.current = null;
+          },
+          90
+        );
+      }
+      return;
+    }
+
+    if (
+      expandedTableId === null ||
+      expandedTableId === tableId
+    ) {
+      setExpandedTableId(tableId);
+      return;
+    }
+
+    setExitingTableId(expandedTableId);
+    expansionSwitchTimerRef.current = window.setTimeout(
+      () => {
+        setExpandedTableId(tableId);
+        setExitingTableId(null);
+        expansionSwitchTimerRef.current = null;
+      },
+      90
+    );
+  };
 
   const handleTableClick = (table: Table) => {
     setSelectedTable(table);
@@ -83,8 +149,46 @@ function TableGrid() {
   };
 
   useEffect(() => {
+    clearExpansionSwitch();
     setExpandedTableId(null);
   }, [runningTableCardView]);
+
+  useEffect(
+    () => () => {
+      if (expansionSwitchTimerRef.current !== null) {
+        window.clearTimeout(expansionSwitchTimerRef.current);
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    if (focusTableId === null) return;
+
+    const table = tables.find((candidate) => candidate.id === focusTableId);
+    if (!table) {
+      onFocusComplete?.();
+      return;
+    }
+
+    setSelectedTable(table);
+    setActiveDialog(
+      table.status === "payment-pending" ? "billing" : null
+    );
+    clearExpansionSwitch();
+    setExpandedTableId(
+      ["running", "paused", "payment-pending"].includes(table.status)
+        ? table.id
+        : null
+    );
+
+    const frameId = window.requestAnimationFrame(() => {
+      cardRefs.current.get(table.id)?.focusCard();
+      onFocusComplete?.();
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [focusTableId, onFocusComplete, tables]);
 
   useEffect(() => {
     if (
@@ -271,15 +375,10 @@ function TableGrid() {
                   }}
                   table={table}
                   isDetailsExpanded={expandedTableId === table.id}
-                  onDetailsExpandedChange={(expanded) => {
-                    setExpandedTableId((current) =>
-                      expanded
-                        ? table.id
-                        : current === table.id
-                          ? null
-                          : current
-                    );
-                  }}
+                  isDetailsExiting={exitingTableId === table.id}
+                  onDetailsExpandedChange={(expanded) =>
+                    handleDetailsExpandedChange(table.id, expanded)
+                  }
                   onClick={() => handleTableClick(table)}
                   onHistoryClick={() =>
                     navigate(

@@ -8,6 +8,11 @@ import {
 import type { Sale } from "../types/sale";
 import { generateInvoiceNumber } from "../utils/invoice";
 import { formatWalkInBillNumber } from "@/features/sessions/utils/walkInLabel";
+import {
+  appendOperatorAuditEvent,
+  createOperatorAuditEvent,
+  getActiveOperatorSnapshot,
+} from "@/lib/operatorAttribution";
 
 interface SalesStore {
   sales: Sale[];
@@ -59,14 +64,35 @@ export const useSalesStore =
         },
 
         addSale: (sale) =>
-          set((state) => ({
+          set((state) => {
+            const paymentReceivedBy =
+              sale.paymentReceivedBy ?? getActiveOperatorSnapshot();
+            const hasPaymentAudit = sale.operatorAudit?.some(
+              (event) => event.action === "payment_received",
+            );
+            const saleWithAttribution = {
+              ...sale,
+              paymentReceivedBy,
+              operatorAudit: hasPaymentAudit
+                ? sale.operatorAudit
+                : appendOperatorAuditEvent(
+                    sale.operatorAudit,
+                    createOperatorAuditEvent("payment_received", {
+                      occurredAt: sale.paidAt ?? sale.createdAt,
+                      operator: paymentReceivedBy,
+                    }),
+                  ),
+            };
+
+            return {
             sales: [
-              sale,
+              saleWithAttribution,
               ...state.sales,
             ],
             nextInvoiceSequence:
               state.nextInvoiceSequence + 1,
-          })),
+            };
+          }),
 
         updateSalePaymentMethod: (saleId, paymentMethod) =>
           set((state) => ({
@@ -76,6 +102,11 @@ export const useSalesStore =
                     ...sale,
                     paymentMethod,
                     paymentSplits: undefined,
+                    paymentCorrectedBy: getActiveOperatorSnapshot(),
+                    operatorAudit: appendOperatorAuditEvent(
+                      sale.operatorAudit,
+                      createOperatorAuditEvent("payment_method_corrected"),
+                    ),
                   }
                 : sale
             ),

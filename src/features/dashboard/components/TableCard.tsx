@@ -63,6 +63,7 @@ type Props = {
   onCafeBillClick?: () => void;
   onAccessoriesClick?: () => void;
   isDetailsExpanded?: boolean;
+  isDetailsExiting?: boolean;
   onDetailsExpandedChange?: (expanded: boolean) => void;
 };
 
@@ -154,6 +155,7 @@ const TableCard = forwardRef<TableCardHandle, Props>(function TableCard({
   onCafeBillClick,
   onAccessoriesClick,
   isDetailsExpanded = false,
+  isDetailsExiting = false,
   onDetailsExpandedChange,
 }, ref) {
   const now = useCurrentTime();
@@ -280,6 +282,12 @@ const TableCard = forwardRef<TableCardHandle, Props>(function TableCard({
   const showRunningDetails =
     !usesCompactExpandableView ||
     isDetailsExpanded;
+  const showSelectedCardTreatment =
+    usesCompactExpandableView &&
+    (isDetailsExpanded || isDetailsExiting);
+  const detailsMotionClass = isDetailsExiting
+    ? "table-details-exit"
+    : "table-details-enter";
   const setDetailsExpanded = (expanded: boolean) => {
     if (!expanded) setCardMenuOpen(false);
     onDetailsExpandedChange?.(expanded);
@@ -288,18 +296,18 @@ const TableCard = forwardRef<TableCardHandle, Props>(function TableCard({
     table.status === "running" &&
     usesFrameTimeWarning &&
     frameElapsedMinutes >= frameDangerMinutes
-      ? "border-red-300 border-l-4 border-l-red-500 bg-white shadow-red-100 hover:shadow-red-200"
+      ? "border-red-400 bg-red-50/70 shadow-red-100 hover:border-red-500 hover:shadow-red-200 dark:border-red-700 dark:bg-red-950/25"
       : table.status === "running" &&
           usesFrameTimeWarning &&
           frameElapsedMinutes >= frameWarningMinutes
-        ? "border-amber-300 border-l-4 border-l-amber-500 bg-white shadow-amber-100 hover:shadow-amber-200"
+        ? "border-amber-400 bg-amber-50/70 shadow-amber-100 hover:border-amber-500 hover:shadow-amber-200 dark:border-amber-700 dark:bg-amber-950/25"
         : table.status === "running"
-          ? "border-slate-200 border-l-4 border-l-emerald-500 bg-white"
+          ? "border-slate-200 bg-white"
           : table.status === "paused"
-            ? "border-amber-200 border-l-4 border-l-amber-500 bg-white"
+            ? "border-amber-200 bg-white"
             : table.status === "payment-pending"
-              ? "border-amber-200 border-l-4 border-l-yellow-400 bg-white"
-              : "border-slate-200 border-l-4 border-l-slate-300 bg-white";
+              ? "border-amber-200 bg-white"
+              : "border-slate-200 bg-white";
   const elapsedTimerClass =
     table.status === "paused"
       ? "text-amber-700"
@@ -685,7 +693,7 @@ const TableCard = forwardRef<TableCardHandle, Props>(function TableCard({
         tabIndex={-1}
         title={table.type === "table" && table.id <= 7 ? `${table.name} - F${table.id}` : table.name}
         onClick={onClick}
-        className="flex min-h-[176px] cursor-pointer flex-col rounded-lg border-slate-200 border-l-4 border-l-slate-300 bg-white p-4 shadow-none transition-[transform,box-shadow,border-color] duration-150 hover:-translate-y-0.5 hover:border-slate-300 hover:border-l-slate-400 hover:shadow-sm"
+        className="flex min-h-[176px] cursor-pointer flex-col rounded-lg border-slate-200 bg-white p-4 shadow-none transition-[transform,box-shadow,border-color] duration-150 hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-sm"
       >
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-center gap-3">
@@ -791,7 +799,8 @@ const TableCard = forwardRef<TableCardHandle, Props>(function TableCard({
           event.stopPropagation();
           setContextMenu({ x: event.clientX, y: event.clientY });
         }}
-        className={`flex cursor-pointer flex-col rounded-lg shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 ${
+        data-details-selected={showSelectedCardTreatment}
+        className={`table-card-selection flex cursor-pointer flex-col rounded-lg shadow-sm hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 ${
           usesCompactExpandableView && !showRunningDetails
             ? "min-h-[184px] p-3"
             : "min-h-[230px]"
@@ -834,7 +843,6 @@ const TableCard = forwardRef<TableCardHandle, Props>(function TableCard({
               </div>
             </div>
             <div className="shrink-0 text-right">
-              <p className="text-[11px] font-medium text-slate-500">Elapsed</p>
               <p className={`font-mono font-extrabold tabular-nums leading-tight ${
                 usesCompactExpandableView && !showRunningDetails
                   ? "text-xl"
@@ -842,6 +850,7 @@ const TableCard = forwardRef<TableCardHandle, Props>(function TableCard({
               } ${elapsedTimerClass}`}>
                 {elapsed}
               </p>
+              <p className="text-[11px] font-medium text-slate-500">Session Time</p>
             </div>
           </div>
         ) : (
@@ -874,7 +883,7 @@ const TableCard = forwardRef<TableCardHandle, Props>(function TableCard({
               : "mt-5 space-y-4"
         } flex flex-1 flex-col`}>
           {table.session && usesCompactExpandableView && !showRunningDetails && (
-            <div className="motion-fade-in space-y-2">
+            <div className="table-details-enter space-y-2">
               <TableInfo
                 session={table.session}
                 tableId={table.id}
@@ -893,7 +902,10 @@ const TableCard = forwardRef<TableCardHandle, Props>(function TableCard({
                       ? "Current booking"
                       : "Current frame"}
                   </p>
-                  <p className="font-mono text-lg font-bold tabular-nums text-blue-700">
+                  <p
+                    key={String(frameTimerStart.startedAt)}
+                    className="motion-value-change font-mono text-lg font-bold tabular-nums text-blue-700"
+                  >
                     {frameElapsed}
                   </p>
                 </div>
@@ -961,7 +973,7 @@ const TableCard = forwardRef<TableCardHandle, Props>(function TableCard({
           )}
 
           {table.session && showRunningDetails && (
-            <div className="motion-fade-in space-y-3">
+            <div className={`${detailsMotionClass} space-y-3`}>
               <TableInfo
                 session={table.session}
                 tableId={table.id}
@@ -985,6 +997,7 @@ const TableCard = forwardRef<TableCardHandle, Props>(function TableCard({
               {isRunningOrPaused && (
                 <RunningPanel
                   frameElapsed={frameElapsed}
+                  frameAnimationKey={String(frameTimerStart.startedAt)}
                   timerLabel={
                     currentFrameType === "tableBooking"
                       ? "Current booking"
@@ -1097,7 +1110,7 @@ const TableCard = forwardRef<TableCardHandle, Props>(function TableCard({
             ...(onCafeBillClick
               ? [{
                   id: "cafe",
-                  label: "Canteen",
+                  label: "Cafe",
                   icon: Coffee,
                   onSelect: onCafeBillClick,
                 }]

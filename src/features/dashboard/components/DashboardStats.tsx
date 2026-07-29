@@ -1,7 +1,5 @@
-import {
-  CircleDollarSign,
-  LayoutGrid,
-} from "lucide-react";
+import { CircleDollarSign } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 import { Card } from "@/components/ui/card";
 import { ProgressIndicator } from "@/components/ui/progress-indicator";
@@ -10,6 +8,7 @@ import { useSalesStore } from "@/features/sales/store/salesStore";
 import { calculatePaymentTotals } from "@/features/sales/utils/salesReports";
 import { useTableStore } from "@/store/tableStore";
 import { CashPositionSummaryCard } from "@/features/business-day/components/BusinessDayCard";
+import { useAnimatedNumber } from "@/hooks/useAnimatedNumber";
 
 import { DashboardMetricCard } from "./DashboardMetricCard";
 
@@ -126,7 +125,110 @@ export function BusinessDayStats() {
   );
 }
 
-export function TableStatusStats() {
+export type TableStatusFilter =
+  | "all"
+  | "running"
+  | "paused"
+  | "available"
+  | "payment-pending";
+
+interface TableStatusStatsProps {
+  activeFilter: TableStatusFilter;
+  onFilterChange: (filter: TableStatusFilter) => void;
+}
+
+type StatusMetric = {
+  filter: TableStatusFilter;
+  label: string;
+  value: number;
+  valueClassName: string;
+  supportingText?: string;
+  emphasized?: boolean;
+};
+
+function useIncreaseAttention(value: number, enabled: boolean) {
+  const previousValueRef = useRef(value);
+  const [isActive, setIsActive] = useState(false);
+
+  useEffect(() => {
+    const previousValue = previousValueRef.current;
+    previousValueRef.current = value;
+
+    if (!enabled || value <= previousValue) return;
+
+    setIsActive(false);
+    const frame = window.requestAnimationFrame(() => setIsActive(true));
+    const timeout = window.setTimeout(() => setIsActive(false), 500);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timeout);
+    };
+  }, [enabled, value]);
+
+  return isActive;
+}
+
+function StatusMetricButton({
+  metric,
+  isActive,
+  onFilterChange,
+}: {
+  metric: StatusMetric;
+  isActive: boolean;
+  onFilterChange: (filter: TableStatusFilter) => void;
+}) {
+  const animatedValue = useAnimatedNumber(metric.value);
+  const hasIncreaseAttention = useIncreaseAttention(
+    metric.value,
+    metric.filter === "running" ||
+      metric.filter === "payment-pending",
+  );
+
+  return (
+    <button
+      type="button"
+      aria-pressed={isActive}
+      onClick={() =>
+        onFilterChange(
+          isActive && metric.filter !== "all" ? "all" : metric.filter,
+        )
+      }
+      className={`min-w-0 px-3 py-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 ${
+        isActive
+          ? "bg-blue-50 ring-1 ring-inset ring-blue-300 dark:bg-blue-950/40 dark:ring-blue-700"
+          : metric.emphasized
+            ? "bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/30 dark:hover:bg-amber-950/50"
+            : "bg-slate-50/70 hover:bg-slate-100 dark:bg-slate-800/60 dark:hover:bg-slate-800"
+      } ${
+        hasIncreaseAttention
+          ? metric.filter === "payment-pending"
+            ? "summary-metric-attention-pending"
+            : "summary-metric-attention-running"
+          : ""
+      } cursor-pointer`}
+    >
+      <p className="truncate text-[11px] font-medium text-slate-500 dark:text-slate-400">
+        {metric.label}
+      </p>
+      <p
+        className={`mt-0.5 text-lg font-bold tabular-nums ${metric.valueClassName}`}
+      >
+        {Math.round(animatedValue)}
+      </p>
+      {metric.supportingText && (
+        <p className="mt-0.5 text-[10px] leading-3 text-slate-500 dark:text-slate-400">
+          {metric.supportingText}
+        </p>
+      )}
+    </button>
+  );
+}
+
+export function TableStatusStats({
+  activeFilter,
+  onFilterChange,
+}: TableStatusStatsProps) {
   const {
     total,
     standardTableCount,
@@ -136,71 +238,75 @@ export function TableStatusStats() {
     paused,
     pendingTables,
     occupiedTables,
-    trackedProducts,
-    healthyProducts,
-    lowStockProducts,
-    outOfStockProducts,
   } = useDashboardStats();
 
+  const metrics: StatusMetric[] = [
+    {
+      filter: "all" as const,
+      label: "Total",
+      value: total,
+      valueClassName: "text-slate-800 dark:text-slate-100",
+      supportingText: `${standardTableCount} tables \u00b7 ${privateRoomCount} private rooms`,
+    },
+    {
+      filter: "running" as const,
+      label: "Running",
+      value: running,
+      valueClassName: "text-red-600 dark:text-red-400",
+    },
+    {
+      filter: "paused" as const,
+      label: "Paused",
+      value: paused,
+      valueClassName: "text-amber-600 dark:text-amber-400",
+    },
+    {
+      filter: "available" as const,
+      label: "Available",
+      value: available,
+      valueClassName: "text-emerald-600 dark:text-emerald-400",
+    },
+    {
+      filter: "payment-pending" as const,
+      label: "Payment Pending",
+      value: pendingTables,
+      valueClassName:
+        pendingTables > 0
+          ? "text-amber-700 dark:text-amber-300"
+          : "text-slate-700 dark:text-slate-200",
+      emphasized: pendingTables > 0,
+    },
+  ];
+
   return (
-    <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
-      <Card className="flex h-full min-h-[184px] flex-col rounded-lg border-slate-200 bg-white p-4 shadow-sm transition-[transform,box-shadow,border-color] duration-150 hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md">
-        <div className="flex items-start justify-between gap-2">
-          <p className="text-xs font-medium text-slate-500">Table Status</p>
-          <span className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-100 text-slate-700">
-            <LayoutGrid className="h-4 w-4" />
-          </span>
-        </div>
-        <div className="mt-2 grid grid-cols-4 divide-x divide-slate-200 text-center">
-          <div>
-            <p className="text-xl font-bold text-slate-700">{total}</p>
-            <p className="text-[11px] text-slate-500">Total</p>
+    <section>
+      <Card className="rounded-lg border-slate-200 bg-white p-2.5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+        <div className="flex flex-col gap-2.5 xl:flex-row xl:items-center">
+          <div className="grid min-w-0 flex-1 grid-cols-2 gap-px overflow-hidden rounded-md border border-slate-200 bg-slate-200 sm:grid-cols-3 lg:grid-cols-5 dark:border-slate-700 dark:bg-slate-700">
+            {metrics.map((metric) => {
+              const isActive = activeFilter === metric.filter;
+              return (
+                <StatusMetricButton
+                  key={metric.label}
+                  metric={metric}
+                  isActive={isActive}
+                  onFilterChange={onFilterChange}
+                />
+              );
+            })}
           </div>
-          <div>
-            <p className="text-xl font-bold text-red-600">{running}</p>
-            <p className="text-[11px] text-slate-500">Running</p>
-          </div>
-          <div>
-            <p className="text-xl font-bold text-amber-600">{paused}</p>
-            <p className="text-[11px] text-slate-500">Paused</p>
-          </div>
-          <div>
-            <p className="text-xl font-bold text-emerald-600">{available}</p>
-            <p className="text-[11px] text-slate-500">Available</p>
-          </div>
-        </div>
-        <p className="mt-auto text-xs text-slate-500">
-          {standardTableCount} tables / {privateRoomCount} private rooms
-        </p>
-        <div className="mt-2">
-          <ProgressIndicator
-            label="Table Occupancy"
-            current={occupiedTables}
-            maximum={total}
-            supportingText={`${occupiedTables} of ${total} occupied`}
-          />
-        </div>
-        {trackedProducts.length > 0 && (
-          <div className="mt-2">
+
+          <div className="min-w-0 xl:w-64 xl:shrink-0">
             <ProgressIndicator
-              label="Tracked Stock"
-              current={healthyProducts}
-              maximum={trackedProducts.length}
-              supportingText={`${healthyProducts} of ${trackedProducts.length} healthy`}
-              status={`${lowStockProducts} low / ${outOfStockProducts} out`}
+              label="Occupancy"
+              current={occupiedTables}
+              maximum={total}
+              supportingText={`${occupiedTables} of ${total} occupied`}
+              animate
             />
           </div>
-        )}
+        </div>
       </Card>
-
-      <DashboardMetricCard
-        title="Payment-Pending Tables"
-        value={pendingTables}
-        icon={CircleDollarSign}
-        tone="text-amber-600"
-        iconBackground="bg-amber-50"
-        supportingText="Awaiting checkout"
-      />
     </section>
   );
 }

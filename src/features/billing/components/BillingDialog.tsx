@@ -43,6 +43,7 @@ import {
 } from "../utils/playerBillIdentity";
 
 const emptyPaidPlayerNames: string[] = [];
+const emptyPaymentSplits: PaymentSplit[] = [];
 
 interface Props {
   open: boolean;
@@ -61,6 +62,10 @@ interface Props {
   onPaymentBlocked?: () => void;
   paidPlayerNames?: string[];
   playerName?: string;
+  initialPaymentMethod?: PaymentMethod;
+  initialPaymentSplits?: PaymentSplit[];
+  initialPayerName?: string;
+  initialDiscount?: number;
   onReceivePayment: (
     paymentMethod: PaymentMethod,
     payerName?: string,
@@ -97,22 +102,27 @@ function BillingDialog({
   onPaymentBlocked,
   paidPlayerNames = emptyPaidPlayerNames,
   playerName,
+  initialPaymentMethod,
+  initialPaymentSplits = emptyPaymentSplits,
+  initialPayerName,
+  initialDiscount,
   onReceivePayment,
   onReceivePlayerBill,
 }: Props) {
   useAppDateTimeFormats();
   const [paymentMethod, setPaymentMethod] =
     useState<PaymentMethod>(() =>
+      initialPaymentMethod ??
       useClubSettingsStore.getState().settings.defaultPaymentMethod
     );
   const [paymentSplits, setPaymentSplits] =
-    useState<PaymentSplit[]>([]);
+    useState<PaymentSplit[]>(initialPaymentSplits);
   const [paymentError, setPaymentError] =
     useState("");
   const [discountText, setDiscountText] =
-    useState(String(session.discount ?? 0));
+    useState(String(initialDiscount ?? session.discount ?? 0));
   const [appliedDiscount, setAppliedDiscount] =
-    useState(session.discount ?? 0);
+    useState(initialDiscount ?? session.discount ?? 0);
   const [receivingPlayerName, setReceivingPlayerName] =
     useState<string | null>(null);
   const defaultPayer =
@@ -122,7 +132,8 @@ function BillingDialog({
     getSessionPlayers(session);
   const [payerName, setPayerName] =
     useState(
-      session.payerName ??
+      initialPayerName ??
+        session.payerName ??
         session.loserName ??
         defaultPayer
     );
@@ -131,21 +142,34 @@ function BillingDialog({
 
   useEffect(() => {
     setPayerName(
-      session.payerName ??
+      initialPayerName ??
+        session.payerName ??
         session.loserName ??
         defaultPayer
     );
     setPaidPlayers(paidPlayerNames);
-    setPaymentSplits([]);
+    setPaymentMethod(
+      initialPaymentMethod ??
+        useClubSettingsStore.getState().settings.defaultPaymentMethod
+    );
+    setPaymentSplits(initialPaymentSplits);
     setPaymentError("");
     setDiscountText(
-      String(session.discount ?? 0)
+      String(initialDiscount ?? session.discount ?? 0)
     );
     setAppliedDiscount(
-      session.discount ?? 0
+      initialDiscount ?? session.discount ?? 0
     );
     setReceivingPlayerName(null);
-  }, [session, defaultPayer, paidPlayerNames]);
+  }, [
+    session,
+    defaultPayer,
+    paidPlayerNames,
+    initialPaymentMethod,
+    initialPaymentSplits,
+    initialPayerName,
+    initialDiscount,
+  ]);
 
   const adjustedSession = {
     ...session,
@@ -570,7 +594,7 @@ function BillingDialog({
                           )} bill`}
                     </span>
                     <span className="text-xs font-normal opacity-80">
-                      Snooker Rs. {bill.tableAmount} | Canteen Rs. {bill.cafeAmount}
+                      Snooker Rs. {bill.tableAmount} | Cafe Rs. {bill.cafeAmount}
                     </span>
                   </span>
                   <span className="shrink-0 text-base font-bold">

@@ -71,6 +71,8 @@ export interface CafeOrderItem {
 
   playerId?: string;
 
+  participantKey?: string;
+
   orderedAt?: string;
 }
 

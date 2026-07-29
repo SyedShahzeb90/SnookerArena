@@ -16,6 +16,7 @@ import { useBusinessDayStore } from "@/features/business-day/store/businessDaySt
 import { paymentMethodLabels } from "@/features/business-day/types/businessDay";
 import type { PaymentMethod } from "@/types/session";
 import { formatAppDateTime, useAppDateTimeFormats } from "@/lib/dateTime";
+import { getOperatorDisplayName } from "@/lib/operatorAttribution";
 import {
   getOutsidePurchaseSummary,
   useOutsidePurchaseStore,
@@ -249,8 +250,8 @@ function OutsidePurchasesPanel() {
                 <span>Outstanding: <strong>{money(selected.outstandingAmount)}</strong></span>
               </div>
               <div className="space-y-2 border-l-2 border-slate-200 pl-3">
-                <div><p className="font-semibold">{formatAppDateTime(selected.createdAt)}</p><p>{money(selected.amountPaidFromDrawer)} paid through {selected.paymentMethod ? paymentMethodLabels[selected.paymentMethod] : "Cash Drawer"} by {selected.operator}</p></div>
-                {selected.reimbursements.map((item) => <div key={item.id}><p className="font-semibold">{formatAppDateTime(item.createdAt)}</p><p>{money(item.amount)} reimbursed through {paymentMethodLabels[item.paymentMethod]} by {item.operator}</p>{item.note && <p className="text-slate-500">{item.note}</p>}</div>)}
+                <div><p className="font-semibold">{formatAppDateTime(selected.createdAt)}</p><p>{money(selected.amountPaidFromDrawer)} paid through {selected.paymentMethod ? paymentMethodLabels[selected.paymentMethod] : "Cash Drawer"} by {getOperatorDisplayName(selected.createdByOperator, selected.operator)}</p></div>
+                {selected.reimbursements.map((item) => <div key={item.id}><p className="font-semibold">{formatAppDateTime(item.createdAt)}</p><p>{money(item.amount)} reimbursed through {paymentMethodLabels[item.paymentMethod]} by {getOperatorDisplayName(item.operatorSnapshot, item.operator)}</p>{item.note && <p className="text-slate-500">{item.note}</p>}</div>)}
                 {selected.cancelledAt && <div><p className="font-semibold">{formatAppDateTime(selected.cancelledAt)}</p><p>Voided by {selected.cancelledBy}: {selected.cancellationReason}</p></div>}
               </div>
               <p className="font-bold">Outstanding: {money(selected.outstandingAmount)}</p>

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { PageShell } from "@/components/layout/page-layout";
 import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/ui/empty-state";
 import { BillContextMenu, type BillContextMenuAction } from "@/components/ui/bill-context-menu";
@@ -42,6 +43,7 @@ import { formatAppDate, formatAppTime, useAppDateTimeFormats } from "@/lib/dateT
 import CustomerBillsPage from "@/features/customers/pages/CustomerBillsPage";
 import { useAdminModeStore } from "@/features/admin-mode/adminModeStore";
 import { useTableStore } from "@/store/tableStore";
+import { useDeferredPayment } from "../DeferredPaymentProvider";
 type StatusFilter = "pending" | "paid" | "cancelled";
 type ViewFilter = StatusFilter | "all";
 type DateFilter =
@@ -175,6 +177,26 @@ type CheckoutRow =
     }
   | { type: "account"; account: CustomerAccount }
   | { type: "paid"; sale: Sale };
+
+function getPendingPlayerPaymentKey(billId: string, playerName: string) {
+  return `bill:${billId}:player:${normalizePlayerName(playerName)}`;
+}
+
+function isDeferredCheckoutRow(
+  row: CheckoutRow,
+  pendingPaymentKeys: ReadonlySet<string>,
+) {
+  if (row.type === "account") {
+    return pendingPaymentKeys.has(`account:${row.account.id}`);
+  }
+  if (row.type !== "pending") return false;
+  return (
+    pendingPaymentKeys.has(`bill:${row.bill.id}`) ||
+    pendingPaymentKeys.has(
+      getPendingPlayerPaymentKey(row.bill.id, row.playerName),
+    )
+  );
+}
 function getAccountAccessoryAmount(account: CustomerAccount) {
   return (
     account.accessoryCharges?.reduce(
@@ -912,6 +934,7 @@ function CheckoutPage() {
   const customerAccounts = useCustomerAccountStore((state) => state.accounts);
   const tables = useTableStore((state) => state.tables);
   const canCancelBills = useAdminModeStore((state) => state.can("cancel_bills"));
+  const { pendingPaymentKeys, schedulePayment } = useDeferredPayment();
   const cancelCustomerAccount = useCustomerAccountStore(
     (state) => state.cancelCustomerAccount
   );
@@ -925,6 +948,13 @@ function CheckoutPage() {
   const [selectedPlayerName, setSelectedPlayerName] = useState<
     string | undefined
   >();
+  const [restoredPaymentDraft, setRestoredPaymentDraft] = useState<{
+    billId: string;
+    paymentMethod: PaymentMethod;
+    paymentSplits: PaymentSplit[];
+    payerName?: string;
+    discount?: number;
+  } | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<ViewFilter>("pending");
   const [dateFilter, setDateFilter] = useState<DateFilter>("all");
@@ -1092,11 +1122,12 @@ function CheckoutPage() {
             type: "account" as const,
             account,
           })),
-        ])
-      ),
+        ]),
+      ).filter((row) => !isDeferredCheckoutRow(row, pendingPaymentKeys)),
     [
       collectibleCustomerAccounts,
       collectiblePendingRows,
+      pendingPaymentKeys,
     ]
   );
   const openBillsCount = openRows.length;
@@ -1145,6 +1176,9 @@ function CheckoutPage() {
     const tableFilteredRows = dedupeCheckoutRows(
       combinePendingRows(rows),
     ).filter((row) => {
+      if (isDeferredCheckoutRow(row, pendingPaymentKeys)) {
+        return false;
+      }
       if (
         range &&
         !isInDateRange(
@@ -1259,6 +1293,7 @@ function CheckoutPage() {
     checkoutSales,
     customerAccountById,
     openCustomerAccountBills,
+    pendingPaymentKeys,
   ]);
   const tableOptions = useMemo(() => {
     const options = new Map<number, string>();
@@ -1381,19 +1416,35 @@ function CheckoutPage() {
       });
       return;
     }
-    const billLabel = selectedBill.staffBillNumber ?? selectedBill.id;
-    receivePendingBillPayment({
-      billId: selectedBill.id,
-      paymentMethod,
-      paymentSplits,
-      payerName,
-      discount,
+    const billSnapshot = selectedBill;
+    const billLabel = billSnapshot.staffBillNumber ?? billSnapshot.id;
+    const scheduled = schedulePayment({
+      key: `bill:${billSnapshot.id}`,
+      label: billLabel,
+      commit: () =>
+        receivePendingBillPayment({
+          billId: billSnapshot.id,
+          paymentMethod,
+          paymentSplits,
+          payerName,
+          discount,
+        }),
+      onUndo: () => {
+        setRestoredPaymentDraft({
+          billId: billSnapshot.id,
+          paymentMethod,
+          paymentSplits: paymentSplits ?? [],
+          payerName,
+          discount,
+        });
+        setSelectedBill(billSnapshot);
+        setSelectedPlayerName(undefined);
+      },
     });
+    if (!scheduled) return;
+    setRestoredPaymentDraft(null);
     setSelectedBill(null);
-    toast.success({
-      title: "Payment Received",
-      description: billLabel,
-    });
+    setSelectedPlayerName(undefined);
   };
   const handleReceivePlayerBill = (input: {
     paymentMethod: PaymentMethod;
@@ -1421,28 +1472,29 @@ function CheckoutPage() {
       });
       return;
     }
-    const billLabel = selectedBill.staffBillNumber ?? selectedBill.id;
-    receivePendingPlayerBillPayment({ billId: selectedBill.id, ...input });
-    toast.success({
-      title: "Payment Received",
-      description: `${input.playerName} · ${billLabel}`,
+    const billSnapshot = selectedBill;
+    const billLabel = billSnapshot.staffBillNumber ?? billSnapshot.id;
+    const scheduled = schedulePayment({
+      key: getPendingPlayerPaymentKey(billSnapshot.id, input.playerName),
+      label: `${input.playerName} - ${billLabel}`,
+      commit: () =>
+        receivePendingPlayerBillPayment({ billId: billSnapshot.id, ...input }),
+      onUndo: () => {
+        setRestoredPaymentDraft({
+          billId: billSnapshot.id,
+          paymentMethod: input.paymentMethod,
+          paymentSplits: input.paymentSplits ?? [],
+          payerName: input.payerName,
+          discount: input.discount,
+        });
+        setSelectedBill(billSnapshot);
+        setSelectedPlayerName(input.playerName);
+      },
     });
-    const paidPlayerNames = selectedBill.paidPlayerNames ?? [];
-    const nextPaidPlayerNames = paidPlayerNames.includes(input.playerName)
-      ? paidPlayerNames
-      : [...paidPlayerNames, input.playerName];
-    const allBillsReceived = input.allPlayerNames.every((name) =>
-      nextPaidPlayerNames.includes(name),
-    );
-    if (allBillsReceived) {
-      setSelectedBill(null);
-      setSelectedPlayerName(undefined);
-    } else {
-      setSelectedBill({
-        ...selectedBill,
-        paidPlayerNames: nextPaidPlayerNames,
-      });
-    }
+    if (!scheduled) return;
+    setRestoredPaymentDraft(null);
+    setSelectedBill(null);
+    setSelectedPlayerName(undefined);
   };
   const handleUpdateSelectedBillDiscount = (discount: number) => {
     if (!selectedBill) return;
@@ -1605,9 +1657,9 @@ function CheckoutPage() {
   }
 
   return (
-    <main className="min-h-screen overflow-x-hidden bg-slate-100 px-3 py-4 sm:px-4 lg:px-5 xl:px-6">
+    <PageShell width="wide" className="overflow-x-hidden" contentClassName="space-y-0">
       {" "}
-      <div className="mx-auto w-full max-w-[1560px]">
+      <div className="w-full">
         {" "}
         <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           {" "}
@@ -1817,7 +1869,7 @@ function CheckoutPage() {
                     </strong>
                   </span>
                   <span>
-                    Canteen{" "}
+                    Cafe{" "}
                     <strong className="text-slate-700">
                       {formatCurrency(filteredTotals.cafe)}
                     </strong>
@@ -1868,7 +1920,7 @@ function CheckoutPage() {
                     Customer / Table
                   </th>
                   <th className="whitespace-nowrap px-2 py-2.5 text-right sm:px-3">Table Charges</th>
-                  <th className="whitespace-nowrap px-2 py-3 text-right sm:px-3">Canteen</th>
+                  <th className="whitespace-nowrap px-2 py-3 text-right sm:px-3">Cafe</th>
                   <th className="whitespace-nowrap px-2 py-2.5 text-right sm:px-3">Accessories</th>
                   <th className="whitespace-nowrap px-2 py-2.5 text-right sm:px-3">Total</th>
                   <th className="whitespace-nowrap px-2 py-2.5 sm:px-3">Status</th>
@@ -2155,10 +2207,31 @@ function CheckoutPage() {
             selectedBill.status === "cancelled" ? "Cancelled" : "Awaiting Payment"
           }
           playerName={selectedPlayerName}
+          initialPaymentMethod={
+            restoredPaymentDraft?.billId === selectedBill.id
+              ? restoredPaymentDraft.paymentMethod
+              : undefined
+          }
+          initialPaymentSplits={
+            restoredPaymentDraft?.billId === selectedBill.id
+              ? restoredPaymentDraft.paymentSplits
+              : undefined
+          }
+          initialPayerName={
+            restoredPaymentDraft?.billId === selectedBill.id
+              ? restoredPaymentDraft.payerName
+              : undefined
+          }
+          initialDiscount={
+            restoredPaymentDraft?.billId === selectedBill.id
+              ? restoredPaymentDraft.discount
+              : undefined
+          }
           paidPlayerNames={selectedBill.paidPlayerNames}
           onClose={() => {
             setSelectedBill(null);
             setSelectedPlayerName(undefined);
+            setRestoredPaymentDraft(null);
           }}
           onUpdateDiscount={handleUpdateSelectedBillDiscount}
           canReceivePayment={
@@ -2269,7 +2342,7 @@ function CheckoutPage() {
           </div>{" "}
         </div>
       )}{" "}
-    </main>
+    </PageShell>
   );
 }
 export default CheckoutPage;

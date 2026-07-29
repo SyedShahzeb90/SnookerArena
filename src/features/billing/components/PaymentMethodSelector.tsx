@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 
+import { AnimatedCollapsible } from "@/components/ui/animated-collapsible";
 import type { PaymentMethod } from "@/types/session";
 import type { PaymentSplit } from "@/features/sales/types/sale";
 
@@ -110,42 +111,6 @@ function PaymentMethodSelector({
       )
     );
 
-    if (
-      totalAmount !== undefined &&
-      nextSplits.length >= 2
-    ) {
-      const otherIndexes = nextSplits
-        .map((_, currentIndex) => currentIndex)
-        .filter(
-          (currentIndex) => currentIndex !== index
-        );
-      const autofillIndex =
-        otherIndexes.find(
-          (currentIndex) =>
-            nextSplits[currentIndex].amount === 0
-        ) ??
-        otherIndexes[otherIndexes.length - 1];
-      const fixedOtherTotal = otherIndexes
-        .filter(
-          (currentIndex) =>
-            currentIndex !== autofillIndex
-        )
-        .reduce(
-          (total, currentIndex) =>
-            total + nextSplits[currentIndex].amount,
-          0
-        );
-      const remainingAmount = Math.max(
-        0,
-        totalAmount - split.amount - fixedOtherTotal
-      );
-
-      nextSplits[autofillIndex] = {
-        ...nextSplits[autofillIndex],
-        amount: remainingAmount,
-      };
-    }
-
     onSplitsChange?.(nextSplits);
   };
 
@@ -190,7 +155,7 @@ function PaymentMethodSelector({
                     : [
                         {
                           method: value,
-                          amount: totalAmount,
+                          amount: 0,
                         },
                       ]
                 )
@@ -202,7 +167,7 @@ function PaymentMethodSelector({
             </button>
           </div>
 
-          {splits.length > 0 && (
+          <AnimatedCollapsible open={splits.length > 0}>
             <div className="space-y-2">
               {splits.map((split, index) => (
                 <div
@@ -299,10 +264,7 @@ function PaymentMethodSelector({
                       method: getFirstUnusedMethod(
                         splits
                       ),
-                      amount: Math.max(
-                        0,
-                        remaining
-                      ),
+                      amount: 0,
                     },
                   ])
                 }
@@ -317,13 +279,22 @@ function PaymentMethodSelector({
                     : "text-amber-700"
                 }`}
               >
-                Total Rs. {splitTotal} / Rs. {totalAmount}
-                {remaining !== 0
-                  ? `, remaining Rs. ${remaining}`
-                  : ""}
+                Entered Rs. {splitTotal.toLocaleString()} / Bill Rs.{" "}
+                {totalAmount.toLocaleString()}
               </p>
+              {remaining > 0 && (
+                <p className="text-sm font-semibold text-amber-700">
+                  Remaining amount: Rs. {remaining.toLocaleString()}
+                </p>
+              )}
+              {remaining < 0 && (
+                <p className="text-sm font-semibold text-red-700">
+                  Amount exceeds bill by Rs.{" "}
+                  {Math.abs(remaining).toLocaleString()}
+                </p>
+              )}
             </div>
-          )}
+          </AnimatedCollapsible>
         </div>
       )}
     </div>

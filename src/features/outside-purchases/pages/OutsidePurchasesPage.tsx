@@ -2,14 +2,15 @@ import { ArrowLeft, ShoppingBag } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
+import { PageShell } from "@/components/layout/page-layout";
 import OutsidePurchasesPanel from "../components/OutsidePurchasesPanel";
 
 function OutsidePurchasesPage() {
   const navigate = useNavigate();
 
   return (
-    <main className="min-h-screen bg-slate-100 px-4 py-5 sm:px-6">
-      <div className="mx-auto max-w-7xl">
+    <PageShell contentClassName="space-y-0">
+      <div>
         <Button
           type="button"
           variant="ghost"
@@ -36,7 +37,7 @@ function OutsidePurchasesPage() {
 
         <OutsidePurchasesPanel />
       </div>
-    </main>
+    </PageShell>
   );
 }
 

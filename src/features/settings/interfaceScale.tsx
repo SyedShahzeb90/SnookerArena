@@ -10,7 +10,9 @@ export const INTERFACE_SCALE_OPTIONS = [80, 90, 100, 110, 120] as const;
 export type InterfaceScale = (typeof INTERFACE_SCALE_OPTIONS)[number];
 
 const BASE_FONT_SIZE_PX = 16;
+const DEFAULT_INTERFACE_SCALE_RATIO = 0.8;
 const SETTINGS_STORAGE_KEY = "snooker-arena-club-settings";
+const REBASED_SCALE_STORAGE_VERSION = 2;
 
 export function isInterfaceScale(value: unknown): value is InterfaceScale {
   return (
@@ -25,7 +27,9 @@ export function applyInterfaceScale(scale: ClubSettings["interfaceScale"]) {
     ? scale
     : DEFAULT_CLUB_SETTINGS.interfaceScale;
 
-  root.style.fontSize = `${(BASE_FONT_SIZE_PX * safeScale) / 100}px`;
+  root.style.fontSize = `${
+    (BASE_FONT_SIZE_PX * DEFAULT_INTERFACE_SCALE_RATIO * safeScale) / 100
+  }px`;
   root.dataset.interfaceScale = String(safeScale);
 }
 
@@ -35,9 +39,17 @@ function getStoredInterfaceScale(): ClubSettings["interfaceScale"] {
     if (!stored) return DEFAULT_CLUB_SETTINGS.interfaceScale;
 
     const parsed = JSON.parse(stored) as {
+      version?: number;
       state?: { settings?: Partial<ClubSettings> };
     };
     const scale = parsed.state?.settings?.interfaceScale;
+
+    if (
+      (parsed.version ?? 0) < REBASED_SCALE_STORAGE_VERSION &&
+      scale === 80
+    ) {
+      return 100;
+    }
 
     return isInterfaceScale(scale)
       ? scale

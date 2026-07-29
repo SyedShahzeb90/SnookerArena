@@ -13,6 +13,8 @@ export interface MenuItem {
 
   imageDataUrl?: string;
 
+  imageKey?: string;
+
   isAvailable?: boolean;
 
   createdAt?: string;
@@ -52,6 +54,8 @@ export interface OrderItem {
   playerName?: string;
 
   playerId?: string;
+
+  participantKey?: string;
 
   orderedAt?: string;
 }

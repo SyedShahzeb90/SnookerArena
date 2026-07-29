@@ -7,6 +7,10 @@ import type {
   PaymentMethod,
   SessionType,
 } from "@/types/session";
+import type {
+  OperatorSnapshot,
+  TransactionAuditEvent,
+} from "@/types/operatorAudit";
 
 export type PaymentStatus = "paid";
 
@@ -75,6 +79,9 @@ export interface Sale {
   paymentMethod: PaymentMethod;
   paymentSplits?: PaymentSplit[];
   paymentStatus: PaymentStatus;
+  paymentReceivedBy?: OperatorSnapshot;
+  paymentCorrectedBy?: OperatorSnapshot;
+  operatorAudit?: TransactionAuditEvent[];
   activeBusinessDayId?: string;
   orderedItems: CafeOrderItem[];
   playerBreakdown?: SalePlayerBreakdown[];

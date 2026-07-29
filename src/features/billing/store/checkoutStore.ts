@@ -8,6 +8,11 @@ import { createSaleFromTable } from "@/features/sales/utils/createSale";
 import { calculateGamePrice } from "@/features/pricing/utils/calculateGamePrice";
 import { useTableHistoryStore } from "@/features/table-history/store/tableHistoryStore";
 import { useCustomerAccountStore } from "@/features/customers/store/customerAccountStore";
+import {
+  appendOperatorAuditEvent,
+  createOperatorAuditEvent,
+  getActiveOperatorSnapshot,
+} from "@/lib/operatorAttribution";
 import type {
   PaymentSplit,
 } from "@/features/sales/types/sale";
@@ -15,6 +20,10 @@ import type {
   PaymentMethod,
   Session,
 } from "@/types/session";
+import type {
+  OperatorSnapshot,
+  TransactionAuditEvent,
+} from "@/types/operatorAudit";
 import type { Table } from "@/types/table";
 import {
   formatWalkInBillNumber,
@@ -75,6 +84,9 @@ export interface PendingBill {
   status: "pending" | "cancelled";
   paidPlayerNames?: string[];
   staffBillNumber?: string;
+  createdBy?: OperatorSnapshot;
+  cancelledBy?: OperatorSnapshot;
+  operatorAudit?: TransactionAuditEvent[];
   cancelledAt?: string;
   cancelledReason?: string;
   cancelledNote?: string;
@@ -207,6 +219,13 @@ export const useCheckoutStore =
                 new Date().toISOString(),
               status: "pending",
               paidPlayerNames: [],
+              createdBy: existingBill?.createdBy ?? getActiveOperatorSnapshot(),
+              operatorAudit:
+                existingBill?.operatorAudit ??
+                appendOperatorAuditEvent(
+                  undefined,
+                  createOperatorAuditEvent("bill_created"),
+                ),
               staffBillNumber:
                 existingBill?.staffBillNumber ??
                 linkedCustomerAccount?.staffBillNumber ??
@@ -258,10 +277,14 @@ export const useCheckoutStore =
           reason,
           note,
         }) => {
-          const cancelledAt =
-            new Date().toISOString();
-          const cancelledNote =
-            note?.trim() || undefined;
+          const cancelledAt = new Date().toISOString();
+          const cancelledNote = note?.trim() || undefined;
+          const cancelledBy = getActiveOperatorSnapshot();
+          const cancellationEvent = createOperatorAuditEvent("cancelled", {
+            occurredAt: cancelledAt,
+            note: [reason, cancelledNote].filter(Boolean).join(": "),
+            operator: cancelledBy,
+          });
 
           useTableHistoryStore
             .getState()
@@ -285,6 +308,11 @@ export const useCheckoutStore =
                         ...bill,
                         status: "cancelled",
                         cancelledAt,
+                        cancelledBy,
+                        operatorAudit: appendOperatorAuditEvent(
+                          bill.operatorAudit,
+                          cancellationEvent,
+                        ),
                         cancelledReason: reason,
                         cancelledNote,
                       }
@@ -384,6 +412,11 @@ export const useCheckoutStore =
                 bill.staffBillNumber,
               activeBusinessDayId:
                 activeDay.id,
+              paymentReceivedBy: getActiveOperatorSnapshot(),
+              operatorAudit: appendOperatorAuditEvent(
+                bill.operatorAudit,
+                createOperatorAuditEvent("payment_received"),
+              ),
             });
             useTableHistoryStore
               .getState()
@@ -507,6 +540,11 @@ export const useCheckoutStore =
                 bill.staffBillNumber,
               activeBusinessDayId:
                 activeDay.id,
+              paymentReceivedBy: getActiveOperatorSnapshot(),
+              operatorAudit: appendOperatorAuditEvent(
+                bill.operatorAudit,
+                createOperatorAuditEvent("payment_received"),
+              ),
             });
           }
 

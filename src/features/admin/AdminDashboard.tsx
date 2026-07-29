@@ -18,6 +18,7 @@ import { useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { PageHeading, PageShell } from "@/components/layout/page-layout";
 import { useAdminModeStore } from "@/features/admin-mode/adminModeStore";
 import type { AppPermission } from "@/features/admin-mode/permissions";
 import { useCheckoutStore } from "@/features/billing/store/checkoutStore";
@@ -63,8 +64,8 @@ const destinationGroups: Array<{
         permission: "view_management_reports",
       },
       {
-        title: "Canteen Profit Report",
-        description: "Review canteen sales, cost, and profit.",
+        title: "Cafe Sales Report",
+        description: "Review cafe sales, cost, and profit.",
         path: "/admin/canteen-profit",
         icon: Coffee,
         permission: "view_management_reports",
@@ -87,7 +88,7 @@ const destinationGroups: Array<{
   },
   {
     title: "Operations & Management",
-    description: "Maintain expenses, canteen products, deliveries, and accessories.",
+    description: "Maintain expenses, cafe products, deliveries, and accessories.",
     items: [
       {
         title: "Expenses",
@@ -98,7 +99,7 @@ const destinationGroups: Array<{
       },
       {
         title: "Menu Management",
-        description: "Manage canteen products, prices, and stock tracking.",
+        description: "Manage cafe products, prices, and stock tracking.",
         path: "/admin/menu",
         icon: Coffee,
         permission: "manage_canteen",
@@ -193,14 +194,12 @@ function AdminDashboard() {
   ];
 
   return (
-    <main className="min-h-screen bg-slate-100 px-4 py-5 sm:px-5 lg:px-6 lg:py-6">
-      <div className="mx-auto max-w-7xl space-y-5 lg:space-y-6">
-        <header>
-          <h1 className="text-2xl font-bold text-slate-950">Admin Dashboard</h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Review sales, expenses, profit, and business reports.
-          </p>
-        </header>
+    <PageShell>
+        <PageHeading
+          icon={Settings}
+          title="Admin Dashboard"
+          description="Review sales, expenses, profit, and business reports."
+        />
 
         <Card className="p-4">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
@@ -257,8 +256,7 @@ function AdminDashboard() {
             Switch to Operator View
           </Button>
         </div>
-      </div>
-    </main>
+    </PageShell>
   );
 }
 

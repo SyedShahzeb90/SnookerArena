@@ -1,4 +1,5 @@
 import type { PaymentMethod } from "@/types/session";
+import type { OperatorSnapshot } from "@/types/operatorAudit";
 
 export type OutsidePurchaseStatus =
   | "pending"
@@ -11,6 +12,7 @@ export interface OutsidePurchaseReimbursement {
   amount: number;
   paymentMethod: PaymentMethod;
   operator: string;
+  operatorSnapshot?: OperatorSnapshot;
   businessDayId: string;
   createdAt: string;
   note?: string;
@@ -33,11 +35,13 @@ export interface OutsidePurchase {
   outstandingAmount: number;
   status: OutsidePurchaseStatus;
   operator: string;
+  createdByOperator?: OperatorSnapshot;
   businessDayId: string;
   createdAt: string;
   reimbursements: OutsidePurchaseReimbursement[];
   cancelledAt?: string;
   cancelledBy?: string;
+  cancelledByOperator?: OperatorSnapshot;
   cancelledBusinessDayId?: string;
   cancellationReason?: string;
 }

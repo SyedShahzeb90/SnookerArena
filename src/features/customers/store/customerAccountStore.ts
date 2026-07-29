@@ -1,6 +1,12 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
+import { useAdvanceGamesStore } from "@/features/advance-games/store/advanceGamesStore";
+import {
+  appendOperatorAuditEvent,
+  createOperatorAuditEvent,
+  getActiveOperatorSnapshot,
+} from "@/lib/operatorAttribution";
 import type {
   PaymentMethod,
 } from "@/types/session";
@@ -378,6 +384,11 @@ export const useCustomerAccountStore =
             lastActivityAt: now,
             advanceGamesApplied: 0,
             advanceReduction: 0,
+            createdBy: getActiveOperatorSnapshot(),
+            operatorAudit: appendOperatorAuditEvent(
+              undefined,
+              createOperatorAuditEvent("bill_created", { occurredAt: now }),
+            ),
           };
 
           set((state) => ({
@@ -433,7 +444,10 @@ export const useCustomerAccountStore =
             ),
           })),
 
-        cancelCustomerAccount: ({ id, reason, note }) =>
+        cancelCustomerAccount: ({ id, reason, note }) => {
+          const advanceGamesStore =
+            useAdvanceGamesStore.getState();
+          advanceGamesStore.cancelPendingAwardsForBill(id);
           set((state) => ({
             accounts: state.accounts.map((account) => {
               if (account.id !== id) return account;
@@ -443,21 +457,37 @@ export const useCustomerAccountStore =
                 status: "closed",
                 closedAt: now,
                 cancelledAt: now,
+                cancelledBy: getActiveOperatorSnapshot(),
+                operatorAudit: appendOperatorAuditEvent(
+                  account.operatorAudit,
+                  createOperatorAuditEvent("cancelled", {
+                    occurredAt: now,
+                    note: [reason, note?.trim()].filter(Boolean).join(": "),
+                  }),
+                ),
                 cancelledReason: reason,
                 cancelledNote: note || undefined,
                 updatedAt: now,
               };
             }),
-          })),
+          }));
+        },
 
-        deleteCustomerAccount: (id) =>
+        deleteCustomerAccount: (id) => {
+          const advanceGamesStore =
+            useAdvanceGamesStore.getState();
+          advanceGamesStore.cancelPendingAwardsForBill(id);
           set((state) => ({
             accounts: state.accounts.filter(
               (account) => account.id !== id
             ),
-          })),
+          }));
+        },
 
-        removeSessionCharges: (sessionId) =>
+        removeSessionCharges: (sessionId) => {
+          useAdvanceGamesStore
+            .getState()
+            .cancelPendingAwardsForSession(sessionId);
           set((state) => ({
             accounts: state.accounts
               .map((account) =>
@@ -499,7 +529,8 @@ export const useCustomerAccountStore =
                   (account.accessoryCharges ?? [])
                     .length > 0
               ),
-          })),
+          }));
+        },
 
         getActiveCustomerAccounts: () =>
           get().accounts.filter(
@@ -1067,7 +1098,17 @@ export const useCustomerAccountStore =
           return true;
         },
 
-        markCustomerBillPaid: (input) =>
+        markCustomerBillPaid: (input) => {
+          const account = get().accounts.find(
+            (item) =>
+              item.id === input.customerId
+          );
+          if (
+            !account ||
+            account.paymentStatus !== "unpaid"
+          ) {
+            return;
+          }
           set((state) => ({
             accounts: state.accounts.map(
               (account) => {
@@ -1090,18 +1131,48 @@ export const useCustomerAccountStore =
                   paymentMethod:
                     input.paymentMethod,
                   paidAt: now,
+                  paidBy: getActiveOperatorSnapshot(),
+                  operatorAudit: appendOperatorAuditEvent(
+                    account.operatorAudit,
+                    createOperatorAuditEvent("payment_received", {
+                      occurredAt: now,
+                    }),
+                  ),
                   activeBusinessDayId:
                     input.activeBusinessDayId,
                   saleId: input.saleId,
                 };
               }
             ),
-          })),
+          }));
+          useAdvanceGamesStore
+            .getState()
+            .releasePendingAwardsForBill(
+              input.customerId
+            );
+        },
 
         markCustomerBillSettledByAdvance: (
           customerId,
           activeBusinessDayId
-        ) =>
+        ) => {
+          const account = get().accounts.find(
+            (item) => item.id === customerId
+          );
+          if (!account) return;
+          const settledAccount =
+            withTotals(account);
+          if (
+            settledAccount.paymentStatus !==
+              "unpaid" ||
+            settledAccount.grandTotal > 0 ||
+            (
+              !settledAccount.advanceGamesApplied &&
+              !settledAccount.finalGamesOffsetApplied
+            )
+          ) {
+            return;
+          }
           set((state) => ({
             accounts: state.accounts.map((account) => {
               if (account.id !== customerId) {
@@ -1130,10 +1201,23 @@ export const useCustomerAccountStore =
                 updatedAt: now,
                 paymentStatus: "paid",
                 paidAt: now,
+                paidBy: getActiveOperatorSnapshot(),
+                operatorAudit: appendOperatorAuditEvent(
+                  account.operatorAudit,
+                  createOperatorAuditEvent("settled_by_advance", {
+                    occurredAt: now,
+                  }),
+                ),
                 activeBusinessDayId,
               };
             }),
-          })),
+          }));
+          useAdvanceGamesStore
+            .getState()
+            .releasePendingAwardsForBill(
+              customerId
+            );
+        },
 
         updatePaidBillPaymentMethod: (
           customerId,
@@ -1146,6 +1230,11 @@ export const useCustomerAccountStore =
                 ? {
                     ...account,
                     paymentMethod,
+                    paymentCorrectedBy: getActiveOperatorSnapshot(),
+                    operatorAudit: appendOperatorAuditEvent(
+                      account.operatorAudit,
+                      createOperatorAuditEvent("payment_method_corrected"),
+                    ),
                     updatedAt: new Date().toISOString(),
                   }
                 : account
@@ -1169,6 +1258,13 @@ export const useCustomerAccountStore =
                   closedAt: now,
                   updatedAt: now,
                   paymentStatus: "unpaid",
+                  creditedBy: getActiveOperatorSnapshot(),
+                  operatorAudit: appendOperatorAuditEvent(
+                    account.operatorAudit,
+                    createOperatorAuditEvent("credit_issued", {
+                      occurredAt: now,
+                    }),
+                  ),
                 };
               }
             ),

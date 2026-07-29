@@ -12,6 +12,7 @@ import {
 
 import BillingDialog from "@/features/billing/components/BillingDialog";
 import StartSessionDialog from "@/features/dashboard/components/StartSessionDialog";
+import type { TableStatusFilter } from "@/features/dashboard/components/DashboardStats";
 import useCurrentTime from "@/features/dashboard/hooks/useCurrentTime";
 import { useTableStore } from "@/store/tableStore";
 import type { PaymentMethod } from "@/types/session";
@@ -49,12 +50,29 @@ function getPointerPosition(
   };
 }
 
-function FloorPlanView() {
+interface FloorPlanViewProps {
+  onTableOpen?: (tableId: number) => void;
+  statusFilter?: TableStatusFilter;
+}
+
+function FloorPlanView({
+  onTableOpen,
+  statusFilter = "all",
+}: FloorPlanViewProps) {
   const now = useCurrentTime();
   const floorRef = useRef<HTMLDivElement>(null);
+  const dragStartRef = useRef<{
+    x: number;
+    y: number;
+  } | null>(null);
+  const didDragRef = useRef(false);
+  const startDialogOpeningRef = useRef(false);
 
   const tables = useTableStore(
     (state) => state.tables
+  );
+  const visibleTables = tables.filter(
+    (table) => statusFilter === "all" || table.status === statusFilter
   );
   const receivePayment = useTableStore(
     (state) => state.receivePayment
@@ -90,10 +108,21 @@ function FloorPlanView() {
 
   const handleTableClick = useCallback(
     (table: Table) => {
+      if (editMode || didDragRef.current) {
+        return;
+      }
+
+      if (table.status !== "available" && onTableOpen) {
+        onTableOpen(table.id);
+        return;
+      }
+
       setSelectedTable(table);
 
       switch (table.status) {
         case "available":
+          if (startDialogOpeningRef.current) return;
+          startDialogOpeningRef.current = true;
           setActiveDialog("start-session");
           break;
 
@@ -106,7 +135,7 @@ function FloorPlanView() {
           break;
       }
     },
-    []
+    [editMode, onTableOpen]
   );
 
   const handlePointerDown = useCallback(
@@ -120,6 +149,11 @@ function FloorPlanView() {
       event.currentTarget.setPointerCapture(
         event.pointerId
       );
+      dragStartRef.current = {
+        x: event.clientX,
+        y: event.clientY,
+      };
+      didDragRef.current = false;
       setDraggingTableId(tableId);
       setPosition(
         tableId,
@@ -167,6 +201,14 @@ function FloorPlanView() {
       floorRef.current
     );
 
+    if (
+      dragStartRef.current &&
+      (Math.abs(event.clientX - dragStartRef.current.x) > 4 ||
+        Math.abs(event.clientY - dragStartRef.current.y) > 4)
+    ) {
+      didDragRef.current = true;
+    }
+
     if (draggingTableId !== null) {
       setPosition(
         draggingTableId,
@@ -185,6 +227,13 @@ function FloorPlanView() {
   const handlePointerUp = () => {
     setDraggingTableId(null);
     setDraggingZoneId(null);
+    dragStartRef.current = null;
+
+    if (didDragRef.current) {
+      window.setTimeout(() => {
+        didDragRef.current = false;
+      }, 0);
+    }
   };
 
   const closeDialog = () => {
@@ -278,7 +327,7 @@ function FloorPlanView() {
           }
         />
 
-        {tables.map((table) => (
+        {visibleTables.map((table) => (
           <FloorPlanTable
             key={table.id}
             table={table}
@@ -309,11 +358,14 @@ function FloorPlanView() {
       <StartSessionDialog
         open={activeDialog === "start-session"}
         table={selectedTable}
-        onOpenChange={(open) =>
+        onOpenChange={(open) => {
+          if (!open) {
+            startDialogOpeningRef.current = false;
+          }
           setActiveDialog(
             open ? "start-session" : null
-          )
-        }
+          );
+        }}
       />
 
       {selectedTable?.session && (

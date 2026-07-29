@@ -2,6 +2,10 @@ import type {
   PaymentMethod,
   SessionType,
 } from "@/types/session";
+import type {
+  OperatorSnapshot,
+  TransactionAuditEvent,
+} from "@/types/operatorAudit";
 
 export type CustomerAccountStatus =
   | "active"
@@ -101,6 +105,12 @@ export interface CustomerAccount {
   paymentStatus: CustomerPaymentStatus;
   paymentMethod?: PaymentMethod;
   paidAt?: string;
+  createdBy?: OperatorSnapshot;
+  paidBy?: OperatorSnapshot;
+  creditedBy?: OperatorSnapshot;
+  cancelledBy?: OperatorSnapshot;
+  paymentCorrectedBy?: OperatorSnapshot;
+  operatorAudit?: TransactionAuditEvent[];
   cancelledAt?: string;
   cancelledReason?: string;
   cancelledNote?: string;

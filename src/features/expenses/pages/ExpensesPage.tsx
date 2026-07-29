@@ -15,6 +15,7 @@ import { useNavigate } from "react-router-dom";
 import { useLocation } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
+import { PageShell } from "@/components/layout/page-layout";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import ExpenseDialog from "../components/ExpenseDialog";
@@ -411,8 +412,8 @@ function ExpensesPage() {
   };
 
   return (
-    <main className="min-h-screen bg-slate-100 px-6 py-6">
-      <div className="mx-auto max-w-7xl">
+    <PageShell contentClassName="space-y-0">
+      <div>
         <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
             <Button
@@ -971,7 +972,7 @@ function ExpensesPage() {
           </div>
         </div>
       )}
-    </main>
+    </PageShell>
   );
 }
 

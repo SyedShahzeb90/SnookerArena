@@ -368,13 +368,13 @@ function BusinessDayCard() {
 
               <div className="flex h-[144px] flex-col rounded-lg border border-emerald-100 bg-emerald-50/40 p-3.5 dark:!border-emerald-800 dark:!bg-emerald-950/55">
                 <p className="text-xs font-semibold text-slate-500">
-                  Canteen Sales Today
+                  Cafe Sales Today
                 </p>
                 <p className="mt-2 text-2xl font-bold text-emerald-700">
                   {money(summary?.cafeSales ?? 0)}
                 </p>
                 <p className="mt-auto pt-2 text-xs text-slate-500">
-                  Paid canteen revenue
+                  Paid cafe revenue
                 </p>
               </div>
 

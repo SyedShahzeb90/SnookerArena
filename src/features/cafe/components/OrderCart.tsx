@@ -1,8 +1,10 @@
-import type { OrderItem } from "../types/menu";
+import { Minus, Plus, Trash2 } from "lucide-react";
 import { useEffect, useRef } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+
+import type { OrderItem } from "../types/menu";
 
 interface Props {
   customerName: string;
@@ -11,6 +13,7 @@ interface Props {
   savedItems?: OrderItem[];
   onIncrease: (menuItemId: string) => void;
   onDecrease: (menuItemId: string) => void;
+  onRemove?: (menuItemId: string) => void;
   onSave: () => void;
   onSaveAndReturn?: () => void;
   saveDisabled?: boolean;
@@ -25,27 +28,19 @@ function OrderCart({
   savedItems = [],
   onIncrease,
   onDecrease,
+  onRemove,
   onSave,
   onSaveAndReturn,
   saveDisabled = false,
   saveLabel = "Save Order",
   saveAndReturnLabel = "Save & Return",
 }: Props) {
-  const itemRefs = useRef(
-    new Map<string, HTMLDivElement>()
-  );
+  const itemRefs = useRef(new Map<string, HTMLDivElement>());
   const previousQuantities = useRef(
-    new Map(
-      items.map((item) => [
-        item.menuItemId,
-        item.quantity,
-      ])
-    )
+    new Map(items.map((item) => [item.menuItemId, item.quantity]))
   );
   const total = items.reduce(
-    (sum, item) =>
-      sum +
-      item.price * item.quantity,
+    (sum, item) => sum + item.price * item.quantity,
     0
   );
 
@@ -53,213 +48,111 @@ function OrderCart({
     const previous = previousQuantities.current;
     const changedItem = [...items]
       .reverse()
-      .find(
-        (item) =>
-          previous.get(item.menuItemId) !==
-          item.quantity
-      );
-
+      .find((item) => previous.get(item.menuItemId) !== item.quantity);
     previousQuantities.current = new Map(
-      items.map((item) => [
-        item.menuItemId,
-        item.quantity,
-      ])
+      items.map((item) => [item.menuItemId, item.quantity])
     );
-
     if (!changedItem) return;
-
     const frame = requestAnimationFrame(() => {
-      itemRefs.current
-        .get(changedItem.menuItemId)
-        ?.scrollIntoView({
-          behavior: "smooth",
-          block: "nearest",
-        });
+      itemRefs.current.get(changedItem.menuItemId)?.scrollIntoView({
+        behavior: "smooth",
+        block: "nearest",
+      });
     });
-
     return () => cancelAnimationFrame(frame);
   }, [items]);
 
   return (
-    <Card className="flex h-full min-h-0 flex-col p-5">
-      <div className="border-b pb-4">
-        <p className="text-sm text-gray-500">
+    <Card className="flex h-full min-h-0 flex-col gap-0 rounded-xl border bg-white p-0 shadow-sm dark:bg-slate-950">
+      <div className="border-b px-4 py-3">
+        <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
           Current Order
         </p>
-
-        <h2 className="mt-1 text-2xl font-bold">
-          {customerName}
-        </h2>
-
-        {customerMeta && (
-          <p className="mt-1 text-sm text-gray-500">
-            {customerMeta}
-          </p>
-        )}
+        <h2 className="mt-0.5 text-lg font-bold">{customerName}</h2>
+        {customerMeta && <p className="text-xs text-slate-500">{customerMeta}</p>}
       </div>
 
-      <div className="mt-5 min-h-0 flex-1 space-y-4 overflow-y-auto">
-        {items.length === 0 &&
-          savedItems.length === 0 && (
-          <div className="flex h-full items-center justify-center">
-            <div className="text-center">
-              <div className="text-5xl font-bold text-gray-300">
-                Cart
-              </div>
-
-              <p className="mt-4 text-gray-500">
-                No items added yet.
-              </p>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {items.length === 0 && savedItems.length === 0 && (
+          <div className="flex min-h-32 items-center justify-center px-4 text-center">
+            <div>
+              <p className="font-semibold">Select a customer</p>
+              <p className="mt-1 text-sm text-slate-500">to begin ordering.</p>
             </div>
           </div>
         )}
 
         {savedItems.length > 0 && (
-          <div className="space-y-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Saved Bill Items
+          <div className="border-b px-4 py-2">
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Saved items
             </p>
-
             {savedItems.map((item) => (
               <div
                 key={`${item.menuItemId}-${item.orderedAt ?? item.name}`}
-                className="rounded-xl border bg-slate-50 p-4"
+                className="flex items-center justify-between gap-3 py-1.5 text-sm"
               >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h3 className="font-semibold">
-                      {item.name}
-                    </h3>
-
-                    <p className="text-sm text-gray-500">
-                      Rs. {item.price} x {item.quantity}
-                    </p>
-                  </div>
-
-                  <div className="shrink-0 font-bold text-emerald-600">
-                    Rs. {item.subtotal}
-                  </div>
-                </div>
+                <span className="min-w-0 truncate font-medium">{item.name} x{item.quantity}</span>
+                <span className="shrink-0 font-semibold tabular-nums">Rs. {item.subtotal}</span>
               </div>
             ))}
           </div>
         )}
 
-        {items.length > 0 &&
-          savedItems.length > 0 && (
-            <p className="pt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-              New Items
-            </p>
-          )}
+        {items.length > 0 && savedItems.length > 0 && (
+          <p className="border-b px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            New items
+          </p>
+        )}
 
         {items.map((item) => (
           <div
             key={item.menuItemId}
             ref={(element) => {
-              if (element) {
-                itemRefs.current.set(
-                  item.menuItemId,
-                  element
-                );
-              } else {
-                itemRefs.current.delete(
-                  item.menuItemId
-                );
-              }
+              if (element) itemRefs.current.set(item.menuItemId, element);
+              else itemRefs.current.delete(item.menuItemId);
             }}
-            className="rounded-xl border p-4"
+            className="flex items-center gap-2 border-b px-4 py-2.5 last:border-b-0"
           >
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h3 className="font-semibold">
-                  {item.name}
-                </h3>
-
-                <p className="text-sm text-gray-500">
-                  Rs. {item.price} each
-                </p>
-              </div>
-
-              <div className="shrink-0 font-bold text-emerald-600">
-                Rs.{" "}
-                {item.price * item.quantity}
-              </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold">{item.name}</p>
+              <p className="text-xs text-slate-500">Rs. {item.price} each</p>
             </div>
-
-            <div className="mt-4 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Button
-                  size="icon"
-                  variant="outline"
-                  onClick={() =>
-                    onDecrease(item.menuItemId)
-                  }
-                  aria-label={`Decrease ${item.name}`}
-                >
-                  -
-                </Button>
-
-                <div className="w-8 text-center font-bold">
-                  {item.quantity}
-                </div>
-
-                <Button
-                  size="icon"
-                  onClick={() =>
-                    onIncrease(item.menuItemId)
-                  }
-                  aria-label={`Increase ${item.name}`}
-                >
-                  +
-                </Button>
-              </div>
-
-              <div className="text-sm text-gray-500">
-                Qty
-              </div>
+            <div className="flex shrink-0 items-center gap-1">
+              <Button size="icon-xs" variant="outline" onClick={() => onDecrease(item.menuItemId)} aria-label={`Decrease ${item.name}`}>
+                <Minus />
+              </Button>
+              <span className="w-5 text-center text-sm font-bold tabular-nums">{item.quantity}</span>
+              <Button size="icon-xs" onClick={() => onIncrease(item.menuItemId)} aria-label={`Increase ${item.name}`}>
+                <Plus />
+              </Button>
             </div>
+            <span className="w-16 shrink-0 text-right text-sm font-bold tabular-nums text-emerald-700 dark:text-emerald-400">
+              Rs. {item.price * item.quantity}
+            </span>
+            {onRemove && (
+              <Button size="icon-xs" variant="ghost" className="shrink-0 text-red-600 hover:bg-red-50 hover:text-red-700" onClick={() => onRemove(item.menuItemId)} aria-label={`Remove ${item.name}`}>
+                <Trash2 />
+              </Button>
+            )}
           </div>
         ))}
       </div>
 
-      <div className="mt-6 border-t pt-5">
-        <div className="mb-5 flex items-center justify-between text-xl font-bold">
+      <div className="sticky bottom-0 border-t bg-white px-4 py-3 dark:bg-slate-950">
+        <div className="mb-3 flex items-center justify-between text-base font-bold">
           <span>Total</span>
-
-          <span className="text-emerald-600">
-            Rs. {total}
-          </span>
+          <span className="tabular-nums text-emerald-700 dark:text-emerald-400">Rs. {total}</span>
         </div>
-
-        <div className="grid gap-2 sm:grid-cols-2">
-          <Button
-            className="w-full text-lg"
-            size="lg"
-            variant="outline"
-            onClick={onSave}
-            disabled={
-              saveDisabled || !items.length
-            }
-          >
+        <div className="grid grid-cols-2 gap-2">
+          <Button className="w-full" variant="outline" onClick={onSave} disabled={saveDisabled || !items.length}>
             {saveLabel}
           </Button>
-
-          <Button
-            className="w-full text-lg"
-            size="lg"
-            onClick={onSaveAndReturn ?? onSave}
-            disabled={
-              saveDisabled || !items.length
-            }
-          >
+          <Button className="w-full" onClick={onSaveAndReturn ?? onSave} disabled={saveDisabled || !items.length}>
             {saveAndReturnLabel}
           </Button>
         </div>
-        {!items.length && (
-          <p className="mt-2 text-center text-sm text-slate-500">
-            No new items to save
-          </p>
-        )}
+        {!items.length && <p className="mt-2 text-center text-xs text-slate-500">No new items to save</p>}
       </div>
     </Card>
   );

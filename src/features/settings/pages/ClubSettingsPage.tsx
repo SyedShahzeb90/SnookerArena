@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { PageHeading, PageShell } from "@/components/layout/page-layout";
 import {
   Dialog,
   DialogContent,
@@ -431,17 +432,12 @@ function ClubSettingsPage() {
   );
 
   return (
-    <main className="min-h-screen bg-slate-100 px-4 py-6 sm:px-6">
-      <div className="mx-auto max-w-5xl space-y-5">
-        <header className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700">
-            <Building2 className="h-5 w-5" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold text-slate-950">Club Settings</h1>
-            <p className="text-sm text-slate-500">Manage club details and defaults used for new activity.</p>
-          </div>
-        </header>
+    <PageShell width="compact">
+        <PageHeading
+          icon={Building2}
+          title="Club Settings"
+          description="Manage club details and defaults used for new activity."
+        />
 
         {errors.length > 0 && (
           <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
@@ -738,8 +734,6 @@ function ClubSettingsPage() {
             {isSaving ? "Saving..." : "Save Settings"}
           </Button>
         </div>
-      </div>
-
       <Dialog open={resetOpen} onOpenChange={setResetOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader><DialogTitle>Reset Club Settings?</DialogTitle></DialogHeader>
@@ -749,7 +743,7 @@ function ClubSettingsPage() {
           </div>
         </DialogContent>
       </Dialog>
-    </main>
+    </PageShell>
   );
 }
 

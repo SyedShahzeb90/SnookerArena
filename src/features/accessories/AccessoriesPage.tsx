@@ -13,6 +13,7 @@ import {
 } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
+import { PageShell } from "@/components/layout/page-layout";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -728,8 +729,8 @@ function AccessoriesPage() {
   };
 
   return (
-    <main className="min-h-screen bg-slate-100 px-4 py-5 sm:px-6">
-      <div className="mx-auto max-w-7xl">
+    <PageShell contentClassName="space-y-0">
+      <div>
         <header className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold text-slate-950">Accessories POS</h1>
@@ -855,7 +856,7 @@ function AccessoriesPage() {
                 {cart.map((item) => (
                   <div
                     key={item.id}
-                    className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-2.5"
+                    className="motion-item-in grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-2.5"
                   >
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-slate-950 dark:text-slate-100" title={item.name}>
@@ -933,7 +934,7 @@ function AccessoriesPage() {
           </aside>
         </div>
       </div>
-    </main>
+    </PageShell>
   );
 }
 

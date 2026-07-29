@@ -10,6 +10,7 @@ import {
   PackagePlus,
 } from "lucide-react";
 import {
+  useEffect,
   useMemo,
   useState,
   type ChangeEvent,
@@ -27,6 +28,13 @@ import {
   type MenuItemInput,
 } from "@/features/cafe/store/cafeStore";
 import type { MenuItem } from "@/features/cafe/types/menu";
+import { useMenuImageSource } from "@/features/cafe/hooks/useMenuImageSource";
+import {
+  createMenuImageKey,
+  deleteMenuImage,
+  resolveMenuImage,
+  saveMenuImage,
+} from "@/features/cafe/utils/menuImageStorage";
 
 const menuCategories: MenuItem["category"][] = [
   "Snacks",
@@ -43,6 +51,7 @@ const emptyForm: MenuItemInput = {
   price: 0,
   emoji: "",
   imageDataUrl: "",
+  imageKey: undefined,
   isAvailable: true,
   trackStock: false,
   currentStock: 0,
@@ -51,6 +60,28 @@ const emptyForm: MenuItemInput = {
 };
 
 type StockFilter = "all" | "tracked" | "low" | "out" | "untracked";
+
+function MenuItemThumbnail({ item }: { item: MenuItem }) {
+  const imageSource = useMenuImageSource(item);
+  const [imageFailed, setImageFailed] = useState(false);
+
+  useEffect(() => {
+    setImageFailed(false);
+  }, [imageSource]);
+
+  if (!imageSource || imageFailed) {
+    return <span className="mr-2">{item.emoji}</span>;
+  }
+
+  return (
+    <img
+      src={imageSource}
+      alt=""
+      className="mr-2 inline-block h-10 w-10 rounded object-cover align-middle"
+      onError={() => setImageFailed(true)}
+    />
+  );
+}
 
 function MenuManagementPage() {
   const navigate = useNavigate();
@@ -161,7 +192,7 @@ function MenuManagementPage() {
     setEditingItem(null);
   };
 
-  const handleSubmit = (
+  const handleSubmit = async (
     event: FormEvent
   ) => {
     event.preventDefault();
@@ -188,10 +219,29 @@ function MenuManagementPage() {
       return;
     }
 
+    let imageKey = form.imageKey;
+    let legacyImageDataUrl = form.imageDataUrl;
+
+    try {
+      if (form.imageDataUrl?.startsWith("data:image/")) {
+        imageKey ??= createMenuImageKey(editingItem?.id);
+        await saveMenuImage(imageKey, form.imageDataUrl);
+        legacyImageDataUrl = undefined;
+      } else if (!form.imageDataUrl && editingItem?.imageKey) {
+        await deleteMenuImage(editingItem.imageKey);
+        imageKey = undefined;
+      }
+    } catch {
+      setError("The product photo could not be saved. Please try again.");
+      return;
+    }
+
     const input: MenuItemInput = {
       ...form,
       name,
       emoji: form.emoji?.trim(),
+      imageKey,
+      imageDataUrl: legacyImageDataUrl,
     };
 
     if (editingItem) {
@@ -211,14 +261,18 @@ function MenuManagementPage() {
     resetForm();
   };
 
-  const handleEdit = (item: MenuItem) => {
+  const handleEdit = async (item: MenuItem) => {
+    const imageSource = await resolveMenuImage(item).catch(
+      () => item.imageDataUrl
+    );
     setEditingItem(item);
     setForm({
       name: item.name,
       category: item.category,
       price: item.price,
       emoji: item.emoji ?? "",
-      imageDataUrl: item.imageDataUrl ?? "",
+      imageDataUrl: imageSource ?? "",
+      imageKey: item.imageKey,
       isAvailable:
         item.isAvailable ??
         item.available,
@@ -247,13 +301,14 @@ function MenuManagementPage() {
     }
   };
 
-  const handleDelete = (item: MenuItem) => {
+  const handleDelete = async (item: MenuItem) => {
     const confirmed = window.confirm(
       `Delete ${item.name}? Existing orders and sales will keep their old item details.`
     );
 
     if (!confirmed) return;
 
+    await deleteMenuImage(item.imageKey).catch(() => undefined);
     deleteMenuItem(item.id);
     toast.success({
       title: "Menu Item Deleted",
@@ -529,15 +584,7 @@ function MenuManagementPage() {
                       className="border-t bg-white"
                     >
                       <td className="px-4 py-3 font-semibold">
-                        {item.imageDataUrl ? (
-                          <img
-                            src={item.imageDataUrl}
-                            alt=""
-                            className="mr-2 inline-block h-10 w-10 rounded object-cover align-middle"
-                          />
-                        ) : (
-                          <span className="mr-2">{item.emoji}</span>
-                        )}
+                        <MenuItemThumbnail item={item} />
                         {item.name}
                       </td>
                       <td className="px-4 py-3">

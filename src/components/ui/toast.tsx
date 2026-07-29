@@ -27,6 +27,9 @@ export interface ToastOptions {
   onAction?: () => void;
   dismissOnAction?: boolean;
   duration?: number;
+  placement?: "top-right" | "bottom-right";
+  showCountdown?: boolean;
+  pauseOnHover?: boolean;
 }
 
 interface ToastRecord extends ToastOptions {
@@ -55,30 +58,40 @@ const defaultDurations: Record<ToastVariant, number> = {
 
 const variantStyles: Record<
   ToastVariant,
-  { accent: string; icon: string; iconBackground: string; Icon: typeof CheckCircle2 }
+  {
+    accent: string;
+    icon: string;
+    iconBackground: string;
+    progress: string;
+    Icon: typeof CheckCircle2;
+  }
 > = {
   success: {
     accent: "border-l-emerald-500",
     icon: "text-emerald-700 dark:text-emerald-300",
     iconBackground: "bg-emerald-100 dark:bg-emerald-950",
+    progress: "bg-emerald-500",
     Icon: CheckCircle2,
   },
   info: {
     accent: "border-l-blue-500",
     icon: "text-blue-700 dark:text-blue-300",
     iconBackground: "bg-blue-100 dark:bg-blue-950",
+    progress: "bg-blue-500",
     Icon: Info,
   },
   warning: {
     accent: "border-l-amber-500",
     icon: "text-amber-700 dark:text-amber-300",
     iconBackground: "bg-amber-100 dark:bg-amber-950",
+    progress: "bg-amber-500",
     Icon: AlertTriangle,
   },
   error: {
     accent: "border-l-red-500",
     icon: "text-red-700 dark:text-red-300",
     iconBackground: "bg-red-100 dark:bg-red-950",
+    progress: "bg-red-500",
     Icon: AlertCircle,
   },
 };
@@ -93,7 +106,10 @@ function ToastItem({
   onDismiss: (id: number) => void;
 }) {
   const [visible, setVisible] = useState(false);
+  const [countdownSeconds, setCountdownSeconds] = useState<number | null>(null);
+  const [countdownProgress, setCountdownProgress] = useState(100);
   const timeoutRef = useRef<number | undefined>(undefined);
+  const countdownRef = useRef<number | undefined>(undefined);
   const exitTimeoutRef = useRef<number | undefined>(undefined);
   const remainingRef = useRef(
     toast.duration ?? defaultDurations[toast.variant],
@@ -110,16 +126,24 @@ function ToastItem({
     }
   }, []);
 
+  const clearCountdown = useCallback(() => {
+    if (countdownRef.current !== undefined) {
+      window.clearInterval(countdownRef.current);
+      countdownRef.current = undefined;
+    }
+  }, []);
+
   const close = useCallback(() => {
     if (closingRef.current) return;
     closingRef.current = true;
     clearTimer();
+    clearCountdown();
     setVisible(false);
     exitTimeoutRef.current = window.setTimeout(
       () => onDismiss(toast.id),
       EXIT_DURATION,
     );
-  }, [clearTimer, onDismiss, toast.id]);
+  }, [clearCountdown, clearTimer, onDismiss, toast.id]);
 
   const startTimer = useCallback(() => {
     clearTimer();
@@ -133,22 +157,51 @@ function ToastItem({
   useEffect(() => {
     closingRef.current = false;
     remainingRef.current = toast.duration ?? defaultDurations[toast.variant];
+    const countdownDuration = remainingRef.current;
+    const countdownStartedAt = Date.now();
+    if (toast.showCountdown) {
+      setCountdownProgress(100);
+      setCountdownSeconds(Math.max(1, Math.ceil(remainingRef.current / 1000)));
+      countdownRef.current = window.setInterval(() => {
+        const remaining = Math.max(
+          0,
+          remainingRef.current - (Date.now() - countdownStartedAt),
+        );
+        setCountdownProgress(
+          countdownDuration > 0 ? (remaining / countdownDuration) * 100 : 0,
+        );
+        setCountdownSeconds(Math.max(1, Math.ceil(remaining / 1000)));
+      }, 250);
+    } else {
+      setCountdownProgress(100);
+      setCountdownSeconds(null);
+    }
     const animationFrame = window.requestAnimationFrame(() => setVisible(true));
     startTimer();
     return () => {
       window.cancelAnimationFrame(animationFrame);
       clearTimer();
+      clearCountdown();
       if (exitTimeoutRef.current !== undefined) {
         window.clearTimeout(exitTimeoutRef.current);
       }
     };
-  }, [clearTimer, startTimer, toast.duration, toast.revision, toast.variant]);
+  }, [
+    clearCountdown,
+    clearTimer,
+    startTimer,
+    toast.duration,
+    toast.revision,
+    toast.showCountdown,
+    toast.variant,
+  ]);
 
   useEffect(() => {
     if (toast.dismissRequest > 0) close();
   }, [close, toast.dismissRequest]);
 
   const pauseTimer = () => {
+    if (toast.pauseOnHover === false) return;
     if (timeoutRef.current === undefined) return;
     remainingRef.current = Math.max(
       0,
@@ -158,6 +211,7 @@ function ToastItem({
   };
 
   const resumeTimer = () => {
+    if (toast.pauseOnHover === false) return;
     if (!closingRef.current) startTimer();
   };
 
@@ -174,7 +228,7 @@ function ToastItem({
       onMouseEnter={pauseTimer}
       onMouseLeave={resumeTimer}
       className={cn(
-        "pointer-events-auto flex w-full items-start gap-3 rounded-xl border border-l-4 border-slate-200 bg-white p-4 text-slate-950 shadow-lg transition-[opacity,transform] duration-300 ease-out dark:border-slate-700 dark:bg-slate-900 dark:text-slate-50",
+        "pointer-events-auto relative flex w-full items-start gap-3 overflow-hidden rounded-xl border border-l-4 border-slate-200 bg-white p-4 text-slate-950 shadow-lg transition-[opacity,transform] duration-300 ease-out dark:border-slate-700 dark:bg-slate-900 dark:text-slate-50",
         styles.accent,
         visible ? "translate-x-0 opacity-100" : "translate-x-3 opacity-0",
       )}
@@ -196,16 +250,23 @@ function ToastItem({
           </p>
         )}
         {toast.actionLabel && toast.onAction && (
-          <button
-            type="button"
-            className={cn(
-              "mt-2 text-sm font-semibold underline decoration-transparent underline-offset-2 outline-none transition hover:decoration-current focus-visible:decoration-current",
-              styles.icon,
+          <div className="mt-2 flex items-center gap-3">
+            <button
+              type="button"
+              className={cn(
+                "text-sm font-semibold underline decoration-transparent underline-offset-2 outline-none transition hover:decoration-current focus-visible:decoration-current",
+                styles.icon,
+              )}
+              onClick={runAction}
+            >
+              {toast.actionLabel}
+            </button>
+            {countdownSeconds !== null && (
+              <span className="text-xs font-bold tabular-nums text-slate-500 dark:text-slate-400">
+                {countdownSeconds}
+              </span>
             )}
-            onClick={runAction}
-          >
-            {toast.actionLabel}
-          </button>
+          </div>
         )}
       </div>
 
@@ -217,6 +278,17 @@ function ToastItem({
       >
         <X className="h-4 w-4" />
       </button>
+      {toast.showCountdown && (
+        <div className="absolute inset-x-0 bottom-0 h-1 bg-slate-100 dark:bg-slate-800">
+          <div
+            className={cn(
+              "h-full transition-[width] duration-200 ease-linear",
+              styles.progress,
+            )}
+            style={{ width: `${countdownProgress}%` }}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -307,7 +379,15 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         aria-label="Notifications"
         className="pointer-events-none fixed right-4 top-20 z-[100] flex w-[calc(100%-2rem)] max-w-[360px] flex-col gap-2 sm:right-6 sm:top-24"
       >
-        {toasts.map((toast) => (
+        {toasts.filter((toast) => toast.placement !== "bottom-right").map((toast) => (
+          <ToastItem key={toast.id} toast={toast} onDismiss={dismiss} />
+        ))}
+      </div>
+      <div
+        aria-label="Payment notifications"
+        className="pointer-events-none fixed bottom-5 right-4 z-[100] flex w-[calc(100%-2rem)] max-w-[380px] flex-col-reverse gap-2 sm:bottom-6 sm:right-6"
+      >
+        {toasts.filter((toast) => toast.placement === "bottom-right").map((toast) => (
           <ToastItem key={toast.id} toast={toast} onDismiss={dismiss} />
         ))}
       </div>

@@ -12,6 +12,7 @@ import { useNavigate } from "react-router-dom";
 import { useSearchParams } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
+import { PageShell } from "@/components/layout/page-layout";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import {
@@ -28,6 +29,7 @@ import type {
 import { useTableStore } from "@/store/tableStore";
 import { useCafeStore } from "./store/cafeStore";
 import {
+  getSessionParticipantKey,
   getSessionPlayerEntries,
   getSessionPlayers,
 } from "@/features/sessions/utils/sessionPlayers";
@@ -39,7 +41,6 @@ import { normalizePlayerName } from "./utils/playerIdentity";
 import { useSalesStore } from "@/features/sales/store/salesStore";
 import { useBusinessDayStore } from "@/features/business-day/store/businessDayStore";
 import { useClubSettingsStore } from "@/features/settings/store/clubSettingsStore";
-import { formatAppDate, formatAppTime } from "@/lib/dateTime";
 import { useCustomerAccountStore } from "@/features/customers/store/customerAccountStore";
 import {
   getBillPrimaryLabel,
@@ -59,6 +60,7 @@ type SelectedTarget =
       sessionId: string;
       playerName: string;
       customerId?: string;
+      participantKey?: string;
     }
   | {
       type: "waitingCustomer";
@@ -172,7 +174,7 @@ function CafePage() {
     useRef("");
   const selectedTargetKey =
     selectedTarget?.type === "runningTable"
-      ? `runningTable-${selectedTarget.tableId}-${selectedTarget.sessionId}-${selectedTarget.customerId ?? normalizePlayerName(selectedTarget.playerName)}`
+      ? `runningTable-${selectedTarget.tableId}-${selectedTarget.sessionId}-${selectedTarget.participantKey ?? selectedTarget.customerId ?? normalizePlayerName(selectedTarget.playerName)}`
       : selectedTarget?.type === "waitingCustomer"
         ? `waitingCustomer-${selectedTarget.customerId}-${selectedTarget.customerAccountId ?? ""}`
         : selectedTarget?.type === "openBill"
@@ -453,7 +455,8 @@ function CafePage() {
           selectedTarget.tableId,
           selectedTarget.sessionId,
           selectedTarget.playerName,
-          selectedTarget.customerId
+          selectedTarget.customerId,
+          selectedTarget.participantKey
         )
       : undefined;
 
@@ -463,7 +466,8 @@ function CafePage() {
           selectedTarget.tableId,
           selectedTarget.playerName,
           selectedTarget.customerId,
-          selectedTarget.sessionId
+          selectedTarget.sessionId,
+          selectedTarget.participantKey
         ) ?? savedTableOrder
       : selectedTarget?.type === "waitingCustomer"
         ? getWaitingCustomerOrder(
@@ -681,7 +685,8 @@ function CafePage() {
         selectedTarget.playerName,
         menuItemId,
         selectedTarget.customerId,
-        selectedTarget.sessionId
+        selectedTarget.sessionId,
+        selectedTarget.participantKey
       );
       return;
     }
@@ -759,7 +764,8 @@ function CafePage() {
         selectedTarget.playerName,
         menuItemId,
         selectedTarget.customerId,
-        selectedTarget.sessionId
+        selectedTarget.sessionId,
+        selectedTarget.participantKey
       );
       return;
     }
@@ -803,6 +809,17 @@ function CafePage() {
     );
   };
 
+  const handleRemoveItem = (menuItemId: string) => {
+    const quantity =
+      selectedOrder?.orderItems.find(
+        (item) => item.menuItemId === menuItemId
+      )?.quantity ?? 0;
+
+    for (let index = 0; index < quantity; index += 1) {
+      handleDecrease(menuItemId);
+    }
+  };
+
   const handleAddMenuItem = (
     menuItemId: string
   ) => {
@@ -826,7 +843,8 @@ function CafePage() {
         selectedTarget.sessionId,
         selectedTarget.playerName,
         item,
-        selectedTarget.customerId
+        selectedTarget.customerId,
+        selectedTarget.participantKey
       );
       return;
     }
@@ -1015,6 +1033,9 @@ function CafePage() {
       sessionId: table.session.id,
       playerName,
       customerId: firstPlayer?.customerId,
+      participantKey: firstPlayer
+        ? getSessionParticipantKey(table.session.id, firstPlayer.slot)
+        : undefined,
     });
   }, [searchParams, tables]);
 
@@ -1067,6 +1088,22 @@ function CafePage() {
           tableType: table.type,
           time: table.session!.startTime,
         });
+  };
+
+  const getRunningTableBill = (
+    table: (typeof tables)[number]
+  ) => {
+    const session = table.session;
+
+    if (!session) return 0;
+
+    const tableCharges =
+      session.tableChargeLines?.reduce(
+        (total, line) => total + line.amount,
+        0
+      ) ?? 0;
+
+    return tableCharges + session.cafeAmount;
   };
 
   const handleSaveOrder = ({
@@ -1275,6 +1312,10 @@ function CafePage() {
             : selectedTarget.type === "waitingCustomer"
               ? selectedTarget.customerAccountId
               : undefined,
+        participantKey:
+          selectedTarget.type === "runningTable"
+            ? selectedTarget.participantKey
+            : undefined,
         orderItems: currentItems,
         customerType:
           selectedTarget.type ===
@@ -1631,8 +1672,12 @@ function CafePage() {
   };
 
   return (
-    <main className="h-screen bg-slate-100 p-4">
-      <div className="mx-auto flex h-full max-w-[1800px] flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
+    <PageShell
+      width="wide"
+      className="h-full min-h-full"
+      contentClassName="h-full max-w-[1800px] space-y-0"
+    >
+      <div className="flex h-full flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
         <Dialog
           open={newCustomerDialogOpen}
           onOpenChange={setNewCustomerDialogOpen}
@@ -1686,46 +1731,17 @@ function CafePage() {
             </div>
           </DialogContent>
         </Dialog>
-        <header className="flex items-center justify-between border-b px-8 py-5">
-          <div>
-            <h1 className="text-3xl font-bold">
-              Cafe POS
-            </h1>
-            <p className="text-gray-500">
-              {clubSettings.tagline}
-            </p>
-          </div>
-
-          <div className="flex items-center gap-6">
-            <div className="text-right">
-              <p className="font-semibold">
-                {formatAppDate(new Date(), clubSettings.dateFormat)}
-              </p>
-              <p className="text-sm text-gray-500">
-                {formatAppTime(new Date(), clubSettings.timeFormat)}
-              </p>
-            </div>
-
-            <Button
-              variant="outline"
-              onClick={() =>
-                navigate("/operator")
-              }
-            >
-              Back to Dashboard
-            </Button>
-          </div>
+        <header className="border-b px-5 py-3">
+          <h1 className="text-xl font-bold">Cafe POS</h1>
         </header>
 
-        <div className="grid min-h-0 flex-1 grid-cols-12 overflow-hidden">
-          <aside className="col-span-3 flex min-h-0 flex-col border-r bg-slate-50">
-            <div className="border-b p-5">
-              <h2 className="text-2xl font-bold">
-                Customers
-              </h2>
+        <div className="grid min-h-0 flex-1 grid-cols-[minmax(220px,0.9fr)_minmax(0,1.7fr)_minmax(280px,1fr)] overflow-hidden">
+          <aside className="flex min-h-0 flex-col border-r bg-slate-50 dark:bg-slate-950/40">
+            <div className="border-b p-3">
+              <h2 className="text-lg font-bold">Customers</h2>
 
               <Input
-                className="mt-4"
+                className="mt-2"
                 placeholder="Search..."
                 value={search}
                 onChange={(event) =>
@@ -1734,16 +1750,16 @@ function CafePage() {
               />
             </div>
 
-            <div className="flex-1 overflow-y-auto p-5">
-              <p className="mb-3 text-sm font-bold uppercase text-gray-500">
+            <div className="flex-1 overflow-y-auto p-3">
+              <p className="mb-2 text-xs font-bold uppercase tracking-wide text-gray-500">
                 Running Tables
               </p>
 
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {runningTables.map((table) => (
                   <div
                     key={table.id}
-                    className="rounded-xl border bg-white"
+                    className="rounded-lg border bg-white dark:bg-slate-900"
                   >
                     {(() => {
                       const sessionPlayers =
@@ -1758,11 +1774,13 @@ function CafePage() {
                           player.name,
                           player.customerId
                         );
+                      const currentBill =
+                        getRunningTableBill(table);
 
                       return (
                         <>
                     <button
-                      className="flex w-full items-center justify-between p-4 text-left"
+                      className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left"
                       onClick={() => {
                         const isAlreadyExpanded =
                           expandedTable === table.id;
@@ -1776,6 +1794,10 @@ function CafePage() {
                             sessionId: table.session!.id,
                             playerName: player.name,
                             customerId: player.customerId,
+                            participantKey: getSessionParticipantKey(
+                              table.session!.id,
+                              player.slot
+                            ),
                           });
                           return;
                         }
@@ -1790,28 +1812,36 @@ function CafePage() {
                       }}
                     >
                       <div>
-                        <p className="font-bold">
+                        <p className="text-sm font-bold">
                           {table.name}
                         </p>
-                        <p className="text-sm text-gray-500">
-                          Running
+                        <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                          Running · {sessionPlayers.length} player{sessionPlayers.length === 1 ? "" : "s"}
                         </p>
-                        <p className="mt-1 line-clamp-2 text-sm font-medium text-slate-700">
+                        <p className="mt-1 truncate text-xs font-medium text-slate-700 dark:text-slate-200">
                           {sessionPlayers
                             .map(getPlayerLabel)
                             .join(" vs ")}
                         </p>
                       </div>
 
-                      <span className="text-sm text-gray-500">
-                        {expandedTable === table.id
-                          ? "Open"
-                          : "Select"}
-                      </span>
+                      <div className="shrink-0 text-right">
+                        <p className="text-[10px] font-medium uppercase tracking-wide text-slate-500">
+                          Current bill
+                        </p>
+                        <p className="text-sm font-bold tabular-nums text-slate-900 dark:text-slate-100">
+                          Rs. {currentBill.toLocaleString()}
+                        </p>
+                        <span className="text-[10px] text-gray-500">
+                          {expandedTable === table.id
+                            ? "Open"
+                            : "Select"}
+                        </span>
+                      </div>
                     </button>
 
                     {expandedTable === table.id && (
-                      <div className="space-y-2 border-t p-3">
+                      <div className="space-y-1.5 border-t p-2">
                         {sessionPlayers.map((player) => {
                           return (
                             <Button
@@ -1821,13 +1851,15 @@ function CafePage() {
                                   "runningTable" &&
                                 selectedTarget.tableId ===
                                   table.id &&
-                                (player.customerId
-                                  ? selectedTarget.customerId === player.customerId
-                                  : selectedTarget.playerName === player.name)
+                                selectedTarget.participantKey ===
+                                  getSessionParticipantKey(
+                                    table.session!.id,
+                                    player.slot
+                                  )
                                   ? "default"
                                   : "secondary"
                               }
-                              className="w-full justify-start"
+                              className="h-7 w-full justify-start text-xs"
                               onClick={() =>
                                 setSelectedTarget({
                                   type: "runningTable",
@@ -1837,6 +1869,11 @@ function CafePage() {
                                   playerName: player.name,
                                   customerId:
                                     player.customerId,
+                                  participantKey:
+                                    getSessionParticipantKey(
+                                      table.session!.id,
+                                      player.slot
+                                    ),
                                 })
                               }
                             >
@@ -1853,7 +1890,7 @@ function CafePage() {
                 ))}
               </div>
 
-              <p className="mb-3 mt-8 text-sm font-bold uppercase text-gray-500">
+              <p className="mb-2 mt-5 text-xs font-bold uppercase tracking-wide text-gray-500">
                 Waiting for Table
               </p>
 
@@ -1977,8 +2014,8 @@ function CafePage() {
                 </Button>
               </div>
 
-              <div className="mb-3 mt-8 flex items-center justify-between">
-                <p className="text-sm font-bold uppercase text-gray-500">
+              <div className="mb-2 mt-5 flex items-center justify-between">
+                <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
                   Unpaid / Open Bills
                 </p>
                 <Button
@@ -2017,7 +2054,7 @@ function CafePage() {
                             ? "default"
                             : "secondary"
                         }
-                        className={`h-auto w-full justify-between gap-3 py-3 text-left ${
+                        className={`h-auto w-full justify-between gap-3 py-2 text-left ${
                           selectedTarget?.type ===
                             "openBill" &&
                           selectedTarget.customerAccountId ===
@@ -2062,7 +2099,7 @@ function CafePage() {
             </div>
           </aside>
 
-          <section className="col-span-6 min-h-0 border-r p-6">
+          <section className="min-h-0 border-r p-3">
             <MenuPanel
               disabled={!selectedTarget}
               selectedTarget={selectedTarget}
@@ -2070,7 +2107,7 @@ function CafePage() {
             />
           </section>
 
-          <aside className="col-span-3 min-h-0 bg-slate-50 p-6">
+          <aside className="min-h-0 bg-slate-50 p-3 dark:bg-slate-950/40">
             {!selectedTarget ? (
               <div className="flex h-full flex-col">
                 {orderMessage && (
@@ -2085,24 +2122,10 @@ function CafePage() {
                   </p>
                 )}
 
-                <h2 className="text-2xl font-bold">
-                  Current Order
-                </h2>
-
-                <div className="flex flex-1 items-center justify-center">
-                  <div className="text-center">
-                    <div className="text-5xl">
-                      Cart
-                    </div>
-                    <h3 className="mt-5 text-xl font-bold">
-                      No Customer Selected
-                    </h3>
-                    <p className="mt-2 text-gray-500">
-                      Select a player or waiting
-                      customer to begin taking an
-                      order.
-                    </p>
-                  </div>
+                <div className="rounded-xl border bg-white px-4 py-3 shadow-sm dark:bg-slate-950">
+                  <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Current Order</p>
+                  <p className="mt-2 font-semibold">Select a customer</p>
+                  <p className="text-sm text-slate-500">to begin ordering.</p>
                 </div>
               </div>
             ) : (
@@ -2186,6 +2209,7 @@ function CafePage() {
                   }
                   onIncrease={handleIncrease}
                   onDecrease={handleDecrease}
+                  onRemove={handleRemoveItem}
                   onSave={() => handleSaveOrder()}
                   onSaveAndReturn={() =>
                     handleSaveOrder({
@@ -2468,7 +2492,7 @@ function CafePage() {
           </aside>
         </div>
       </div>
-    </main>
+    </PageShell>
   );
 }
 

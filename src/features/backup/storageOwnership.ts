@@ -18,7 +18,9 @@ export const SNOOKER_ARENA_LOCAL_STORAGE_KEYS = [
 ] as const;
 
 // Add future application-owned IndexedDB names here before using them.
-export const SNOOKER_ARENA_INDEXED_DB_NAMES = [] as const;
+export const SNOOKER_ARENA_INDEXED_DB_NAMES = [
+  "snooker-arena-cafe-images",
+] as const;
 
 export type SnookerArenaStorageKey =
   (typeof SNOOKER_ARENA_LOCAL_STORAGE_KEYS)[number];

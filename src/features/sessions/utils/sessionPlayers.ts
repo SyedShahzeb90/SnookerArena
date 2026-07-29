@@ -1,5 +1,12 @@
 import type { Session } from "@/types/session";
 
+export function getSessionParticipantKey(
+  sessionId: string,
+  slot: string
+) {
+  return `${sessionId}:${slot}`;
+}
+
 export function getSessionPlayerEntries(session: Session) {
   if (
     session.sessionType === "time" ||

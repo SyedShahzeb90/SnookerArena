@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
+import { PageShell } from "@/components/layout/page-layout";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -59,8 +60,8 @@ export default function AccessoriesManagementPage() {
   };
 
   return (
-    <main className="min-h-screen bg-slate-100 px-4 py-6 sm:px-6">
-      <div className="mx-auto max-w-6xl space-y-5">
+    <PageShell width="wide">
+      <div className="space-y-5">
         <header>
           <Button
             type="button"
@@ -117,6 +118,6 @@ export default function AccessoriesManagementPage() {
           </Card>
         </div>
       </div>
-    </main>
+    </PageShell>
   );
 }

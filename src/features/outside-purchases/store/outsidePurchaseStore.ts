@@ -6,6 +6,7 @@ import type {
   OutsidePurchaseInput,
   OutsidePurchaseReimbursement,
 } from "../types/outsidePurchase";
+import { getActiveOperatorSnapshot } from "@/lib/operatorAttribution";
 
 interface ReimbursementInput {
   id: string;
@@ -85,6 +86,8 @@ export const useOutsidePurchaseStore =
             totalReimbursed: 0,
             outstandingAmount: amount,
             status: "pending",
+            createdByOperator:
+              getActiveOperatorSnapshot(),
             createdAt: new Date().toISOString(),
             reimbursements: [],
           };
@@ -113,6 +116,8 @@ export const useOutsidePurchaseStore =
             amount,
             paymentMethod: input.paymentMethod,
             operator: input.operator,
+            operatorSnapshot:
+              getActiveOperatorSnapshot(),
             businessDayId: input.businessDayId,
             createdAt: new Date().toISOString(),
             note: input.note?.trim() || undefined,
@@ -154,6 +159,8 @@ export const useOutsidePurchaseStore =
                     outstandingAmount: 0,
                     cancelledAt: new Date().toISOString(),
                     cancelledBy: input.operator,
+                    cancelledByOperator:
+                      getActiveOperatorSnapshot(),
                     cancelledBusinessDayId: input.businessDayId,
                     cancellationReason: input.reason.trim(),
                   }

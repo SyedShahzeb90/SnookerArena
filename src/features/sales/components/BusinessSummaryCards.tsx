@@ -49,7 +49,7 @@ function BusinessSummaryCards() {
       bg: "bg-slate-100",
     },
     {
-      label: "Today's Canteen Sales",
+      label: "Today's Cafe Sales",
       value: money(totals.cafeRevenue),
       icon: Coffee,
       tone: "text-amber-700",

@@ -13,10 +13,12 @@ import {
 } from "lucide-react";
 
 import { useState } from "react";
+import { AnimatedCollapsible } from "@/components/ui/animated-collapsible";
 import { Button } from "@/components/ui/button";
 
 interface Props {
   frameElapsed: string;
+  frameAnimationKey?: string;
   timerLabel?: string;
   showFrameFeatures?: boolean;
   isPaused?: boolean;
@@ -34,6 +36,7 @@ interface Props {
 
 function RunningPanel({
   frameElapsed,
+  frameAnimationKey,
   timerLabel = "Current frame",
   showFrameFeatures = false,
   isPaused = false,
@@ -54,7 +57,10 @@ function RunningPanel({
       {showFrameFeatures && (
         <div className="flex items-center justify-between rounded-md bg-slate-50 px-3 py-2">
           <p className="text-xs font-medium text-slate-500">{timerLabel}</p>
-          <p className="font-mono text-xl font-bold tabular-nums leading-tight text-blue-700">
+          <p
+            key={frameAnimationKey}
+            className="motion-value-change font-mono text-xl font-bold tabular-nums leading-tight text-blue-700"
+          >
             {frameElapsed}
           </p>
         </div>
@@ -98,13 +104,15 @@ function RunningPanel({
           <Button
             variant="outline"
             size="sm"
-            className="h-8 gap-1 px-2 text-xs"
+            className="h-8 gap-1.5 px-2 text-xs"
+            title="Pause"
+            aria-label="Pause session"
             onClick={(event) => {
               event.stopPropagation();
               onPause?.();
             }}
           >
-            <Pause className="h-3.5 w-3.5" />
+            <Pause className="h-4 w-4 shrink-0" />
             Pause
           </Button>
         )}
@@ -112,34 +120,38 @@ function RunningPanel({
           <Button
             variant="outline"
             size="sm"
-            className="h-8 gap-1 px-2 text-xs"
+            className="h-8 gap-1.5 px-2 text-xs"
+            title="Add Frame"
+            aria-label="Add frame"
             onClick={(event) => {
               event.stopPropagation();
               onAddCharge();
             }}
           >
-            <Plus className="h-3.5 w-3.5" />
+            <Plus className="h-4 w-4 shrink-0" />
             Add Frame
           </Button>
         )}
         <Button
           variant="outline"
           size="sm"
-          className="h-8 gap-1 px-2 text-xs"
+          className="h-8 gap-1.5 px-2 text-xs"
+          title="Edit"
+          aria-label="Edit session"
           onClick={(event) => {
             event.stopPropagation();
             onEdit?.();
           }}
         >
-          <Pencil className="h-3.5 w-3.5" />
+          <Pencil className="h-4 w-4 shrink-0" />
           Edit
         </Button>
         {onAccessories && (
-          <Button variant="outline" size="sm" className="h-8 gap-1 px-2 text-xs" onClick={(event) => {
+          <Button variant="outline" size="sm" className="h-8 gap-1.5 px-2 text-xs" title="Accessories" aria-label="Add accessories" onClick={(event) => {
             event.stopPropagation();
             onAccessories();
           }}>
-            <Package className="h-3.5 w-3.5" /> Accessories
+            <Package className="h-4 w-4 shrink-0" /> Accessories
           </Button>
         )}
       </div>
@@ -148,14 +160,14 @@ function RunningPanel({
         <Button
           variant="outline"
           className="h-11 w-full gap-2 border-emerald-200 bg-emerald-50 text-sm font-semibold text-emerald-800 hover:border-emerald-300 hover:bg-emerald-100"
-          title="Canteen - C"
+          title="Cafe - C"
           onClick={(event) => {
             event.stopPropagation();
             onCafe();
           }}
         >
           <Coffee className="h-4 w-4" />
-          Canteen
+          Cafe
         </Button>
       )}
 
@@ -176,7 +188,7 @@ function RunningPanel({
           <MoreHorizontal className="h-3.5 w-3.5" />
           More Actions
         </Button>
-        {moreOpen && (
+        <AnimatedCollapsible open={moreOpen}>
           <div className="flex flex-wrap gap-1.5 rounded-md border bg-slate-50 p-2">
             {onOutsidePurchase && (
               <Button variant="outline" size="sm" className="h-8 gap-1 px-2 text-xs" onClick={(event) => {
@@ -213,7 +225,7 @@ function RunningPanel({
           Cancel Session
         </Button>
           </div>
-        )}
+        </AnimatedCollapsible>
       </div>
     </div>
   );

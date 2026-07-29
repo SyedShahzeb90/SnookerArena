@@ -11,6 +11,7 @@ import {
 import { useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { PageShell } from "@/components/layout/page-layout";
 import { Card } from "@/components/ui/card";
 import { useToast } from "@/components/ui/toast";
 import {
@@ -169,8 +170,8 @@ function BackupRestorePage() {
   const selectedSummary = selectedBackup ? summarizeBackup(selectedBackup) : null;
 
   return (
-    <main className="min-h-screen bg-slate-100 px-4 py-6 sm:px-6">
-      <div className="mx-auto max-w-6xl space-y-5">
+    <PageShell width="wide">
+      <div className="space-y-5">
         <header className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700">
             <ArchiveRestore className="h-5 w-5" />
@@ -289,7 +290,7 @@ function BackupRestorePage() {
           </div>
         </DialogContent>
       </Dialog>
-    </main>
+    </PageShell>
   );
 }
 

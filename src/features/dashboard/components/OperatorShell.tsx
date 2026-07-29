@@ -95,7 +95,7 @@ const navigationGroups: NavigationGroup[] = [
   {
     label: "Sales",
     items: [
-      { label: "Canteen POS", path: "/operator/cafe", icon: Coffee },
+      { label: "Cafe POS", path: "/operator/cafe", icon: Coffee },
       { label: "Accessories POS", path: "/operator/accessories", icon: Package },
     ],
   },
@@ -253,7 +253,7 @@ function SidebarNavigation({ onSelect }: { onSelect?: () => void }) {
                 <button
                   key={`${item.path}${item.hash ?? ""}`}
                   type="button"
-                  className={`flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 ${
+                  className={`flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-sm font-medium transition-[color,background-color,box-shadow] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 ${
                     active
                       ? "bg-slate-800 text-white shadow-sm"
                       : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"

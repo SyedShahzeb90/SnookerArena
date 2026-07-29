@@ -1,4 +1,5 @@
 import type { PaymentMethod } from "@/types/session";
+import type { OperatorSnapshot } from "@/types/operatorAudit";
 
 export const expenseCategories = [
   "Staff Salary",
@@ -28,6 +29,8 @@ export interface Expense {
   cancellationReason?: string;
   createdByRole?: string;
   createdByName?: string;
+  createdByOperator?: OperatorSnapshot;
+  cancelledByOperator?: OperatorSnapshot;
 }
 
 export interface ExpenseInput {

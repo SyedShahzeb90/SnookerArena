@@ -2,6 +2,7 @@ import { SlidersHorizontal } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { PageHeading, PageShell } from "@/components/layout/page-layout";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/toast";
 import { useTheme } from "@/features/theme/ThemeProvider";
@@ -34,12 +35,12 @@ function GeneralSettingsPage() {
   };
 
   return (
-    <main className="min-h-screen px-4 py-6 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-4xl space-y-5">
-        <div className="flex items-center gap-3">
-          <span className="flex h-11 w-11 items-center justify-center rounded-xl border bg-white text-slate-700 dark:bg-slate-900 dark:text-slate-200"><SlidersHorizontal className="h-5 w-5" /></span>
-          <div><h1 className="text-2xl font-bold text-slate-950 dark:text-slate-100">General Settings</h1><p className="text-sm text-slate-500">Application-wide appearance and usability preferences.</p></div>
-        </div>
+    <PageShell width="compact">
+        <PageHeading
+          icon={SlidersHorizontal}
+          title="General Settings"
+          description="Application-wide appearance and usability preferences."
+        />
         <Card className="p-5">
           <h2 className="font-bold text-slate-950 dark:text-slate-100">Appearance</h2>
           <p className="mt-1 text-sm text-slate-500">Choose how the application looks.</p>
@@ -76,8 +77,7 @@ function GeneralSettingsPage() {
         </Card>
         <Card className="p-5"><h2 className="font-bold text-slate-950 dark:text-slate-100">Date & Time</h2><div className="mt-4 grid gap-4 sm:grid-cols-2"><div className="space-y-1.5"><Label htmlFor="general-date-format">Date Format</Label><select id="general-date-format" className="h-9 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm" value={draft.dateFormat} onChange={(event) => setDraft((current) => ({ ...current, dateFormat: event.target.value as typeof current.dateFormat }))}><option value="DD/MM/YYYY">DD/MM/YYYY</option><option value="MM/DD/YYYY">MM/DD/YYYY</option><option value="YYYY-MM-DD">YYYY-MM-DD</option></select></div><div className="space-y-1.5"><Label htmlFor="general-time-format">Time Format</Label><select id="general-time-format" className="h-9 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm" value={draft.timeFormat} onChange={(event) => setDraft((current) => ({ ...current, timeFormat: event.target.value as typeof current.timeFormat }))}><option value="12-hour">12-hour</option><option value="24-hour">24-hour</option></select></div></div></Card>
         <div className="flex justify-end"><Button onClick={save}>Save General Settings</Button></div>
-      </div>
-    </main>
+    </PageShell>
   );
 }
 
