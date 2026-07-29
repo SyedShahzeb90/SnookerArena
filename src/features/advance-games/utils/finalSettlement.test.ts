@@ -31,7 +31,14 @@ function singleGameLine(
   id: string,
   loserName: string,
   winnerName: string,
-  options: { isFinal?: boolean; finalGames?: number } = {}
+  options: {
+    isFinal?: boolean;
+    finalGames?: number;
+    loserCustomerId?: string;
+    loserParticipantKey?: string;
+    winnerCustomerId?: string;
+    winnerParticipantKey?: string;
+  } = {}
 ): TableChargeLine {
   return {
     id,
@@ -43,7 +50,11 @@ function singleGameLine(
     amount: 300,
     unitRate: 300,
     loserName,
+    loserCustomerId: options.loserCustomerId,
+    loserParticipantKey: options.loserParticipantKey,
     winnerName,
+    winnerCustomerId: options.winnerCustomerId,
+    winnerParticipantKey: options.winnerParticipantKey,
     isFinal: options.isFinal,
     finalGames: options.finalGames,
   };
@@ -151,5 +162,93 @@ describe("calculateFinalSettlement", () => {
 
     expect(shadab?.payableGames).toBe(1);
     expect(shadab?.advanceGames).toBe(0);
+  });
+
+  it("awards Ahmed one advance game when Ali loses Final 1", () => {
+    const session = {
+      id: "SESSION-FINAL-1",
+      tableId: 1,
+      sessionType: "single",
+      player1: "Ali",
+      player1CustomerId: "ALI",
+      player2: "Ahmed",
+      player2CustomerId: "AHMED",
+    } as Session;
+    const settlement = calculateFinalSettlement(session, [
+      singleGameLine("LINE-1", "Ali", "Ahmed", {
+        isFinal: true,
+        finalGames: 1,
+        loserCustomerId: "ALI",
+        loserParticipantKey: "SESSION-FINAL-1:player1",
+        winnerCustomerId: "AHMED",
+        winnerParticipantKey: "SESSION-FINAL-1:player2",
+      }),
+    ]);
+
+    expect(
+      settlement.owners.find((owner) => owner.customerId === "ALI")
+    ).toMatchObject({ payableGames: 2, advanceGames: 0 });
+    expect(
+      settlement.owners.find((owner) => owner.customerId === "AHMED")
+    ).toMatchObject({ payableGames: 0, advanceGames: 1 });
+  });
+
+  it("reverses the Final 1 award when Ahmed loses to Ali", () => {
+    const session = {
+      id: "SESSION-FINAL-REVERSE",
+      tableId: 1,
+      sessionType: "single",
+      player1: "Ali",
+      player1CustomerId: "ALI",
+      player2: "Ahmed",
+      player2CustomerId: "AHMED",
+    } as Session;
+    const settlement = calculateFinalSettlement(session, [
+      singleGameLine("LINE-1", "Ahmed", "Ali", {
+        isFinal: true,
+        finalGames: 1,
+        loserCustomerId: "AHMED",
+        loserParticipantKey: "SESSION-FINAL-REVERSE:player2",
+        winnerCustomerId: "ALI",
+        winnerParticipantKey: "SESSION-FINAL-REVERSE:player1",
+      }),
+    ]);
+
+    expect(
+      settlement.owners.find((owner) => owner.customerId === "AHMED")
+    ).toMatchObject({ payableGames: 2, advanceGames: 0 });
+    expect(
+      settlement.owners.find((owner) => owner.customerId === "ALI")
+    ).toMatchObject({ payableGames: 0, advanceGames: 1 });
+  });
+
+  it("keeps same-name players separate by stable customer and participant IDs", () => {
+    const session = {
+      id: "SESSION-SAME-NAME",
+      tableId: 1,
+      sessionType: "single",
+      player1: "Ali",
+      player1CustomerId: "ALI-1",
+      player2: "Ali",
+      player2CustomerId: "ALI-2",
+    } as Session;
+    const settlement = calculateFinalSettlement(session, [
+      singleGameLine("LINE-1", "Ali", "Ali", {
+        isFinal: true,
+        finalGames: 1,
+        loserCustomerId: "ALI-1",
+        loserParticipantKey: "SESSION-SAME-NAME:player1",
+        winnerCustomerId: "ALI-2",
+        winnerParticipantKey: "SESSION-SAME-NAME:player2",
+      }),
+    ]);
+
+    expect(settlement.owners).toHaveLength(2);
+    expect(
+      settlement.owners.find((owner) => owner.customerId === "ALI-1")
+    ).toMatchObject({ payableGames: 2, advanceGames: 0 });
+    expect(
+      settlement.owners.find((owner) => owner.customerId === "ALI-2")
+    ).toMatchObject({ payableGames: 0, advanceGames: 1 });
   });
 });

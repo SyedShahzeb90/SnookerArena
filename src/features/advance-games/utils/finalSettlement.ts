@@ -5,6 +5,7 @@ import type { FrameSettlementEffect, Session, TableChargeLine } from "@/types/se
 export interface FinalSettlementOwner {
   key: string;
   customerId?: string;
+  participantKey?: string;
   customerName: string;
   payableGames: number;
   advanceGames: number;
@@ -21,6 +22,7 @@ export interface FinalSettlementResult {
 interface OwnerPosition {
   key: string;
   customerId?: string;
+  participantKey?: string;
   customerName: string;
   positions: number;
 }
@@ -35,10 +37,19 @@ function customerForName(session: Session, name: string) {
   ].find(([candidate]) => normalizePlayerName(candidate) === normalized);
 }
 
-function owner(name: string, customerId?: string, positions = 1): OwnerPosition {
+function owner(
+  name: string,
+  customerId?: string,
+  positions = 1,
+  participantKey?: string
+): OwnerPosition {
   return {
-    key: customerId || `name:${normalizePlayerName(name)}`,
+    key:
+      customerId ||
+      participantKey ||
+      `name:${normalizePlayerName(name)}`,
     customerId,
+    participantKey,
     customerName: name,
     positions,
   };
@@ -84,12 +95,30 @@ function teamOwners(session: Session, team: "A" | "B"): OwnerPosition[] {
 function singleOwners(session: Session, line: TableChargeLine) {
   const loserName = line.loserName || line.payerName || session.loserName || session.player1;
   const loserMatch = customerForName(session, loserName);
-  const loser = owner(loserName, line.payerCustomerId || loserMatch?.[1]);
+  const loser = owner(
+    loserName,
+    line.loserCustomerId ||
+      line.payerCustomerId ||
+      loserMatch?.[1],
+    1,
+    line.loserParticipantKey
+  );
   const winnerName = line.winnerName || [session.player1, session.player2]
     .filter(Boolean)
     .find((name) => normalizePlayerName(name) !== normalizePlayerName(loserName));
   const winnerMatch = winnerName ? customerForName(session, winnerName) : undefined;
-  return { loser, winner: winnerName ? owner(winnerName, winnerMatch?.[1]) : undefined };
+  return {
+    loser,
+    winner: winnerName
+      ? owner(
+          winnerName,
+          line.winnerCustomerId ||
+            winnerMatch?.[1],
+          1,
+          line.winnerParticipantKey
+        )
+      : undefined,
+  };
 }
 
 export function calculateFinalSettlement(session: Session, sourceLines?: TableChargeLine[]): FinalSettlementResult {
@@ -139,10 +168,10 @@ export function calculateFinalSettlement(session: Session, sourceLines?: TableCh
     if (line.type === "singleGame") {
       const { loser, winner } = singleOwners(session, line);
       const loss = addPayable(loser, 1 + finalGames, line.id);
-      effects.push({ customerId: loser.customerId || loser.key, customerName: loser.customerName, role: "loser", ...loss });
+      effects.push({ customerId: loser.customerId || loser.key, participantKey: loser.participantKey, customerName: loser.customerName, role: "loser", ...loss });
       if (finalGames > 0 && winner) {
         const win = reducePayable(winner, finalGames, line.id);
-        effects.push({ customerId: winner.customerId || winner.key, customerName: winner.customerName, role: "winner", ...win });
+        effects.push({ customerId: winner.customerId || winner.key, participantKey: winner.participantKey, customerName: winner.customerName, role: "winner", ...win });
       }
     } else {
       const losingTeam = line.losingTeam || (line.winningTeam === "A" ? "B" : "A");

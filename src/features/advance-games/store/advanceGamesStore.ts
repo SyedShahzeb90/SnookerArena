@@ -71,6 +71,9 @@ interface AdvanceGamesStore {
   cancelPendingAwardsForSession: (
     sessionId: string
   ) => number;
+  cancelAwardsForSession: (
+    sessionId: string
+  ) => number;
   recordSessionOffset: (input: EarnInput) => boolean;
   applyToBill: (input: {
     transactionId: string;
@@ -300,6 +303,48 @@ export const useAdvanceGamesStore = create<AdvanceGamesStore>()(
           ),
         }));
         return awards.reduce(
+          (total, item) => total + item.games,
+          0
+        );
+      },
+      cancelAwardsForSession: (sessionId) => {
+        const pendingAwards = (get().pendingAwards ?? []).filter(
+          (item) => item.sessionId === sessionId
+        );
+        const earnedTransactions = safeTransactions(
+          get().transactions
+        ).filter(
+          (item) =>
+            item.sessionId === sessionId &&
+            item.type === "earned"
+        );
+
+        if (
+          pendingAwards.length === 0 &&
+          earnedTransactions.length === 0
+        ) {
+          return 0;
+        }
+
+        set((state) => ({
+          pendingAwards: (
+            state.pendingAwards ?? []
+          ).filter(
+            (item) => item.sessionId !== sessionId
+          ),
+          transactions: safeTransactions(
+            state.transactions
+          ).filter(
+            (item) =>
+              item.sessionId !== sessionId ||
+              item.type !== "earned"
+          ),
+        }));
+
+        return [
+          ...pendingAwards,
+          ...earnedTransactions,
+        ].reduce(
           (total, item) => total + item.games,
           0
         );

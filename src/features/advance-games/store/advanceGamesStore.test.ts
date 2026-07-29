@@ -26,6 +26,16 @@ const secondAward = {
   billId: "CUSTOMER-2",
 };
 
+const sessionScopedAward = {
+  ...award,
+  transactionId: "ADV-EARN-SESSION-2-FRAME-1-0",
+  customerId: "AHMED",
+  customerName: "Ahmed",
+  games: 1,
+  sessionId: "SESSION-2",
+  billId: "ADVANCE-SESSION:SESSION-2",
+};
+
 describe("advance game payment lifecycle", () => {
   beforeEach(() => {
     useAdvanceGamesStore
@@ -156,5 +166,89 @@ describe("advance game payment lifecycle", () => {
         billId: award.billId,
       }),
     ]);
+  });
+
+  it("keeps a session award pending while the losing bill is unpaid", () => {
+    const store = useAdvanceGamesStore.getState();
+
+    expect(store.stageEarn(sessionScopedAward)).toBe(true);
+    expect(store.getBalance("AHMED")).toBe(0);
+    expect(useAdvanceGamesStore.getState().pendingAwards).toEqual([
+      expect.objectContaining({
+        customerId: "AHMED",
+        games: 1,
+        sessionId: "SESSION-2",
+      }),
+    ]);
+  });
+
+  it("makes a session award available after the session bills settle", () => {
+    const store = useAdvanceGamesStore.getState();
+    store.stageEarn(sessionScopedAward);
+
+    expect(
+      store.releasePendingAwardsForSession("SESSION-2")
+    ).toBe(1);
+    expect(
+      useAdvanceGamesStore.getState().getBalance("AHMED")
+    ).toBe(1);
+    expect(
+      useAdvanceGamesStore.getState().pendingAwards
+    ).toHaveLength(0);
+  });
+
+  it("removes the session award when its unpaid bill is deleted", () => {
+    const store = useAdvanceGamesStore.getState();
+    store.stageEarn(sessionScopedAward);
+
+    expect(
+      store.cancelAwardsForSession("SESSION-2")
+    ).toBe(1);
+    expect(
+      useAdvanceGamesStore.getState().pendingAwards
+    ).toHaveLength(0);
+    expect(
+      useAdvanceGamesStore.getState().getBalance("AHMED")
+    ).toBe(0);
+  });
+
+  it("removes the pending award when the entire session is cancelled", () => {
+    const store = useAdvanceGamesStore.getState();
+    store.stageEarn(sessionScopedAward);
+
+    expect(
+      store.cancelPendingAwardsForSession("SESSION-2")
+    ).toBe(1);
+    expect(
+      useAdvanceGamesStore.getState().pendingAwards
+    ).toHaveLength(0);
+    expect(store.getBalance("AHMED")).toBe(0);
+  });
+
+  it("removes an award that was already released before the bill was deleted", () => {
+    const store = useAdvanceGamesStore.getState();
+    store.stageEarn(sessionScopedAward);
+    store.releasePendingAwardsForSession("SESSION-2");
+
+    expect(store.getBalance("AHMED")).toBe(1);
+    expect(
+      useAdvanceGamesStore.getState()
+        .transactions
+    ).toHaveLength(1);
+
+    expect(
+      useAdvanceGamesStore
+        .getState()
+        .cancelAwardsForSession("SESSION-2")
+    ).toBe(1);
+    expect(
+      useAdvanceGamesStore
+        .getState()
+        .getBalance("AHMED")
+    ).toBe(0);
+    expect(
+      useAdvanceGamesStore.getState()
+        .transactions
+    ).toHaveLength(0);
   });
 });

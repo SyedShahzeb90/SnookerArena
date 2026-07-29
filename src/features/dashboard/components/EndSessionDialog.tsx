@@ -13,7 +13,10 @@ import {
 } from "@/components/ui/dialog";
 import type { Table } from "@/types/table";
 import { useCustomerAccountStore } from "@/features/customers/store/customerAccountStore";
-import { getSessionPlayers } from "@/features/sessions/utils/sessionPlayers";
+import {
+  getSessionParticipantKey,
+  getSessionPlayers,
+} from "@/features/sessions/utils/sessionPlayers";
 import { getDoubleGameTeams } from "@/features/sessions/utils/doubleGameBilling";
 import { isWalkInName } from "@/features/sessions/utils/walkInLabel";
 
@@ -23,7 +26,11 @@ interface Props {
   onOpenChange: (open: boolean) => void;
   onConfirm: (data: {
     winnerName?: string;
+    winnerCustomerId?: string;
+    winnerParticipantKey?: string;
     loserName?: string;
+    loserCustomerId?: string;
+    loserParticipantKey?: string;
     payerName?: string;
     payerCustomerId?: string;
     winningTeam?: "A" | "B";
@@ -113,29 +120,38 @@ function EndSessionDialog({
     teams.teamBPlayers.join(", ") ||
     "Team B";
 
-  const handleLoser = (
-    loserName: string,
-    payerCustomerId?: string
-  ) => {
+  const handleLoser = (loser: {
+    slot: string;
+    name: string;
+    customerId?: string;
+  }) => {
     const finalData = getFinalData();
     if (!finalData) return;
     const winner =
       singlePlayerOptions.find(
-        (player) =>
-          player.customerId !== payerCustomerId
+        (player) => player.slot !== loser.slot
       );
     const winnerName =
       winner?.name ??
       players.find(
-        (player) => player !== loserName
+        (player) => player !== loser.name
       ) ??
-      loserName;
+      loser.name;
 
     onConfirm({
       winnerName,
-      loserName,
-      payerName: loserName,
-      payerCustomerId,
+      winnerCustomerId: winner?.customerId,
+      winnerParticipantKey: winner
+        ? getSessionParticipantKey(session.id, winner.slot)
+        : undefined,
+      loserName: loser.name,
+      loserCustomerId: loser.customerId,
+      loserParticipantKey: getSessionParticipantKey(
+        session.id,
+        loser.slot
+      ),
+      payerName: loser.name,
+      payerCustomerId: loser.customerId,
       ...finalData,
     });
   };
@@ -209,19 +225,22 @@ function EndSessionDialog({
 
   const singlePlayerOptions = [
     {
-      slot: "Player 1",
+      slot: "player1",
+      slotLabel: "Player 1",
       name:
         session.player1?.trim() ||
         "Walk-in Customer",
       customerId: session.player1CustomerId,
     },
     {
-      slot: "Player 2",
+      slot: "player2",
+      slotLabel: "Player 2",
       name: session.player2?.trim(),
       customerId: session.player2CustomerId,
     },
   ].filter((player) => player.name) as {
     slot: string;
+    slotLabel: string;
     name: string;
     customerId?: string;
   }[];
@@ -415,10 +434,7 @@ function EndSessionDialog({
                   size="lg"
                   className="h-14 justify-start gap-3 text-base"
                   onClick={() =>
-                    handleLoser(
-                      player.name,
-                      player.customerId
-                    )
+                    handleLoser(player)
                   }
                 >
                   <CircleX className="h-5 w-5" />
@@ -428,7 +444,7 @@ function EndSessionDialog({
                     </span>
                     {player.customerId && (
                       <span className="text-xs font-normal opacity-80">
-                        {player.slot}
+                        {player.slotLabel}
                       </span>
                     )}
                   </span>

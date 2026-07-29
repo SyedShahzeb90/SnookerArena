@@ -28,7 +28,11 @@ export interface TableChargeLine {
   payerName?: string;
   payerCustomerId?: string;
   loserName?: string;
+  loserCustomerId?: string;
+  loserParticipantKey?: string;
   winnerName?: string;
+  winnerCustomerId?: string;
+  winnerParticipantKey?: string;
   winningTeam?: "A" | "B";
   losingTeam?: "A" | "B";
   isFinal?: boolean;
@@ -40,6 +44,7 @@ export interface TableChargeLine {
 
 export interface FrameSettlementEffect {
   customerId: string;
+  participantKey?: string;
   customerName: string;
   payableGamesDelta: number;
   advanceGamesDelta: number;

@@ -32,6 +32,7 @@ import { useClubSettingsStore } from "@/features/settings/store/clubSettingsStor
 
 import type {
   CafeOrderItem,
+  FrameSettlementEffect,
   PaymentMethod,
   Session,
   SessionType,
@@ -330,14 +331,32 @@ function getSettlementOwnerAmount(
           ? (line.unitRate ?? line.amount) / 2
           : line.unitRate ?? line.amount;
       const effect = line.settlement?.find(
-        (item) =>
-          (owner.customerId && item.customerId === owner.customerId) ||
-          item.customerId === owner.key ||
-          normalizePlayerName(item.customerName) ===
-            normalizePlayerName(owner.customerName)
+        (item) => settlementEffectMatchesOwner(item, owner)
       );
       return total + (effect?.payableGamesDelta ?? 0) * rate;
     }, 0)
+  );
+}
+
+function settlementEffectMatchesOwner(
+  effect: FrameSettlementEffect,
+  owner: ReturnType<typeof calculateFinalSettlement>["owners"][number]
+) {
+  if (owner.customerId) {
+    return effect.customerId === owner.customerId;
+  }
+
+  if (owner.participantKey) {
+    return (
+      effect.participantKey === owner.participantKey ||
+      effect.customerId === owner.participantKey
+    );
+  }
+
+  return (
+    effect.customerId === owner.key ||
+    normalizePlayerName(effect.customerName) ===
+      normalizePlayerName(owner.customerName)
   );
 }
 
@@ -587,16 +606,16 @@ function addSessionGameChargesToCustomers(
       if (customerId) {
         resolvedCustomerIds.set(owner.key, customerId);
         resolvedCustomerIds.set(owner.customerId ?? owner.key, customerId);
+        if (owner.participantKey) {
+          resolvedCustomerIds.set(owner.participantKey, customerId);
+        }
       }
 
       if (owner.payableGames > 0) {
         const ownerAmount = getSettlementOwnerAmount(owner, settlement.lines);
         const ownerLineCharges = settlement.lines.flatMap((line) => {
           const effect = line.settlement?.find(
-            (item) =>
-              (owner.customerId && item.customerId === owner.customerId) ||
-              item.customerId === owner.key ||
-              normalizePlayerName(item.customerName) === normalizePlayerName(owner.customerName)
+            (item) => settlementEffectMatchesOwner(item, owner)
           );
           if (!effect) return [];
           const rate = line.type === "doubleGame"
@@ -657,7 +676,11 @@ function addSessionGameChargesToCustomers(
     settlement.lines.forEach((line) => {
       (line.settlement ?? []).forEach((effect, index) => {
         if (effect.advanceGamesDelta === 0 || isWalkInName(effect.customerName)) return;
-        const customerId = resolvedCustomerIds.get(effect.customerId);
+        const customerId =
+          resolvedCustomerIds.get(effect.customerId) ??
+          (effect.participantKey
+            ? resolvedCustomerIds.get(effect.participantKey)
+            : undefined);
         if (!customerId) return;
         const remainingAdvance =
           remainingAdvanceAwards.get(effect.customerId) ?? 0;
@@ -685,7 +708,7 @@ function addSessionGameChargesToCustomers(
           );
           useAdvanceGamesStore.getState().stageEarn({
             ...input,
-            billId: customerId,
+            billId: `ADVANCE-SESSION:${session.id}`,
           });
         } else {
           useAdvanceGamesStore.getState().recordSessionOffset(input);
@@ -884,7 +907,11 @@ interface AddTableChargeLineData {
   payerName?: string;
   payerCustomerId?: string;
   loserName?: string;
+  loserCustomerId?: string;
+  loserParticipantKey?: string;
   winnerName?: string;
+  winnerCustomerId?: string;
+  winnerParticipantKey?: string;
   winningTeam?: "A" | "B";
   losingTeam?: "A" | "B";
   isFinal?: boolean;
@@ -900,6 +927,10 @@ interface EndSessionData {
   payerCustomerId?: string;
   winningTeam?: "A" | "B";
   losingTeam?: "A" | "B";
+  loserCustomerId?: string;
+  loserParticipantKey?: string;
+  winnerCustomerId?: string;
+  winnerParticipantKey?: string;
   isFinal?: boolean;
   finalGames?: number;
 }
@@ -1283,6 +1314,10 @@ export const useTableStore =
       loserName,
       payerName,
       payerCustomerId,
+      loserCustomerId,
+      loserParticipantKey,
+      winnerCustomerId,
+      winnerParticipantKey,
       winningTeam,
       losingTeam,
       isFinal,
@@ -1336,7 +1371,11 @@ export const useTableStore =
                 payerName,
                 payerCustomerId,
                 loserName,
+                loserCustomerId,
+                loserParticipantKey,
                 winnerName,
+                winnerCustomerId,
+                winnerParticipantKey,
                 winningTeam,
                 losingTeam,
                 isFinal:
@@ -1433,7 +1472,11 @@ export const useTableStore =
       payerName,
       payerCustomerId,
       loserName,
+      loserCustomerId,
+      loserParticipantKey,
       winnerName,
+      winnerCustomerId,
+      winnerParticipantKey,
       winningTeam,
       losingTeam,
       isFinal,
@@ -1460,7 +1503,11 @@ export const useTableStore =
                   payerName,
                   payerCustomerId,
                   loserName,
+                  loserCustomerId,
+                  loserParticipantKey,
                   winnerName,
+                  winnerCustomerId,
+                  winnerParticipantKey,
                   winningTeam,
                   losingTeam,
                 };

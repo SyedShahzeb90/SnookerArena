@@ -37,7 +37,11 @@ import useCurrentTime from "@/features/dashboard/hooks/useCurrentTime";
 import { useTableStore } from "@/store/tableStore";
 import { useCustomerAccountStore } from "@/features/customers/store/customerAccountStore";
 import { getBillPrimaryLabel } from "@/features/customers/utils/billDisplay";
-import { getSessionPlayers } from "@/features/sessions/utils/sessionPlayers";
+import {
+  getSessionParticipantKey,
+  getSessionPlayerEntries,
+  getSessionPlayers,
+} from "@/features/sessions/utils/sessionPlayers";
 import { getDoubleGameTeams } from "@/features/sessions/utils/doubleGameBilling";
 import { isWalkInName } from "@/features/sessions/utils/walkInLabel";
 import type {
@@ -211,6 +215,8 @@ const TableCard = forwardRef<TableCardHandle, Props>(function TableCard({
     payerCustomerId,
     setPayerCustomerId,
   ] = useState("");
+  const [payerParticipantSlot, setPayerParticipantSlot] =
+    useState("");
   const [
     losingTeam,
     setLosingTeam,
@@ -320,43 +326,10 @@ const TableCard = forwardRef<TableCardHandle, Props>(function TableCard({
     ? getSessionPlayers(table.session)
     : [];
   const sessionPlayerOptions = table.session
-    ? [
-        {
-          name: table.session.player1,
-          customerId:
-            table.session.player1CustomerId ?? "",
-        },
-        ...(table.session.player2
-          ? [
-              {
-                name: table.session.player2,
-                customerId:
-                  table.session.player2CustomerId ??
-                  "",
-              },
-            ]
-          : []),
-        ...(table.session.player3
-          ? [
-              {
-                name: table.session.player3,
-                customerId:
-                  table.session.player3CustomerId ??
-                  "",
-              },
-            ]
-          : []),
-        ...(table.session.player4
-          ? [
-              {
-                name: table.session.player4,
-                customerId:
-                  table.session.player4CustomerId ??
-                  "",
-              },
-            ]
-          : []),
-      ].filter((player) => player.name.trim())
+    ? getSessionPlayerEntries(table.session).map((player) => ({
+        ...player,
+        customerId: player.customerId ?? "",
+      }))
     : [];
   const outsidePurchaseOwners: OutsidePurchaseOwner[] =
     sessionPlayerOptions.reduce<OutsidePurchaseOwner[]>((owners, player) => {
@@ -424,6 +397,9 @@ const TableCard = forwardRef<TableCardHandle, Props>(function TableCard({
     setPayerName(sessionPlayerOptions[0]?.name ?? "");
     setPayerCustomerId(
       sessionPlayerOptions[0]?.customerId ?? ""
+    );
+    setPayerParticipantSlot(
+      sessionPlayerOptions[0]?.slot ?? ""
     );
     setManualChargeStartEnabled(false);
     setManualChargeStart("");
@@ -594,11 +570,11 @@ const TableCard = forwardRef<TableCardHandle, Props>(function TableCard({
     const isDoubleFrame = currentFrameIsDouble;
     const selectedPlayer =
       sessionPlayerOptions.find(
-        (player) =>
-          player.customerId ===
-          (payerCustomerId ||
-            sessionPlayerOptions[0]?.customerId)
+        (player) => player.slot === payerParticipantSlot
       ) ?? sessionPlayerOptions[0];
+    const winnerPlayer = sessionPlayerOptions.find(
+      (player) => player.slot !== selectedPlayer?.slot
+    );
 
     const selectedPayer =
       isDoubleFrame
@@ -617,9 +593,7 @@ const TableCard = forwardRef<TableCardHandle, Props>(function TableCard({
       ? losingTeam === "A"
         ? teamBLabel
         : teamALabel
-      : sessionPlayers.find(
-          (player) => player !== selectedPayer
-        );
+      : winnerPlayer?.name;
 
     addTableChargeLine({
       tableId: table.id,
@@ -633,10 +607,7 @@ const TableCard = forwardRef<TableCardHandle, Props>(function TableCard({
           ? undefined
           : getSelectedPayerCustomerId(
               shouldChooseLoser
-                ? payerCustomerId ||
-                    sessionPlayerOptions[0]
-                      ?.customerId ||
-                    ""
+                ? selectedPlayer?.customerId ?? ""
                 : table.session.player1CustomerId || ""
             ),
       loserName:
@@ -644,10 +615,38 @@ const TableCard = forwardRef<TableCardHandle, Props>(function TableCard({
         currentFrameType === "doubleGame"
           ? selectedLoserName
           : undefined,
+      loserCustomerId:
+        !isDoubleFrame &&
+        currentFrameType === "singleGame"
+          ? selectedPlayer?.customerId || undefined
+          : undefined,
+      loserParticipantKey:
+        !isDoubleFrame &&
+        currentFrameType === "singleGame" &&
+        selectedPlayer
+          ? getSessionParticipantKey(
+              table.session.id,
+              selectedPlayer.slot
+            )
+          : undefined,
       winnerName:
         currentFrameType === "singleGame" ||
         currentFrameType === "doubleGame"
           ? selectedWinnerName
+          : undefined,
+      winnerCustomerId:
+        !isDoubleFrame &&
+        currentFrameType === "singleGame"
+          ? winnerPlayer?.customerId || undefined
+          : undefined,
+      winnerParticipantKey:
+        !isDoubleFrame &&
+        currentFrameType === "singleGame" &&
+        winnerPlayer
+          ? getSessionParticipantKey(
+              table.session.id,
+              winnerPlayer.slot
+            )
           : undefined,
       losingTeam: isDoubleFrame
         ? losingTeam
@@ -1206,9 +1205,8 @@ const TableCard = forwardRef<TableCardHandle, Props>(function TableCard({
                   <select
                     className="rounded-md border bg-white p-2"
                     value={
-                      payerCustomerId ||
-                      sessionPlayerOptions[0]
-                        ?.customerId ||
+                      payerParticipantSlot ||
+                      sessionPlayerOptions[0]?.slot ||
                       ""
                     }
                     onChange={(event) =>
@@ -1216,11 +1214,14 @@ const TableCard = forwardRef<TableCardHandle, Props>(function TableCard({
                         const selected =
                           sessionPlayerOptions.find(
                             (player) =>
-                              player.customerId ===
+                              player.slot ===
                               event.target.value
                           );
-                        setPayerCustomerId(
+                        setPayerParticipantSlot(
                           event.target.value
+                        );
+                        setPayerCustomerId(
+                          selected?.customerId ?? ""
                         );
                         setPayerName(
                           selected?.name ?? ""
@@ -1231,10 +1232,9 @@ const TableCard = forwardRef<TableCardHandle, Props>(function TableCard({
                     {sessionPlayerOptions.map((player) => (
                       <option
                         key={
-                          player.customerId ||
-                          player.name
+                          player.slot
                         }
-                        value={player.customerId}
+                        value={player.slot}
                       >
                         {getPlayerOptionLabel(player)} lost
                       </option>

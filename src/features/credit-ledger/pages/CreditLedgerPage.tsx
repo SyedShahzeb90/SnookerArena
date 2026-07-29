@@ -14,6 +14,7 @@ import PaymentMethodSelector from "@/features/billing/components/PaymentMethodSe
 import { useBusinessDayStore } from "@/features/business-day/store/businessDayStore";
 import { useSalesStore } from "@/features/sales/store/salesStore";
 import { useAdvanceGamesStore } from "@/features/advance-games/store/advanceGamesStore";
+import { buildAdvanceGameBalanceRows } from "@/features/advance-games/utils/advanceGameBalances";
 import { useCustomerAccountStore } from "@/features/customers/store/customerAccountStore";
 import { useTableHistoryStore } from "@/features/table-history/store/tableHistoryStore";
 import { getIndividualGameCharges } from "@/features/customers/utils/individualGameCharges";
@@ -86,6 +87,11 @@ function CreditLedgerPage() {
       (state) =>
         state.releasePendingAwardsForSession
     );
+  const cancelAwardsForSession =
+    useAdvanceGamesStore(
+      (state) =>
+        state.cancelAwardsForSession
+    );
   const safeAdvanceTransactions = Array.isArray(advanceTransactions) ? advanceTransactions : [];
   const transferAdvanceGames = useAdvanceGamesStore((state) => state.transfer);
   const customersInClub = useAdvanceGamesStore((state) => state.customersInClub ?? {});
@@ -130,10 +136,6 @@ function CreditLedgerPage() {
   }, [location.hash]);
 
   useEffect(() => {
-    if (pendingAdvanceAwards.length === 0) {
-      return;
-    }
-
     const pendingSessionIds = [
       ...new Set(
         pendingAdvanceAwards.map(
@@ -143,8 +145,21 @@ function CreditLedgerPage() {
     ];
 
     pendingSessionIds.forEach((sessionId) => {
+      const linkedAccounts =
+        customerAccounts.filter((account) =>
+          account.gameCharges.some(
+            (charge) =>
+              charge.sessionId === sessionId
+          )
+        );
+
+      if (linkedAccounts.length === 0) {
+        cancelAwardsForSession(sessionId);
+        return;
+      }
+
       const hasOutstandingBill =
-        customerAccounts.some((account) => {
+        linkedAccounts.some((account) => {
           if (
             account.paymentStatus !== "unpaid" ||
             account.cancelledAt ||
@@ -173,23 +188,56 @@ function CreditLedgerPage() {
         releasePendingAwardsForSession(sessionId);
       }
     });
+
+    const orphanedReleasedSessionIds = [
+      ...new Set(
+        safeAdvanceTransactions
+          .filter(
+            (transaction) =>
+              transaction.type === "earned" &&
+              transaction.sessionId &&
+              transaction.relatedBillId?.startsWith(
+                "ADVANCE-SESSION:"
+              ) &&
+              !customerAccounts.some((account) =>
+                account.gameCharges.some(
+                  (charge) =>
+                    charge.sessionId ===
+                    transaction.sessionId
+                )
+              ) &&
+              tableHistoryRecords.find(
+                (record) =>
+                  record.sessionId ===
+                  transaction.sessionId
+              )?.paymentStatus !== "paid"
+          )
+          .map(
+            (transaction) =>
+              transaction.sessionId as string
+          )
+      ),
+    ];
+
+    orphanedReleasedSessionIds.forEach(
+      cancelAwardsForSession
+    );
   }, [
+    cancelAwardsForSession,
     customerAccounts,
     entries,
     pendingAdvanceAwards,
     releasePendingAwardsForSession,
+    safeAdvanceTransactions,
+    tableHistoryRecords,
   ]);
 
   const advanceBalances = useMemo(() => {
-    const balances = new Map<string, { customerId: string; customerName: string; games: number }>();
-    safeAdvanceTransactions.forEach((item) => {
-      const current = balances.get(item.customerId) ?? { customerId: item.customerId, customerName: item.customerName, games: 0 };
-      current.games += item.balanceDelta;
-      current.customerName = item.customerName;
-      balances.set(item.customerId, current);
-    });
-    return [...balances.values()].sort((a, b) => b.games - a.games);
-  }, [safeAdvanceTransactions]);
+    return buildAdvanceGameBalanceRows(
+      safeAdvanceTransactions,
+      pendingAdvanceAwards
+    );
+  }, [pendingAdvanceAwards, safeAdvanceTransactions]);
 
   const advanceHistoryRows = useMemo(() => {
     const rows = new Map<
@@ -601,7 +649,7 @@ function CreditLedgerPage() {
               <div className="mt-3 grid gap-2 md:grid-cols-4">
                 <select className="rounded-md border bg-white p-2" value={senderId} onChange={(event) => setSenderId(event.target.value)}>
                   <option value="">Sender</option>
-                  {customerAccounts.map((item) => <option key={item.id} value={item.id}>{item.customerName} - {advanceBalances.find((balance) => balance.customerId === item.id)?.games ?? 0} games</option>)}
+                  {customerAccounts.map((item) => <option key={item.id} value={item.id}>{item.customerName} - {advanceBalances.find((balance) => balance.customerId === item.id)?.availableGames ?? 0} games</option>)}
                 </select>
                 <select className="rounded-md border bg-white p-2" value={receiverId} onChange={(event) => setReceiverId(event.target.value)}>
                   <option value="">Receiver</option>
@@ -615,7 +663,7 @@ function CreditLedgerPage() {
             <Card className="overflow-hidden">
               <table className="w-full text-left text-sm">
                 <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-4 py-3">Customer</th><th className="px-4 py-3 text-right">Balance</th><th className="px-4 py-3 text-right">Session availability</th></tr></thead>
-                <tbody>{advanceBalances.map((item) => <tr key={item.customerId} className="border-t"><td className="px-4 py-3 font-semibold">{item.customerName}</td><td className="px-4 py-3 text-right font-bold">{item.games} advance games</td><td className="px-4 py-3"><label className="ml-auto flex w-fit cursor-pointer items-center gap-2"><input type="checkbox" className="h-4 w-4 accent-emerald-600" checked={customersInClub[item.customerId] === true} disabled={item.games <= 0} onChange={(event) => setCustomerInClub(item.customerId, event.target.checked)} /><span className="text-sm font-medium">Show in session list</span></label></td></tr>)}</tbody>
+                <tbody>{advanceBalances.map((item) => <tr key={item.customerId} className="border-t"><td className="px-4 py-3 font-semibold">{item.customerName}</td><td className="px-4 py-3 text-right"><div className="font-bold">{item.availableGames} available</div>{item.pendingGames > 0 && <div className="text-sm font-semibold text-amber-700">Pending: {item.pendingGames}</div>}</td><td className="px-4 py-3"><label className="ml-auto flex w-fit cursor-pointer items-center gap-2"><input type="checkbox" className="h-4 w-4 accent-emerald-600" checked={customersInClub[item.customerId] === true} disabled={item.availableGames <= 0} onChange={(event) => setCustomerInClub(item.customerId, event.target.checked)} /><span className="text-sm font-medium">Show in session list</span></label></td></tr>)}</tbody>
               </table>
               <p className="border-t bg-slate-50 px-4 py-3 text-xs text-slate-500">
                 Check this only while the customer is available to play. Unchecking it keeps their advance games saved.

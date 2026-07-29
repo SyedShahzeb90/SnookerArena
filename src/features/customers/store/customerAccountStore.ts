@@ -447,7 +447,19 @@ export const useCustomerAccountStore =
         cancelCustomerAccount: ({ id, reason, note }) => {
           const advanceGamesStore =
             useAdvanceGamesStore.getState();
+          const accountToCancel = get().accounts.find(
+            (account) => account.id === id
+          );
           advanceGamesStore.cancelPendingAwardsForBill(id);
+          new Set(
+            accountToCancel?.gameCharges.map(
+              (charge) => charge.sessionId
+            ) ?? []
+          ).forEach((sessionId) => {
+            advanceGamesStore.cancelAwardsForSession(
+              sessionId
+            );
+          });
           set((state) => ({
             accounts: state.accounts.map((account) => {
               if (account.id !== id) return account;
@@ -476,7 +488,19 @@ export const useCustomerAccountStore =
         deleteCustomerAccount: (id) => {
           const advanceGamesStore =
             useAdvanceGamesStore.getState();
+          const accountToDelete = get().accounts.find(
+            (account) => account.id === id
+          );
           advanceGamesStore.cancelPendingAwardsForBill(id);
+          new Set(
+            accountToDelete?.gameCharges.map(
+              (charge) => charge.sessionId
+            ) ?? []
+          ).forEach((sessionId) => {
+            advanceGamesStore.cancelAwardsForSession(
+              sessionId
+            );
+          });
           set((state) => ({
             accounts: state.accounts.filter(
               (account) => account.id !== id
@@ -487,7 +511,7 @@ export const useCustomerAccountStore =
         removeSessionCharges: (sessionId) => {
           useAdvanceGamesStore
             .getState()
-            .cancelPendingAwardsForSession(sessionId);
+            .cancelAwardsForSession(sessionId);
           set((state) => ({
             accounts: state.accounts
               .map((account) =>
