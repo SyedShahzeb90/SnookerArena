@@ -16,6 +16,8 @@ export interface BusinessDaySummary {
   totalExpenses: number;
   cashExpenses: number;
   expenseCount: number;
+  payrollExpensesTotal?: number;
+  cashPayrollExpenses?: number;
   inventoryPurchasesTotal?: number;
   cashInventoryPurchases?: number;
   cashInventoryPurchaseRestored?: number;

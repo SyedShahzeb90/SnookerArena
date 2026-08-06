@@ -15,7 +15,7 @@ interface Props {
 }
 
 function formatAmount(value: number) {
-  return `Rs. ${Math.abs(value)}`;
+  return `Rs. ${Math.abs(value).toLocaleString()}`;
 }
 
 function ProfitLossSummaryCards({
@@ -25,28 +25,28 @@ function ProfitLossSummaryCards({
   const cards = [
     {
       label: "Total Revenue",
-      value: `Rs. ${totals.totalRevenue}`,
+      value: formatAmount(totals.totalRevenue),
       icon: TrendingUp,
       tone: "text-emerald-700",
       bg: "bg-emerald-50",
     },
     {
       label: "Table Sales",
-      value: `Rs. ${totals.tableRevenue}`,
+      value: formatAmount(totals.tableRevenue),
       icon: Banknote,
       tone: "text-slate-700",
       bg: "bg-slate-100",
     },
     {
       label: "Cafe Sales",
-      value: `Rs. ${totals.cafeRevenue}`,
+      value: formatAmount(totals.cafeRevenue),
       icon: Coffee,
       tone: "text-amber-700",
       bg: "bg-amber-50",
     },
     {
       label: "Total Expenses",
-      value: `Rs. ${totals.totalExpenses}`,
+      value: formatAmount(totals.totalExpenses),
       icon: WalletCards,
       tone: "text-red-700",
       bg: "bg-red-50",
@@ -54,6 +54,7 @@ function ProfitLossSummaryCards({
     {
       label: isLoss ? "Loss" : "Net Profit",
       value: formatAmount(totals.netProfit),
+      helper: `${totals.profitMargin.toLocaleString()}% margin`,
       icon: isLoss ? TrendingDown : ReceiptText,
       tone: isLoss ? "text-red-700" : "text-emerald-700",
       bg: isLoss ? "bg-red-50" : "bg-emerald-50",
@@ -92,6 +93,11 @@ function ProfitLossSummaryCards({
             >
               {card.value}
             </p>
+            {"helper" in card && card.helper ? (
+              <p className="mt-1 text-xs font-semibold text-slate-500">
+                {card.helper}
+              </p>
+            ) : null}
           </Card>
         );
       })}
@@ -100,4 +106,3 @@ function ProfitLossSummaryCards({
 }
 
 export default ProfitLossSummaryCards;
-

@@ -23,6 +23,7 @@ import type { CustomerAccount } from "@/features/customers/types/customerAccount
 import { getRunningBillTotals } from "@/features/dashboard/utils/runningBillTotals";
 import { getDoubleGameTeams } from "@/features/sessions/utils/doubleGameBilling";
 import { calculateFinalSettlement } from "@/features/advance-games/utils/finalSettlement";
+import { useAdvanceGamesStore } from "@/features/advance-games/store/advanceGamesStore";
 import { normalizePlayerName } from "@/features/cafe/utils/playerIdentity";
 import { formatAppTime, useAppDateTimeFormats } from "@/lib/dateTime";
 import {
@@ -49,6 +50,54 @@ interface PlayerGameCounter {
   name: string;
   games: number;
   advanceGames: number;
+}
+
+function getExistingBillGameCount(
+  account: CustomerAccount | undefined,
+  currentSessionId: string
+) {
+  if (!account || account.paymentStatus !== "unpaid") {
+    return 0;
+  }
+
+  return account.gameCharges
+    .filter(
+      (charge) =>
+        charge.sessionId !== currentSessionId
+    )
+    .reduce((total, charge) => {
+      if (charge.gameCount !== undefined) {
+        return total + charge.gameCount;
+      }
+
+      if (charge.lineCharges?.length) {
+        return (
+          total +
+          charge.lineCharges.reduce(
+            (lineTotal, line) =>
+              lineTotal +
+              (line.finalGames ??
+                (line.sessionType === "time" ||
+                line.sessionType === "private"
+                  ? 0
+                  : 1)),
+            0
+          )
+        );
+      }
+
+      if (
+        charge.sessionType === "time" ||
+        charge.sessionType === "private"
+      ) {
+        return total;
+      }
+
+      const amount =
+        charge.originalAmount ?? charge.amount;
+
+      return total + Math.max(1, Math.round(amount / 300));
+    }, 0);
 }
 
 function GameCounterBadges({
@@ -120,11 +169,19 @@ function TableInfo({
 
     return undefined;
   };
+  const currentGameLabel =
+    getGameCountLabel() ??
+    (session.sessionType === "time"
+      ? "Table Booking"
+      : session.sessionType);
 
   const customerAccounts =
     useCustomerAccountStore(
       (state) => state.accounts
     );
+  const advanceTransactions = useAdvanceGamesStore(
+    (state) => state.transactions
+  );
   const sessionPlayers =
     getSessionPlayers(session);
   const isBooking =
@@ -164,6 +221,42 @@ function TableInfo({
       (account) =>
         account.paymentStatus === "unpaid" &&
         accountBelongsToSession(account)
+    );
+  const getStoredAdvanceGames = (
+    name: string,
+    customerId?: string
+  ) => {
+    const account = getPlayerAccount(name, customerId);
+    const resolvedCustomerId =
+      customerId ?? account?.id;
+
+    if (!resolvedCustomerId) return 0;
+
+    return advanceTransactions
+      .filter(
+        (transaction) =>
+          transaction.customerId === resolvedCustomerId
+      )
+      .reduce(
+        (total, transaction) =>
+          total + transaction.balanceDelta,
+        0
+      );
+  };
+  const getPlayerAccount = (
+    name: string,
+    customerId?: string
+  ) =>
+    (customerId
+      ? customerAccounts.find(
+          (candidate) =>
+            candidate.id === customerId
+        )
+      : undefined) ??
+    customerAccounts.find(
+      (candidate) =>
+        normalizePlayerName(candidate.customerName) ===
+        normalizePlayerName(name)
     );
   const openBillTotal = activeSessionAccounts.reduce(
     (total, account) => total + account.grandTotal,
@@ -473,8 +566,14 @@ function TableInfo({
       );
 
     return {
-      games: owner?.payableGames ?? 0,
-      advanceGames: owner?.advanceGames ?? 0,
+      games:
+        getExistingBillGameCount(
+          getPlayerAccount(name, customerId),
+          session.id
+        ) + (owner?.payableGames ?? 0),
+      advanceGames:
+        Math.max(0, getStoredAdvanceGames(name, customerId)) +
+        (owner?.advanceGames ?? 0),
     };
   };
   const playerGameCounters: PlayerGameCounter[] =
@@ -770,7 +869,7 @@ function TableInfo({
             {formatAppTime(session.startTime, timeFormat)}
           </p>
           <p className="text-sm capitalize text-slate-500">
-            {getGameCountLabel() ?? session.sessionType}
+            {currentGameLabel}
           </p>
         </div>
 
@@ -947,7 +1046,7 @@ function TableInfo({
           key={totalGames}
           className="motion-value-change mt-1 font-semibold text-slate-950"
         >
-          {getGameCountLabel() ?? session.sessionType}
+          {currentGameLabel}
         </p>
       </div>
 

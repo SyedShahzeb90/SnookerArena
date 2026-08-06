@@ -107,6 +107,7 @@ export interface Session {
   player4CustomerId?: string;
 
   extraPlayers?: string[];
+  extraPlayerCustomerIds?: string[];
 
   teamAPlayers?: string[];
 

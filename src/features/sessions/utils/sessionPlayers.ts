@@ -21,7 +21,9 @@ export function getSessionPlayerEntries(session: Session) {
       ...(session.extraPlayers ?? []).map((name, index) => ({
         slot: `extra-${index}` as const,
         name: name.trim(),
-        customerId: undefined,
+        customerId:
+          session.extraPlayerCustomerIds?.[index] ||
+          undefined,
       })),
     ].filter((player) => player.name);
   }

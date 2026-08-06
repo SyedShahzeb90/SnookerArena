@@ -84,7 +84,7 @@ function CanteenProfitReportPage() {
     <PageShell>
       <div className="space-y-5">
         <header>
-          <Button variant="ghost" className="mb-3 gap-2" onClick={() => navigate("/admin")}><ArrowLeft className="h-4 w-4" /> Admin</Button>
+          <Button variant="ghost" className="mb-3 gap-2" onClick={() => navigate("/admin")}><ArrowLeft className="h-4 w-4" /> Back to Admin Dashboard</Button>
           <div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-lg border bg-white"><BarChart3 className="h-5 w-5" /></div><div><h1 className="text-2xl font-bold text-slate-950">Cafe Sales Report</h1><p className="text-sm text-slate-500">Estimate cafe gross profit from sales and vendor restocking costs.</p></div></div>
         </header>
 

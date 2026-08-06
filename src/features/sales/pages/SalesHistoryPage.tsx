@@ -27,6 +27,15 @@ import {
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { useBusinessDayStore } from "@/features/business-day/store/businessDayStore";
+import { useCreditLedgerStore } from "@/features/credit-ledger/store/creditLedgerStore";
+import { useTableHistoryStore } from "@/features/table-history/store/tableHistoryStore";
+import type { CustomerAccount } from "@/features/customers/types/customerAccount";
+import {
+  formatDuplicateParticipantLabel,
+  getHistoryChargeParticipantDisplayLabel,
+  getHistoryParticipants,
+  getStableParticipantDisplayLabel,
+} from "@/features/customers/utils/participantDisplay";
 import {
   formatAppDateTime,
   formatAppTime,
@@ -54,7 +63,17 @@ const paymentLabels: Record<PaymentMethod, string> = {
 type SortOrder = "newest" | "oldest";
 type DateFilter = "all" | ReportRange;
 type PaymentFilter = "all" | PaymentMethod | "split";
-type StatusFilter = "all" | "paid";
+type SalesHistoryStatus =
+  | "paid"
+  | "pending"
+  | "credit"
+  | "cancelled"
+  | "refunded"
+  | "complimentary";
+type StatusFilter = "all" | SalesHistoryStatus;
+type InvoiceTypeFilter = "all" | "table" | "cafe" | "accessories" | "mixed";
+
+const allOperatorsValue = "__all__";
 
 function formatCurrency(value: number) {
   return `Rs. ${Math.round(value).toLocaleString()}`;
@@ -79,7 +98,15 @@ function getCustomerLabel(sale: Sale) {
     sale.payerName ||
     sale.players[0]?.name ||
     sale.invoiceNumber;
-  return cleanDisplayName(preferred) || "Walk-in Customer";
+  const cleanName =
+    cleanDisplayName(preferred) || "Walk-in Customer";
+
+  return getStableParticipantDisplayLabel({
+    name: cleanName,
+    customerId: sale.customerAccountId,
+    sessionId: sale.sessionId,
+    historyRecords: useTableHistoryStore.getState().records,
+  });
 }
 
 function getLocationLabel(sale: Sale) {
@@ -129,6 +156,15 @@ function getFullPaymentLabel(sale: Sale) {
     .join(" + ");
 }
 
+function getOperatorLabel(sale: Sale) {
+  return (
+    sale.paymentReceivedBy?.operatorName ??
+    sale.operatorAudit?.find((event) => event.action === "payment_received")
+      ?.operator.operatorName ??
+    "Not recorded"
+  );
+}
+
 function getSaleTimestamp(sale: Sale) {
   return sale.paidAt || sale.createdAt;
 }
@@ -145,6 +181,34 @@ function getSaleTypeLabel(sale: Sale) {
   return "Single Game";
 }
 
+function getInvoiceType(sale: Sale): Exclude<InvoiceTypeFilter, "all"> {
+  const hasTable = sale.tableAmount > 0;
+  const hasCafe = getCanteenAmount(sale) > 0;
+  const hasAccessories = getAccessoryAmount(sale) > 0;
+  const sectionCount = [hasTable, hasCafe, hasAccessories].filter(Boolean).length;
+
+  if (sectionCount > 1) return "mixed";
+  if (hasAccessories || sale.saleType === "accessories") return "accessories";
+  if (
+    hasCafe ||
+    sale.saleType === "cafe-only" ||
+    sale.saleType === "cafe_only"
+  ) {
+    return "cafe";
+  }
+  return "table";
+}
+
+function getInvoiceTypeLabel(sale: Sale) {
+  const labels: Record<Exclude<InvoiceTypeFilter, "all">, string> = {
+    table: "🎱 Table",
+    cafe: "☕ Cafe",
+    accessories: "🛍 Accessories",
+    mixed: "🔀 Mixed",
+  };
+  return labels[getInvoiceType(sale)];
+}
+
 function getAccessoryAmount(sale: Sale) {
   const amount = sale.orderedItems
     .filter((item) => item.name.startsWith("[Accessory]"))
@@ -159,7 +223,86 @@ function getCanteenAmount(sale: Sale) {
   return sale.saleType === "accessories" ? 0 : sale.cafeAmount;
 }
 
+function getSessionDurationLabel(sale: Sale) {
+  if (sale.tableAmount <= 0) return "-";
+  if (sale.startedAt && sale.endedAt) {
+    return formatChargeDuration(sale.startedAt, sale.endedAt);
+  }
+  return `${sale.durationMinutes ?? 0} min`;
+}
+
+function getPaymentBadgeClass(method: PaymentMethod | "split") {
+  if (method === "cash") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300";
+  }
+  if (method === "card") {
+    return "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300";
+  }
+  if (method === "easypaisa") {
+    return "border-teal-200 bg-teal-50 text-teal-700 dark:border-teal-800 dark:bg-teal-950/40 dark:text-teal-300";
+  }
+  if (method === "jazzcash") {
+    return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300";
+  }
+  return "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-300";
+}
+
+function getPaymentMethodIcon(method: PaymentMethod) {
+  if (method === "cash") return "💵";
+  if (method === "card") return "💳";
+  return "📱";
+}
+
+function getPaymentBadgeMethod(sale: Sale): PaymentMethod | "split" {
+  return sale.paymentSplits?.length ? "split" : sale.paymentMethod;
+}
+
+function getPaymentBadgeLabel(sale: Sale) {
+  if (!sale.paymentSplits?.length) {
+    return `${getPaymentMethodIcon(sale.paymentMethod)} ${
+      paymentLabels[sale.paymentMethod]
+    }`;
+  }
+
+  return sale.paymentSplits
+    .map((split) => `${getPaymentMethodIcon(split.method)} ${paymentLabels[split.method]}`)
+    .join(" + ");
+}
+
+function getSaleStatus(sale: Sale): SalesHistoryStatus {
+  return (sale.paymentStatus as SalesHistoryStatus) ?? "paid";
+}
+
+function getStatusBadgeClass(status: SalesHistoryStatus) {
+  if (status === "paid") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300";
+  }
+  if (status === "pending") {
+    return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300";
+  }
+  if (status === "credit") {
+    return "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300";
+  }
+  if (status === "cancelled" || status === "refunded") {
+    return "border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300";
+  }
+  return "border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300";
+}
+
 function getVisiblePlayers(sale: Sale) {
+  const historyRecord = useTableHistoryStore
+    .getState()
+    .records.find((record) => record.sessionId === sale.sessionId);
+
+  if (historyRecord) {
+    const participants = getHistoryParticipants(historyRecord);
+    if (participants.length) {
+      return participants.map((participant) =>
+        formatDuplicateParticipantLabel(participant, participants)
+      );
+    }
+  }
+
   return Array.from(
     new Set(
       [
@@ -172,6 +315,38 @@ function getVisiblePlayers(sale: Sale) {
         .filter(Boolean)
     )
   );
+}
+
+function getSettlementParticipantLabel(
+  sale: Sale,
+  role: "winner" | "loser" | "payer"
+) {
+  const historyRecords = useTableHistoryStore.getState().records;
+  const historyRecord = historyRecords.find(
+    (record) => record.sessionId === sale.sessionId
+  );
+  const name =
+    role === "winner"
+      ? sale.winnerName
+      : role === "loser"
+        ? sale.loserName
+        : sale.payerName;
+  const customerId =
+    role === "winner"
+      ? historyRecord?.winnerCustomerId
+      : role === "loser"
+        ? historyRecord?.loserCustomerId
+        : historyRecord?.payerCustomerId;
+  const cleanName = cleanDisplayName(name);
+
+  if (!cleanName) return "—";
+
+  return getStableParticipantDisplayLabel({
+    name: cleanName,
+    customerId,
+    sessionId: sale.sessionId,
+    historyRecords,
+  });
 }
 
 function MetricCard({
@@ -205,6 +380,9 @@ function SalesHistoryPage() {
   const navigate = useNavigate();
   const sales = useSalesStore((state) => state.sales);
   const deleteSale = useSalesStore((state) => state.deleteSale);
+  const addCreditFromCustomerBill = useCreditLedgerStore(
+    (state) => state.addCreditFromCustomerBill
+  );
   const businessDays = useBusinessDayStore((state) => state.days);
 
   const [search, setSearch] = useState("");
@@ -215,6 +393,9 @@ function SalesHistoryPage() {
   const [paymentFilter, setPaymentFilter] =
     useState<PaymentFilter>("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [operatorFilter, setOperatorFilter] = useState(allOperatorsValue);
+  const [invoiceTypeFilter, setInvoiceTypeFilter] =
+    useState<InvoiceTypeFilter>("all");
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
 
   const businessDayById = useMemo(
@@ -226,6 +407,14 @@ function SalesHistoryPage() {
     const day = businessDayId ? businessDayById.get(businessDayId) : undefined;
     return day ? `${day.dayName} · ${day.openedBy}` : "No Business Day";
   };
+
+  const operatorOptions = useMemo(
+    () =>
+      Array.from(new Set(sales.map(getOperatorLabel))).sort((a, b) =>
+        a.localeCompare(b)
+      ),
+    [sales]
+  );
 
   const dateFilteredSales = useMemo(() => {
     if (dateFilter === "all") return sales;
@@ -258,6 +447,18 @@ function SalesHistoryPage() {
         ) {
           return false;
         }
+        if (
+          operatorFilter !== allOperatorsValue &&
+          getOperatorLabel(sale) !== operatorFilter
+        ) {
+          return false;
+        }
+        if (
+          invoiceTypeFilter !== "all" &&
+          getInvoiceType(sale) !== invoiceTypeFilter
+        ) {
+          return false;
+        }
         if (!query) return true;
 
         const searchValues = [
@@ -272,7 +473,9 @@ function SalesHistoryPage() {
           sale.loserName,
           sale.settlementLabel,
           getSaleTypeLabel(sale),
+          getInvoiceTypeLabel(sale),
           getCompactPaymentLabel(sale),
+          getOperatorLabel(sale),
           getBusinessDayLabel(sale.activeBusinessDayId),
           ...sale.players.map((player) => player.name),
           ...(sale.teamAPlayers ?? []),
@@ -295,21 +498,26 @@ function SalesHistoryPage() {
     sortOrder,
     paymentFilter,
     statusFilter,
+    operatorFilter,
+    invoiceTypeFilter,
     businessDayById,
   ]);
 
-  const todayTotals = calculateSalesTotals(
-    filterSalesByRange(sales, "today")
+  const filteredTotals = useMemo(
+    () => calculateSalesTotals(filteredSales),
+    [filteredSales]
   );
-  const monthTotals = calculateSalesTotals(
-    filterSalesByRange(sales, "this-month")
+  const paymentTotals = useMemo(
+    () => calculatePaymentTotals(filteredSales),
+    [filteredSales]
   );
-  const paymentTotals = calculatePaymentTotals(filteredSales);
   const hasActiveFilters =
     Boolean(search) ||
     dateFilter !== "all" ||
     paymentFilter !== "all" ||
-    statusFilter !== "all";
+    statusFilter !== "all" ||
+    operatorFilter !== allOperatorsValue ||
+    invoiceTypeFilter !== "all";
 
   const clearFilters = () => {
     setSearch("");
@@ -318,6 +526,8 @@ function SalesHistoryPage() {
     setCustomEnd("");
     setPaymentFilter("all");
     setStatusFilter("all");
+    setOperatorFilter(allOperatorsValue);
+    setInvoiceTypeFilter("all");
   };
 
   const handleDeleteSale = (sale: Sale) => {
@@ -325,6 +535,59 @@ function SalesHistoryPage() {
       `Delete sale ${sale.invoiceNumber}? This is for removing mistaken test bills.`
     );
     if (!confirmed) return;
+    deleteSale(sale.id);
+    if (selectedSale?.id === sale.id) setSelectedSale(null);
+  };
+
+  const handleMoveSaleToCredit = (sale: Sale) => {
+    const confirmed = window.confirm(
+      `Move ${sale.invoiceNumber} for ${getCustomerLabel(sale)} (${formatCurrency(sale.grandTotal)}) to Credit Ledger? This removes it from paid sales.`
+    );
+    if (!confirmed) return;
+
+    const now = new Date().toISOString();
+    const creditAccount: CustomerAccount = {
+      id: sale.customerAccountId ?? `SALE-CREDIT-${sale.id}`,
+      customerToken: sale.customerToken ?? sale.invoiceNumber,
+      staffBillNumber: sale.staffBillNumber,
+      customerName: getCustomerLabel(sale),
+      customerNote: sale.customerNote,
+      status: "active",
+      openedAt: sale.startedAt ?? sale.createdAt,
+      createdAt: sale.createdAt,
+      updatedAt: now,
+      gameCharges: sale.gameCharges ?? [],
+      cafeCharges: sale.cafeCharges ?? [],
+      accessoryCharges: [],
+      totalGameAmount: sale.tableAmount,
+      totalCafeAmount: getCanteenAmount(sale),
+      totalAccessoryAmount: getAccessoryAmount(sale),
+      discount: sale.discount,
+      grandTotal: sale.grandTotal,
+      paymentStatus: "unpaid",
+      activeBusinessDayId: sale.activeBusinessDayId,
+      lastTableName: sale.tableName,
+      lastActivityAt: sale.endedAt ?? sale.createdAt,
+    };
+
+    const entry = addCreditFromCustomerBill({
+      account: creditAccount,
+      originalBillNumber: sale.staffBillNumber ?? sale.invoiceNumber,
+      tableName: sale.tableName,
+      tableTotal: sale.tableAmount,
+      cafeTotal: getCanteenAmount(sale),
+      accessoryTotal: getAccessoryAmount(sale),
+      discount: sale.discount,
+      finalAmount: sale.grandTotal,
+      creditNote: `Moved from paid sale ${sale.invoiceNumber}`,
+      businessDayId: sale.activeBusinessDayId,
+    });
+
+    if (!entry) {
+      window.alert("This sale is already in the Credit Ledger.");
+      return;
+    }
+
     deleteSale(sale.id);
     if (selectedSale?.id === sale.id) setSelectedSale(null);
   };
@@ -338,7 +601,7 @@ function SalesHistoryPage() {
           onClick={() => navigate("/admin")}
         >
           <ArrowLeft className="h-4 w-4" />
-          Dashboard
+          Back to Admin Dashboard
         </Button>
 
         <div className="mb-5">
@@ -350,45 +613,29 @@ function SalesHistoryPage() {
           </p>
         </div>
 
-        <section className="mb-4">
-          <p className="mb-2 text-xs font-semibold uppercase text-slate-500">
-            Business metrics
-          </p>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <MetricCard
-              label="Today Revenue"
-              value={formatCurrency(todayTotals.revenue)}
-            />
-            <MetricCard
-              label="This Month Revenue"
-              value={formatCurrency(monthTotals.revenue)}
-            />
-            <MetricCard
-              label="This Month Sales"
-              value={monthTotals.salesCount.toLocaleString()}
-            />
-            <MetricCard
-              label="Average Sale"
-              value={formatCurrency(monthTotals.averageSale)}
-            />
-          </div>
-        </section>
-
         <section className="mb-5">
           <p className="mb-2 text-xs font-semibold uppercase text-slate-500">
-            Payment methods in current view
+            Summary in current view
           </p>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <MetricCard label="Cash" value={formatCurrency(paymentTotals.cash)} />
-            <MetricCard label="Card" value={formatCurrency(paymentTotals.card)} />
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
             <MetricCard
-              label="JazzCash"
-              value={formatCurrency(paymentTotals.jazzcash)}
+              label="Invoices"
+              value={filteredTotals.salesCount.toLocaleString()}
             />
+            <MetricCard
+              label="Total Revenue"
+              value={formatCurrency(filteredTotals.revenue)}
+            />
+            <MetricCard label="Cash" value={formatCurrency(paymentTotals.cash)} />
             <MetricCard
               label="Easypaisa"
               value={formatCurrency(paymentTotals.easypaisa)}
             />
+            <MetricCard
+              label="JazzCash"
+              value={formatCurrency(paymentTotals.jazzcash)}
+            />
+            <MetricCard label="Card" value={formatCurrency(paymentTotals.card)} />
           </div>
         </section>
 
@@ -397,7 +644,7 @@ function SalesHistoryPage() {
             <div className="flex items-center gap-3">
               <Search className="h-4 w-4 shrink-0 text-slate-400" />
               <Input
-                placeholder="Search invoice, customer, player, table, item, operator..."
+                placeholder="Search invoice #, customer, operator, table or item..."
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
               />
@@ -474,6 +721,44 @@ function SalesHistoryPage() {
                 >
                   <option value="all">All Statuses</option>
                   <option value="paid">Paid</option>
+                  <option value="pending">Pending</option>
+                  <option value="credit">Credit</option>
+                  <option value="cancelled">Cancelled</option>
+                  <option value="refunded">Refunded</option>
+                  <option value="complimentary">Complimentary</option>
+                </select>
+              </label>
+
+              <label className="grid gap-1 text-xs font-medium text-slate-500">
+                Operator
+                <select
+                  className="h-9 rounded-md border bg-background px-3 text-sm text-foreground"
+                  value={operatorFilter}
+                  onChange={(event) => setOperatorFilter(event.target.value)}
+                >
+                  <option value={allOperatorsValue}>All Operators</option>
+                  {operatorOptions.map((operator) => (
+                    <option key={operator} value={operator}>
+                      {operator}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="grid gap-1 text-xs font-medium text-slate-500">
+                Invoice Type
+                <select
+                  className="h-9 rounded-md border bg-background px-3 text-sm text-foreground"
+                  value={invoiceTypeFilter}
+                  onChange={(event) =>
+                    setInvoiceTypeFilter(event.target.value as InvoiceTypeFilter)
+                  }
+                >
+                  <option value="all">All Types</option>
+                  <option value="table">Table</option>
+                  <option value="cafe">Cafe</option>
+                  <option value="accessories">Accessories</option>
+                  <option value="mixed">Mixed</option>
                 </select>
               </label>
 
@@ -502,25 +787,35 @@ function SalesHistoryPage() {
             </div>
           </div>
 
+          <div className="border-b bg-slate-50 px-4 py-2 text-sm font-medium text-slate-600 dark:bg-slate-900 dark:text-slate-300">
+            Showing {filteredSales.length.toLocaleString()}
+            {filteredSales.length === sales.length
+              ? ""
+              : ` of ${sales.length.toLocaleString()}`}{" "}
+            invoices
+          </div>
+
           {filteredSales.length > 0 ? (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[880px] table-fixed text-left text-sm">
+              <table className="w-full min-w-[980px] table-fixed text-left text-sm">
                 <colgroup>
-                  <col className="w-[16%]" />
-                  <col className="w-[9%]" />
-                  <col className="w-[20%]" />
+                  <col className="w-[8%]" />
                   <col className="w-[14%]" />
-                  <col className="w-[11%]" />
-                  <col className="w-[9%]" />
+                  <col className="w-[16%]" />
+                  <col className="w-[13%]" />
                   <col className="w-[10%]" />
-                  <col className="w-[11%]" />
+                  <col className="w-[10%]" />
+                  <col className="w-[12%]" />
+                  <col className="w-[8%]" />
+                  <col className="w-[9%]" />
                 </colgroup>
                 <thead className="sticky top-0 z-10 bg-slate-50 text-xs uppercase text-slate-500 dark:bg-slate-900 dark:text-slate-400">
                   <tr>
-                    <th className="px-3 py-3">Invoice</th>
                     <th className="px-3 py-3">Time</th>
-                    <th className="px-3 py-3">Customer</th>
                     <th className="px-3 py-3">Table / Room</th>
+                    <th className="px-3 py-3">Customer</th>
+                    <th className="px-3 py-3">Operator</th>
+                    <th className="px-3 py-3">Type</th>
                     <th className="px-3 py-3 text-right">Total</th>
                     <th className="px-3 py-3">Payment</th>
                     <th className="px-3 py-3">Status</th>
@@ -545,16 +840,16 @@ function SalesHistoryPage() {
                         }}
                       >
                         <td
-                          className="truncate px-3 py-3 font-mono font-semibold"
-                          title={sale.invoiceNumber}
-                        >
-                          {sale.invoiceNumber}
-                        </td>
-                        <td
                           className="whitespace-nowrap px-3 py-3"
                           title={formatAppDateTime(timestamp)}
                         >
                           {formatAppTime(timestamp)}
+                        </td>
+                        <td
+                          className="truncate px-3 py-3 font-bold text-slate-950 dark:text-slate-100"
+                          title={getLocationLabel(sale)}
+                        >
+                          {getLocationLabel(sale)}
                         </td>
                         <td className="px-3 py-3">
                           <div className="truncate font-semibold" title={customer}>
@@ -570,10 +865,15 @@ function SalesHistoryPage() {
                           )}
                         </td>
                         <td
-                          className="truncate px-3 py-3 text-slate-600 dark:text-slate-300"
-                          title={getLocationLabel(sale)}
+                          className="truncate px-3 py-3"
+                          title={getOperatorLabel(sale)}
                         >
-                          {getLocationLabel(sale)}
+                          {getOperatorLabel(sale)}
+                        </td>
+                        <td className="px-3 py-3">
+                          <Badge variant="outline">
+                            {getInvoiceTypeLabel(sale)}
+                          </Badge>
                         </td>
                         <td className="whitespace-nowrap px-3 py-3 text-right font-bold">
                           {formatCurrency(sale.grandTotal)}
@@ -582,11 +882,13 @@ function SalesHistoryPage() {
                           className="truncate px-3 py-3"
                           title={getFullPaymentLabel(sale)}
                         >
-                          {getCompactPaymentLabel(sale)}
+                          <Badge className={getPaymentBadgeClass(getPaymentBadgeMethod(sale))}>
+                            {getPaymentBadgeLabel(sale)}
+                          </Badge>
                         </td>
                         <td className="px-3 py-3">
-                          <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
-                            Paid
+                          <Badge className={getStatusBadgeClass(getSaleStatus(sale))}>
+                            {getSaleStatus(sale)}
                           </Badge>
                         </td>
                         <td className="px-3 py-3 text-right">
@@ -645,8 +947,8 @@ function SalesHistoryPage() {
                 <DialogTitle className="text-lg">
                   Transaction {selectedSale.invoiceNumber}
                 </DialogTitle>
-                <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
-                  Paid
+                <Badge className={getStatusBadgeClass(getSaleStatus(selectedSale))}>
+                  {getSaleStatus(selectedSale)}
                 </Badge>
               </div>
               <DialogDescription>
@@ -658,15 +960,33 @@ function SalesHistoryPage() {
             <div className="min-h-0 space-y-4 overflow-y-auto pr-1">
               <section className="grid gap-3 rounded-lg border bg-slate-50 p-4 dark:bg-slate-900 sm:grid-cols-2 lg:grid-cols-4">
                 <div>
+                  <p className="text-xs uppercase text-slate-500">Invoice Number</p>
+                  <p className="mt-1 font-semibold">
+                    {selectedSale.invoiceNumber}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase text-slate-500">Created At</p>
+                  <p className="mt-1 font-semibold">
+                    {formatAppDateTime(selectedSale.createdAt)}
+                  </p>
+                </div>
+                <div>
                   <p className="text-xs uppercase text-slate-500">Customer</p>
                   <p className="mt-1 font-semibold">
                     {getCustomerLabel(selectedSale)}
                   </p>
                 </div>
                 <div>
+                  <p className="text-xs uppercase text-slate-500">Table</p>
+                  <p className="mt-1 font-semibold">
+                    {getLocationLabel(selectedSale)}
+                  </p>
+                </div>
+                <div>
                   <p className="text-xs uppercase text-slate-500">Type</p>
                   <p className="mt-1 font-semibold">
-                    {getSaleTypeLabel(selectedSale)}
+                    {getInvoiceTypeLabel(selectedSale)}
                   </p>
                 </div>
                 <div>
@@ -677,11 +997,10 @@ function SalesHistoryPage() {
                 </div>
                 <div>
                   <p className="text-xs uppercase text-slate-500">
-                    Payment collected by
+                    Operator
                   </p>
                   <p className="mt-1 font-semibold">
-                    {selectedSale.paymentReceivedBy?.operatorName ??
-                      "Not recorded (legacy)"}
+                    {getOperatorLabel(selectedSale)}
                   </p>
                 </div>
                 <div>
@@ -703,13 +1022,19 @@ function SalesHistoryPage() {
                 <div>
                   <p className="text-xs uppercase text-slate-500">Duration</p>
                   <p className="mt-1 font-semibold">
-                    {selectedSale.durationMinutes} min
+                    {getSessionDurationLabel(selectedSale)}
                   </p>
                 </div>
                 <div>
                   <p className="text-xs uppercase text-slate-500">Payment</p>
                   <p className="mt-1 font-semibold">
                     {getFullPaymentLabel(selectedSale)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase text-slate-500">Status</p>
+                  <p className="mt-1 font-semibold capitalize">
+                    {selectedSale.paymentStatus}
                   </p>
                 </div>
               </section>
@@ -767,15 +1092,15 @@ function SalesHistoryPage() {
                     <div className="rounded-lg border p-3 text-sm">
                       <p>
                         <span className="text-slate-500">Winner:</span>{" "}
-                        {cleanDisplayName(selectedSale.winnerName) || "—"}
+                        {getSettlementParticipantLabel(selectedSale, "winner")}
                       </p>
                       <p>
                         <span className="text-slate-500">Loser:</span>{" "}
-                        {cleanDisplayName(selectedSale.loserName) || "—"}
+                        {getSettlementParticipantLabel(selectedSale, "loser")}
                       </p>
                       <p>
                         <span className="text-slate-500">Payer:</span>{" "}
-                        {cleanDisplayName(selectedSale.payerName) || "—"}
+                        {getSettlementParticipantLabel(selectedSale, "payer")}
                       </p>
                     </div>
                   </div>
@@ -826,8 +1151,20 @@ function SalesHistoryPage() {
                             {(line.winnerName || line.loserName) && (
                               <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
                                 Winner:{" "}
-                                {cleanDisplayName(line.winnerName) || "—"} ·
-                                Loser: {cleanDisplayName(line.loserName) || "—"}
+                                {getHistoryChargeParticipantDisplayLabel({
+                                  name: cleanDisplayName(line.winnerName),
+                                  role: "winner",
+                                  chargeId: line.id,
+                                  sessionId: line.sessionId,
+                                  historyRecords: useTableHistoryStore.getState().records,
+                                }) || "—"} ·
+                                Loser: {getHistoryChargeParticipantDisplayLabel({
+                                  name: cleanDisplayName(line.loserName),
+                                  role: "loser",
+                                  chargeId: line.id,
+                                  sessionId: line.sessionId,
+                                  historyRecords: useTableHistoryStore.getState().records,
+                                }) || "—"}
                               </p>
                             )}
                           </div>
@@ -887,6 +1224,10 @@ function SalesHistoryPage() {
                     <strong>{formatCurrency(selectedSale.discount)}</strong>
                   </div>
                   <div className="flex justify-between gap-3">
+                    <span>Taxes</span>
+                    <strong>{formatCurrency(0)}</strong>
+                  </div>
+                  <div className="flex justify-between gap-3">
                     <span>Advance games applied</span>
                     <strong>{selectedSale.advanceGamesApplied ?? 0}</strong>
                   </div>
@@ -895,6 +1236,14 @@ function SalesHistoryPage() {
                     <strong>
                       {formatCurrency(selectedSale.advanceReduction ?? 0)}
                     </strong>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <span>Amount received</span>
+                    <strong>{formatCurrency(selectedSale.grandTotal)}</strong>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <span>Change returned</span>
+                    <strong>{formatCurrency(0)}</strong>
                   </div>
                 </div>
                 <div className="mt-3 flex items-center justify-between border-t pt-3 text-lg">
@@ -912,15 +1261,35 @@ function SalesHistoryPage() {
             </div>
 
             <DialogFooter className="items-center sm:justify-between">
-              <Button
-                type="button"
-                variant="outline"
-                className="gap-2 border-red-200 text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30"
-                onClick={() => handleDeleteSale(selectedSale)}
-              >
-                <Trash2 className="h-4 w-4" />
-                Delete Transaction
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="gap-2"
+                  onClick={() => window.print()}
+                >
+                  <ReceiptText className="h-4 w-4" />
+                  Print Invoice
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="gap-2 border-amber-200 text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/30"
+                  onClick={() => handleMoveSaleToCredit(selectedSale)}
+                >
+                  <CreditCard className="h-4 w-4" />
+                  Move to Credit
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="gap-2 border-red-200 text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30"
+                  onClick={() => handleDeleteSale(selectedSale)}
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Delete Transaction
+                </Button>
+              </div>
               <div className="flex flex-wrap gap-2 text-xs text-slate-500">
                 <span className="inline-flex items-center gap-1">
                   <CalendarDays className="h-3.5 w-3.5" />

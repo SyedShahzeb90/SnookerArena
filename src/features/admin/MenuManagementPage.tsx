@@ -331,7 +331,7 @@ function MenuManagementPage() {
               onClick={() => navigate("/admin")}
             >
               <ArrowLeft className="h-4 w-4" />
-              Admin
+              Back to Admin Dashboard
             </Button>
             <h1 className="text-2xl font-bold text-slate-950">
               Menu Management

@@ -224,7 +224,8 @@ interface CafeStore {
   ) => number;
 
   getTableOrderItems: (
-    tableId: number
+    tableId: number,
+    sessionId?: string
   ) => OrderItem[];
 
   getSavedOrderForTable: (
@@ -857,11 +858,13 @@ export const useCafeStore =
           0
         ),
 
-    getTableOrderItems: (tableId) =>
+    getTableOrderItems: (tableId, sessionId) =>
       get()
         .playerOrders.filter(
           (order) =>
-            order.tableId === tableId
+            order.tableId === tableId &&
+            (!sessionId ||
+              order.sessionId === sessionId)
         )
         .flatMap(
           (order) => order.orderItems

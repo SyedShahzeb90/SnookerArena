@@ -19,6 +19,7 @@ import { useSalesStore } from "@/features/sales/store/salesStore";
 import { useOutsidePurchaseStore } from "@/features/outside-purchases/store/outsidePurchaseStore";
 import { useCafeStore } from "@/features/cafe/store/cafeStore";
 import { useClubSettingsStore } from "@/features/settings/store/clubSettingsStore";
+import { useStaffPayrollStore } from "@/features/staff-payroll/store/staffPayrollStore";
 import { formatAppDateTime, useAppDateTimeFormats } from "@/lib/dateTime";
 
 import { useBusinessDayStore } from "../store/businessDayStore";
@@ -65,6 +66,8 @@ function BusinessDayCard() {
     (state) => state.purchases
   );
   const vendorRestockingRecords = useCafeStore((state) => state.vendorRestockingRecords);
+  const salaryAdvances = useStaffPayrollStore((state) => state.salaryAdvances);
+  const salaryPayments = useStaffPayrollStore((state) => state.salaryPayments);
   const operators = useClubSettingsStore(
     (state) => state.settings.operators
   );
@@ -83,9 +86,11 @@ function BusinessDayCard() {
             pendingBills,
             outsidePurchases,
             vendorRestockingRecords,
+            salaryAdvances,
+            salaryPayments,
           })
         : undefined,
-    [activeDay, sales, expenses, pendingBills, outsidePurchases, vendorRestockingRecords]
+    [activeDay, sales, expenses, pendingBills, outsidePurchases, vendorRestockingRecords, salaryAdvances, salaryPayments]
   );
 
   const [startOpen, setStartOpen] =
@@ -401,7 +406,12 @@ function BusinessDayCard() {
                 </p>
               </button>
 
-              <div className="flex h-[144px] flex-col rounded-lg border border-red-100 bg-red-50/40 p-3.5 dark:!border-red-800 dark:!bg-red-950/55">
+              <button
+                type="button"
+                className="flex h-[144px] cursor-pointer flex-col rounded-lg border border-red-100 bg-red-50/40 p-3.5 text-left transition hover:border-red-300 hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 dark:!border-red-800 dark:!bg-red-950/55"
+                onClick={() => navigate("/operator/expenses")}
+                aria-label="Open expenses"
+              >
                 <p className="text-xs font-semibold text-slate-500">
                   Expenses
                 </p>
@@ -419,7 +429,7 @@ function BusinessDayCard() {
                     </p>
                   )}
                 </div>
-              </div>
+              </button>
             </div>
           </div>
         )}
@@ -705,6 +715,8 @@ export function CashPositionSummaryCard() {
   const vendorRestockingRecords = useCafeStore(
     (state) => state.vendorRestockingRecords
   );
+  const salaryAdvances = useStaffPayrollStore((state) => state.salaryAdvances);
+  const salaryPayments = useStaffPayrollStore((state) => state.salaryPayments);
   const summary = useMemo(
     () =>
       activeDay
@@ -715,6 +727,8 @@ export function CashPositionSummaryCard() {
             pendingBills,
             outsidePurchases,
             vendorRestockingRecords,
+            salaryAdvances,
+            salaryPayments,
           })
         : undefined,
     [
@@ -723,6 +737,8 @@ export function CashPositionSummaryCard() {
       outsidePurchases,
       pendingBills,
       sales,
+      salaryAdvances,
+      salaryPayments,
       vendorRestockingRecords,
     ]
   );

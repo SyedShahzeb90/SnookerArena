@@ -117,6 +117,17 @@ function StartSessionDialog({
                     data.player4Mode
                   )
                 : undefined;
+            const extraPlayerCustomerIds =
+              data.extraPlayers.map(
+                (name, index) =>
+                  resolveSessionCustomerId(
+                    name,
+                    data.extraPlayerCustomerIds[
+                      index
+                    ],
+                    data.extraPlayerModes[index]
+                  )
+              );
 
             startSession({
               tableId: table.id,
@@ -129,6 +140,7 @@ function StartSessionDialog({
               player4: data.player4,
               player4CustomerId,
               extraPlayers: data.extraPlayers,
+              extraPlayerCustomerIds,
               teamAOneNameEnough:
                 data.teamAOneNameEnough,
               teamBOneNameEnough:

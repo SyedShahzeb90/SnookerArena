@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { ProgressIndicator } from "@/components/ui/progress-indicator";
 import { useCafeStore } from "@/features/cafe/store/cafeStore";
+import { getCollectPaymentPendingCount } from "@/features/billing/utils/collectPaymentSummary";
+import { useCustomerAccountStore } from "@/features/customers/store/customerAccountStore";
 import { useSalesStore } from "@/features/sales/store/salesStore";
 import { calculatePaymentTotals } from "@/features/sales/utils/salesReports";
 import { useTableStore } from "@/store/tableStore";
@@ -23,6 +25,7 @@ function isToday(value?: string) {
 
 function useDashboardStats() {
   const tables = useTableStore((state) => state.tables);
+  const customerAccounts = useCustomerAccountStore((state) => state.accounts);
   const sales = useSalesStore((state) => state.sales);
   const menu = useCafeStore((state) => state.menu);
   const total = tables.length;
@@ -31,9 +34,10 @@ function useDashboardStats() {
   const available = tables.filter((table) => table.status === "available").length;
   const running = tables.filter((table) => table.status === "running").length;
   const paused = tables.filter((table) => table.status === "paused").length;
-  const pendingTables = tables.filter(
-    (table) => table.status === "payment-pending",
-  ).length;
+  const pendingBillCount = getCollectPaymentPendingCount(
+    customerAccounts,
+    tables,
+  );
   const occupiedTables = tables.filter(
     (table) =>
       table.status === "running" ||
@@ -74,7 +78,7 @@ function useDashboardStats() {
     available,
     running,
     paused,
-    pendingTables,
+    pendingBillCount,
     occupiedTables,
     trackedProducts,
     healthyProducts,
@@ -135,6 +139,7 @@ export type TableStatusFilter =
 interface TableStatusStatsProps {
   activeFilter: TableStatusFilter;
   onFilterChange: (filter: TableStatusFilter) => void;
+  onPaymentPendingClick: () => void;
 }
 
 type StatusMetric = {
@@ -173,10 +178,12 @@ function StatusMetricButton({
   metric,
   isActive,
   onFilterChange,
+  onAction,
 }: {
   metric: StatusMetric;
   isActive: boolean;
   onFilterChange: (filter: TableStatusFilter) => void;
+  onAction?: () => void;
 }) {
   const animatedValue = useAnimatedNumber(metric.value);
   const hasIncreaseAttention = useIncreaseAttention(
@@ -188,12 +195,16 @@ function StatusMetricButton({
   return (
     <button
       type="button"
-      aria-pressed={isActive}
-      onClick={() =>
+      aria-pressed={onAction ? undefined : isActive}
+      onClick={() => {
+        if (onAction) {
+          onAction();
+          return;
+        }
         onFilterChange(
           isActive && metric.filter !== "all" ? "all" : metric.filter,
-        )
-      }
+        );
+      }}
       className={`min-w-0 px-3 py-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 ${
         isActive
           ? "bg-blue-50 ring-1 ring-inset ring-blue-300 dark:bg-blue-950/40 dark:ring-blue-700"
@@ -228,6 +239,7 @@ function StatusMetricButton({
 export function TableStatusStats({
   activeFilter,
   onFilterChange,
+  onPaymentPendingClick,
 }: TableStatusStatsProps) {
   const {
     total,
@@ -236,7 +248,7 @@ export function TableStatusStats({
     available,
     running,
     paused,
-    pendingTables,
+    pendingBillCount,
     occupiedTables,
   } = useDashboardStats();
 
@@ -269,12 +281,12 @@ export function TableStatusStats({
     {
       filter: "payment-pending" as const,
       label: "Payment Pending",
-      value: pendingTables,
+      value: pendingBillCount,
       valueClassName:
-        pendingTables > 0
+        pendingBillCount > 0
           ? "text-amber-700 dark:text-amber-300"
           : "text-slate-700 dark:text-slate-200",
-      emphasized: pendingTables > 0,
+      emphasized: pendingBillCount > 0,
     },
   ];
 
@@ -289,8 +301,15 @@ export function TableStatusStats({
                 <StatusMetricButton
                   key={metric.label}
                   metric={metric}
-                  isActive={isActive}
+                  isActive={
+                    metric.filter === "payment-pending" ? false : isActive
+                  }
                   onFilterChange={onFilterChange}
+                  onAction={
+                    metric.filter === "payment-pending"
+                      ? onPaymentPendingClick
+                      : undefined
+                  }
                 />
               );
             })}

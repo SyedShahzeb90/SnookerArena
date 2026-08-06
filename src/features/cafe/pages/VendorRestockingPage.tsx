@@ -152,7 +152,7 @@ function VendorRestockingPage() {
     <PageShell>
       <div className="space-y-5">
         <header>
-          <Button variant="ghost" className="mb-3 gap-2" onClick={() => navigate("/admin/menu")}><ArrowLeft className="h-4 w-4" /> Menu Management</Button>
+          <Button variant="ghost" className="mb-3 gap-2" onClick={() => navigate("/admin")}><ArrowLeft className="h-4 w-4" /> Back to Admin Dashboard</Button>
           <div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-lg border bg-white"><PackagePlus className="h-5 w-5" /></div><div><h1 className="text-2xl font-bold text-slate-950">Vendor Restocking</h1><p className="text-sm text-slate-500">Record Cafe inventory received from vendors.</p></div></div>
         </header>
 

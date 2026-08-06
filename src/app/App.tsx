@@ -32,6 +32,7 @@ import CanteenProfitReportPage from "@/features/reports/pages/CanteenProfitRepor
 import RequirePermission from "@/features/admin-mode/RequirePermission";
 import AccessoriesManagementPage from "@/features/accessories/pages/AccessoriesManagementPage";
 import OutsidePurchasesPage from "@/features/outside-purchases/pages/OutsidePurchasesPage";
+import StaffPayrollPage from "@/features/staff-payroll/pages/StaffPayrollPage";
 
 function App() {
   return (
@@ -92,7 +93,7 @@ function App() {
 
           <Route
             path="/operator/expenses"
-            element={<RequirePermission permission="view_management_reports"><ExpensesPage /></RequirePermission>}
+            element={<ExpensesPage />}
           />
 
           <Route
@@ -146,11 +147,6 @@ function App() {
           />
 
           <Route
-            path="/admin/expenses"
-            element={<RequirePermission permission="view_management_reports"><ExpensesPage /></RequirePermission>}
-          />
-
-          <Route
             path="/admin/menu"
             element={<RequirePermission permission="manage_canteen"><MenuManagementPage /></RequirePermission>}
           />
@@ -163,6 +159,11 @@ function App() {
           <Route
             path="/admin/accessories"
             element={<RequirePermission permission="manage_inventory"><AccessoriesManagementPage /></RequirePermission>}
+          />
+
+          <Route
+            path="/admin/staff-payroll"
+            element={<RequirePermission permission="manage_payroll"><StaffPayrollPage /></RequirePermission>}
           />
 
           <Route

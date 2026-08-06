@@ -428,6 +428,28 @@ function TableGrid({
           tableName={selectedTable.name}
           onClose={closeDialog}
           onReceivePayment={handleReceivePayment}
+          onAddCafe={(player) => {
+            const sessionId =
+              selectedTable.session?.id;
+            if (!sessionId) return;
+
+            closeDialog();
+            const params = new URLSearchParams({
+              tableId: String(selectedTable.id),
+              sessionId,
+            });
+
+            if (player.participantKey) {
+              params.set(
+                "participantKey",
+                player.participantKey
+              );
+            }
+
+            navigate(
+              `/operator/cafe?${params.toString()}`
+            );
+          }}
         />
       )}
     </>

@@ -10,6 +10,10 @@ import { calculateGamePrice } from "@/features/pricing/utils/calculateGamePrice"
 import type { Sale } from "@/features/sales/types/sale";
 import type { OutsidePurchase } from "@/features/outside-purchases/types/outsidePurchase";
 import type { VendorRestockingRecord } from "@/features/cafe/store/cafeStore";
+import type {
+  SalaryAdvance,
+  SalaryPayment,
+} from "@/features/staff-payroll/types/payroll";
 
 import type {
   BusinessDay,
@@ -78,6 +82,8 @@ export function calculateBusinessDaySummary({
   pendingBills,
   outsidePurchases = [],
   vendorRestockingRecords = [],
+  salaryAdvances = [],
+  salaryPayments = [],
 }: {
   day: BusinessDay;
   sales: Sale[];
@@ -85,6 +91,8 @@ export function calculateBusinessDaySummary({
   pendingBills: PendingBill[];
   outsidePurchases?: OutsidePurchase[];
   vendorRestockingRecords?: VendorRestockingRecord[];
+  salaryAdvances?: SalaryAdvance[];
+  salaryPayments?: SalaryPayment[];
 }): BusinessDaySummary {
   const daySales = sales.filter(
     (sale) =>
@@ -193,6 +201,32 @@ export function calculateBusinessDaySummary({
       expenseCount: 0,
     }
   );
+  const daySalaryAdvances = salaryAdvances.filter(
+    (advance) => advance.activeBusinessDayId === day.id
+  );
+  const daySalaryPayments = salaryPayments.filter(
+    (payment) => payment.activeBusinessDayId === day.id
+  );
+  const payrollOutflows = [
+    ...daySalaryAdvances.map((advance) => ({
+      amount: advance.amount,
+      paymentMethod: advance.paymentMethod,
+    })),
+    ...daySalaryPayments.map((payment) => ({
+      amount: payment.netSalary,
+      paymentMethod: payment.paymentMethod,
+    })),
+  ];
+  const payrollExpensesTotal = payrollOutflows.reduce(
+    (total, item) => total + item.amount,
+    0
+  );
+  const cashPayrollExpenses = payrollOutflows.reduce(
+    (total, item) =>
+      total +
+      (item.paymentMethod === "cash" ? item.amount : 0),
+    0
+  );
 
   const openPendingBills =
     pendingBills.filter(
@@ -274,6 +308,7 @@ export function calculateBusinessDaySummary({
     salesTotals.cashSales +
     reimbursementTotals.cash -
     expenseTotals.cashExpenses -
+    cashPayrollExpenses -
     outsidePurchasesPaidFromDrawer +
     outsidePurchaseCashRestored -
     cashInventoryPurchases +
@@ -282,8 +317,19 @@ export function calculateBusinessDaySummary({
   return {
     ...salesTotals,
     ...expenseTotals,
-    totalExpenses: expenseTotals.totalExpenses + inventoryPurchasesTotal,
-    expenseCount: expenseTotals.expenseCount + activeInventoryPurchases.length,
+    totalExpenses:
+      expenseTotals.totalExpenses +
+      inventoryPurchasesTotal +
+      payrollExpensesTotal,
+    cashExpenses:
+      expenseTotals.cashExpenses +
+      cashPayrollExpenses,
+    expenseCount:
+      expenseTotals.expenseCount +
+      activeInventoryPurchases.length +
+      payrollOutflows.length,
+    payrollExpensesTotal,
+    cashPayrollExpenses,
     inventoryPurchasesTotal,
     cashInventoryPurchases,
     cashInventoryPurchaseRestored,
@@ -308,6 +354,7 @@ export function calculateBusinessDaySummary({
     netProfit:
       salesTotals.totalSales -
       expenseTotals.totalExpenses -
-      inventoryPurchasesTotal,
+      inventoryPurchasesTotal -
+      payrollExpensesTotal,
   };
 }

@@ -44,6 +44,7 @@ import { useClubSettingsStore } from "@/features/settings/store/clubSettingsStor
 import { useAdminModeStore } from "@/features/admin-mode/adminModeStore";
 import OutsidePurchaseDialog from "@/features/outside-purchases/components/OutsidePurchaseDialog";
 import { useOutsidePurchaseStore } from "@/features/outside-purchases/store/outsidePurchaseStore";
+import type { OutsidePurchase } from "@/features/outside-purchases/types/outsidePurchase";
 import {
   compareChargeTimestamps,
   formatAppDate,
@@ -58,6 +59,7 @@ import {
   getBillTableLabel,
 } from "../utils/billDisplay";
 import { getIndividualGameCharges } from "../utils/individualGameCharges";
+import { getHistoryChargeParticipantDisplayLabel } from "../utils/participantDisplay";
 
 const paymentMethods: {
   value: PaymentMethod;
@@ -358,7 +360,24 @@ function getAccessoryCharges(
   ];
 }
 
-function getBillTotals(account: CustomerAccount) {
+function getOutstandingOutsidePurchases(
+  account: CustomerAccount,
+  outsidePurchases: OutsidePurchase[] = []
+) {
+  return outsidePurchases.filter(
+    (purchase) =>
+      purchase.status !== "cancelled" &&
+      purchase.status !== "reimbursed" &&
+      purchase.outstandingAmount > 0 &&
+      (purchase.customerAccountId === account.id ||
+        purchase.customerId === account.id)
+  );
+}
+
+function getBillTotals(
+  account: CustomerAccount,
+  outsidePurchases: OutsidePurchase[] = []
+) {
   const cafeTotal = getCafeCharges(account).reduce(
     (total, charge) => total + charge.subtotal,
     0
@@ -366,6 +385,15 @@ function getBillTotals(account: CustomerAccount) {
   const accessoryTotal =
     getAccessoryCharges(account).reduce(
       (total, charge) => total + charge.subtotal,
+      0
+    );
+  const outsidePurchaseTotal =
+    getOutstandingOutsidePurchases(
+      account,
+      outsidePurchases
+    ).reduce(
+      (total, purchase) =>
+        total + purchase.outstandingAmount,
       0
     );
   const grandTotal = Math.max(
@@ -376,12 +404,14 @@ function getBillTotals(account: CustomerAccount) {
       Math.min(
         account.discount,
         account.totalGameAmount + cafeTotal
-      )
+      ) +
+      outsidePurchaseTotal
   );
 
   return {
     cafeTotal,
     accessoryTotal,
+    outsidePurchaseTotal,
     grandTotal,
   };
 }
@@ -399,9 +429,10 @@ function hasMeaningfulCreditCustomerName(
 }
 
 function getOpenAccountDisplayKey(
-  account: CustomerAccount
+  account: CustomerAccount,
+  outsidePurchases: OutsidePurchase[] = []
 ) {
-  const totals = getBillTotals(account);
+  const totals = getBillTotals(account, outsidePurchases);
 
   return [
     getBillPrimaryLabel(account),
@@ -412,12 +443,13 @@ function getOpenAccountDisplayKey(
 }
 
 function dedupeOpenAccounts(
-  accounts: CustomerAccount[]
+  accounts: CustomerAccount[],
+  outsidePurchases: OutsidePurchase[] = []
 ) {
   const seen = new Set<string>();
 
   return accounts.filter((account) => {
-    const key = getOpenAccountDisplayKey(account);
+    const key = getOpenAccountDisplayKey(account, outsidePurchases);
 
     if (seen.has(key)) {
       return false;
@@ -546,6 +578,9 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
   const outsidePurchases = useOutsidePurchaseStore(
     (state) => state.purchases
   );
+  const recordOutsidePurchaseReimbursement = useOutsidePurchaseStore(
+    (state) => state.recordReimbursement
+  );
 
   const [search, setSearch] = useState("");
   const [dateFilter, setDateFilter] =
@@ -621,7 +656,7 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
       if (
         account.paymentStatus !== "unpaid" ||
         !account.advanceGamesApplied ||
-        getBillTotals(account).grandTotal > 0
+        getBillTotals(account, outsidePurchases).grandTotal > 0
       ) {
         return;
       }
@@ -640,6 +675,7 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
     activeBusinessDay?.id,
     markCustomerBillSettledByAdvance,
     removePendingBill,
+    outsidePurchases,
   ]);
 
   const baseOpenAccounts = useMemo(
@@ -658,7 +694,9 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
           const hasBillCharges =
             account.gameCharges.length > 0 ||
             account.cafeCharges.length > 0 ||
-            (account.accessoryCharges ?? []).length > 0;
+            (account.accessoryCharges ?? []).length > 0 ||
+            getOutstandingOutsidePurchases(account, outsidePurchases)
+              .length > 0;
           const matchesStatus =
             billStatusFilter === "all"
               ? isUnpaidBill || isPaidBill || isCancelledBill
@@ -672,7 +710,7 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
             !matchesStatus ||
             !hasBillCharges ||
             (isUnpaidBill &&
-              getBillTotals(account).grandTotal <= 0)
+              getBillTotals(account, outsidePurchases).grandTotal <= 0)
           ) {
             return false;
           }
@@ -699,7 +737,7 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
           return !hasRunningSession;
         })
       ),
-    [accounts, billStatusFilter, pendingPaymentKeys, tables]
+    [accounts, billStatusFilter, outsidePurchases, pendingPaymentKeys, tables]
   );
 
   const tableOptions = useMemo(() => {
@@ -740,7 +778,7 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
       .filter((account) => {
         if (billTypeFilter === "all") return true;
 
-        const totals = getBillTotals(account);
+        const totals = getBillTotals(account, outsidePurchases);
 
         if (billTypeFilter === "table") {
           return account.totalGameAmount > 0;
@@ -793,6 +831,7 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
     baseOpenAccounts,
     billTypeFilter,
     dateFilter,
+    outsidePurchases,
     search,
     tableFilter,
   ]);
@@ -830,13 +869,37 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
       : undefined;
   const selectedAccountIsCancelled = Boolean(selectedAccount?.cancelledAt);
   const selectedTotals = selectedAccount
-    ? getBillTotals(selectedAccount)
+    ? getBillTotals(selectedAccount, outsidePurchases)
+    : undefined;
+  const discountPreview = selectedAccount
+    ? (() => {
+        const requestedDiscount = Math.max(
+          0,
+          Number(discountText) || 0
+        );
+        const discountableTotal =
+          selectedAccount.totalGameAmount +
+          (selectedTotals?.cafeTotal ?? 0);
+        const appliedDiscount = Math.min(
+          requestedDiscount,
+          discountableTotal
+        );
+
+        return {
+          appliedDiscount,
+          grandTotal: Math.max(
+            0,
+            discountableTotal +
+              (selectedTotals?.accessoryTotal ?? 0) -
+              appliedDiscount
+          ),
+        };
+      })()
     : undefined;
   const selectedOutsidePurchases = selectedAccount
-    ? outsidePurchases.filter(
-        (purchase) =>
-          purchase.customerAccountId === selectedAccount.id ||
-          purchase.customerId === selectedAccount.id
+    ? getOutstandingOutsidePurchases(
+        selectedAccount,
+        outsidePurchases
       )
     : [];
   const selectedOutsidePurchaseContext = selectedAccount
@@ -883,7 +946,7 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
       count: summary.count + 1,
       amount:
         summary.amount +
-        getBillTotals(account).grandTotal,
+        getBillTotals(account, outsidePurchases).grandTotal,
     }),
     { count: 0, amount: 0 }
   );
@@ -1118,7 +1181,7 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
     if (!selectedAccount || selectedAccount.advanceApplicationId) return;
     const games = Number(advanceGamesText);
     if (!Number.isInteger(games) || games < 1 || games > selectedMaximumAdvanceGames) {
-      setError(`Enter a whole number from 1 to ${selectedMaximumAdvanceGames}.`);
+      setError("Only table charges can be adjusted using advance games.");
       setMessage("");
       return;
     }
@@ -1333,6 +1396,16 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
       Math.max(0, receivedAmount - paidTableAmount - paidCafeAmount),
       selectedTotals?.accessoryTotal ?? 0
     );
+    const paidOutsidePurchaseAmount = Math.min(
+      Math.max(
+        0,
+        receivedAmount -
+          paidTableAmount -
+          paidCafeAmount -
+          paidAccessoryAmount
+      ),
+      selectedTotals?.outsidePurchaseTotal ?? 0
+    );
 
     salesStore.addSale({
       id: saleId,
@@ -1365,7 +1438,8 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
           ? receivedAmount
           : selectedAccount.totalGameAmount +
             (selectedTotals?.cafeTotal ?? 0) +
-            (selectedTotals?.accessoryTotal ?? 0),
+            (selectedTotals?.accessoryTotal ?? 0) +
+            (selectedTotals?.outsidePurchaseTotal ?? 0),
       discount: partialCredit ? 0 : selectedAccount.discount,
       grandTotal:
         receivedAmount,
@@ -1463,6 +1537,32 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
         selectedAccount.cafeCharges,
     });
 
+    let remainingOutsideReimbursement =
+      paidOutsidePurchaseAmount;
+    selectedOutsidePurchases.forEach((purchase) => {
+      if (remainingOutsideReimbursement <= 0) return;
+
+      const reimbursementAmount = Math.min(
+        purchase.outstandingAmount,
+        remainingOutsideReimbursement
+      );
+      const result = recordOutsidePurchaseReimbursement({
+        id: `OPR-${saleId}-${purchase.id}`,
+        purchaseId: purchase.id,
+        amount: reimbursementAmount,
+        paymentMethod,
+        operator: activeBusinessDay.openedBy,
+        businessDayId: activeBusinessDay.id,
+        note: `Auto reimbursed from bill ${getBillPrimaryLabel(
+          selectedAccount
+        )}`,
+      });
+
+      if (result.ok) {
+        remainingOutsideReimbursement -= reimbursementAmount;
+      }
+    });
+
     if (partialCredit) {
       const entry = addCreditFromCustomerBill({
         account: selectedAccount,
@@ -1511,9 +1611,6 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
     paidSessionIds.forEach((sessionId) => {
       removePendingBill(`BILL-${sessionId}`);
     });
-    if (paymentMode) {
-      navigate("/operator/billing", { replace: true });
-    }
     };
 
     const scheduled = schedulePayment({
@@ -1523,6 +1620,9 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
         : getBillPrimaryLabel(accountSnapshot),
       commit: finalizePayment,
       onUndo: () => {
+        if (paymentMode) {
+          navigate(`/operator/billing?customerBillId=${accountSnapshot.id}`);
+        }
         setSelectedId(accountSnapshot.id);
         setPaymentMethod(paymentMethodSnapshot);
         setPaymentSplits(paymentSplitsSnapshot);
@@ -1543,6 +1643,9 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
     setPayingCustomerId(null);
     setIsPartialCreditDialogOpen(false);
     setPartialPaymentText("");
+    if (paymentMode) {
+      navigate("/operator/billing", { replace: true });
+    }
   };
 
   const handleOpenCreditDialog = () => {
@@ -1588,7 +1691,7 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
     setIsCreditDialogOpen(true);
   };
 
-  const handleOpenPartialCreditDialog = () => {
+  const handlePayPartAndCreditRest = () => {
     setMessage("");
     setError("");
 
@@ -1619,9 +1722,32 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
       return;
     }
 
-    setPartialPaymentText("");
-    setCreditNote("");
-    setIsPartialCreditDialogOpen(true);
+    const cleanedSplits = paymentSplits.filter(
+      (split) => split.amount > 0
+    );
+    const receivedAmount = cleanedSplits.reduce(
+      (total, split) => total + split.amount,
+      0
+    );
+
+    if (cleanedSplits.length === 0 || receivedAmount <= 0) {
+      setError(
+        "Enter the received amount using split payment before sending the rest to credit."
+      );
+      return;
+    }
+
+    if (receivedAmount >= selectedTotals.grandTotal) {
+      setError(
+        "Received amount must be less than the bill total to move the rest to credit."
+      );
+      return;
+    }
+
+    handleReceivePayment({
+      paidAmount: receivedAmount,
+      creditNote,
+    });
   };
 
   const handleMoveToCredit = () => {
@@ -1698,10 +1824,10 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
         <Button
           variant="ghost"
           className="mb-4 gap-2"
-          onClick={() => navigate("/operator")}
+          onClick={() => navigate("/operator/tables-rooms")}
         >
           <ArrowLeft className="h-4 w-4" />
-          Dashboard
+          Tables & Rooms
         </Button>
 
         <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
@@ -1931,7 +2057,7 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
                           account
                         );
                       const timestamp = getBillTimestamp(account);
-                      const totals = getBillTotals(account);
+                      const totals = getBillTotals(account, outsidePurchases);
                       const selected =
                         selectedAccount?.id === account.id || contextAccountId === account.id;
                       const tableLabel =
@@ -2506,13 +2632,32 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
                                 )} · {formatChargeDuration(charge.startedAt, charge.endedAt)}
                               </p>
                               <p className="mt-0.5 text-xs font-medium text-slate-600">
-                                Winner: {charge.winnerName ?? "—"}
+                                Winner: {getHistoryChargeParticipantDisplayLabel({
+                                  name: charge.winnerName,
+                                  role: "winner",
+                                  chargeId: charge.id,
+                                  sessionId: charge.sessionId,
+                                  historyRecords: tableHistoryRecords,
+                                }) ?? "—"}
                               </p>
                               <p className="mt-0.5 text-xs font-medium text-slate-600">
-                                Loser: {charge.loserName ?? "—"}
+                                Loser: {getHistoryChargeParticipantDisplayLabel({
+                                  name: charge.loserName,
+                                  role: "loser",
+                                  chargeId: charge.id,
+                                  sessionId: charge.sessionId,
+                                  historyRecords: tableHistoryRecords,
+                                }) ?? "—"}
                               </p>
                               <p className="mt-0.5 text-xs text-slate-500">
-                                Payer: {charge.payerName ?? "—"}
+                                Payer: {getHistoryChargeParticipantDisplayLabel({
+                                  name: charge.payerName,
+                                  role: "payer",
+                                  chargeId: charge.id,
+                                  sessionId: charge.sessionId,
+                                  fallbackCustomerId: charge.payerCustomerId,
+                                  historyRecords: tableHistoryRecords,
+                                }) ?? "—"}
                               </p>
                               {charge.isFinal && (
                                 <span className="mt-1 inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700 ring-1 ring-amber-200">
@@ -2631,6 +2776,14 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
                       {formatCurrency(selectedTotals?.accessoryTotal ?? 0)}
                     </strong>
                   </div>
+                  <div className="flex justify-between">
+                    <span>Outside Purchases</span>
+                    <strong>
+                      {formatCurrency(
+                        selectedTotals?.outsidePurchaseTotal ?? 0
+                      )}
+                    </strong>
+                  </div>
                   {paymentMode && selectedAccount.paymentStatus === "unpaid" && !selectedAccountIsCancelled ? (
                   <div className="rounded-lg border bg-emerald-50 p-2.5">
                     <div className="flex items-center justify-between text-sm text-slate-700">
@@ -2667,28 +2820,54 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
                     </div>
                   )}
                   {paymentMode && selectedAccount.paymentStatus === "unpaid" && !selectedAccountIsCancelled ? (
-                  <div className="flex items-center justify-between gap-3">
-                    <span>Discount</span>
-                    <div className="flex items-center gap-2">
-                      <Input
-                        id="customer-bill-discount"
-                        name="customerBillDiscount"
-                        className="h-9 w-24"
-                        type="number"
-                        min={0}
-                        value={discountText}
-                        onFocus={(event) =>
-                          event.currentTarget.select()
-                        }
-                        onChange={(event) =>
-                          setDiscountText(
-                            event.target.value
-                          )
-                        }
-                      />
+                  <div className="rounded-lg border bg-slate-50 px-3 py-2">
+                    <div className="grid gap-3 sm:grid-cols-[minmax(220px,1fr)_auto] sm:items-center">
+                      <div className="grid gap-3 sm:grid-cols-[auto_120px_minmax(150px,1fr)] sm:items-center">
+                        <label
+                          htmlFor="customer-bill-discount"
+                          className="text-sm font-semibold text-slate-700"
+                        >
+                          Discount
+                        </label>
+                        <Input
+                          id="customer-bill-discount"
+                          name="customerBillDiscount"
+                          className="h-9 bg-white"
+                          type="number"
+                          min={0}
+                          value={discountText}
+                          onFocus={(event) =>
+                            event.currentTarget.select()
+                          }
+                          onChange={(event) =>
+                            setDiscountText(
+                              event.target.value
+                            )
+                          }
+                        />
+                        <div className="rounded-md bg-white px-3 py-2 text-sm ring-1 ring-slate-200">
+                          <span className="text-slate-500">
+                            New total
+                          </span>{" "}
+                          <strong className="text-slate-950">
+                            {formatCurrency(
+                              discountPreview?.grandTotal ??
+                                selectedTotals?.grandTotal ??
+                                0
+                            )}
+                          </strong>
+                          <span className="ml-2 text-xs text-slate-500">
+                            saves{" "}
+                            {formatCurrency(
+                              discountPreview?.appliedDiscount ?? 0
+                            )}
+                          </span>
+                        </div>
+                      </div>
                       <Button
                         size="sm"
                         variant="outline"
+                        className="sm:justify-self-end"
                         onClick={
                           handleApplyDiscount
                         }
@@ -2843,7 +3022,7 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
                   <Button
                     className="mt-2 w-full"
                     variant="outline"
-                    onClick={handleOpenPartialCreditDialog}
+                    onClick={handlePayPartAndCreditRest}
                     disabled={isSelectedBillStillRunning}
                   >
                     Pay Part &amp; Credit Rest
@@ -3142,8 +3321,19 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
                       />
                     </label>
 
-                    <div className="rounded-lg border px-3 py-2 text-sm">
-                      Payment method: <strong>{paymentLabel(paymentMethod)}</strong>
+                    <div className="space-y-2">
+                      <label className="text-sm font-semibold text-slate-700">
+                        Payment Method
+                      </label>
+                      <PaymentMethodSelector
+                        value={paymentMethod}
+                        onChange={(value) =>
+                          setPaymentMethod(value)
+                        }
+                        totalAmount={validPaidAmount ? paidAmount : 0}
+                        splits={paymentSplits}
+                        onSplitsChange={setPaymentSplits}
+                      />
                     </div>
 
                     <label className="block text-sm font-semibold text-slate-700">
@@ -3160,7 +3350,10 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
                   <div className="mt-5 grid grid-cols-2 gap-2">
                     <Button
                       variant="outline"
-                      onClick={() => setIsPartialCreditDialogOpen(false)}
+                      onClick={() => {
+                        setIsPartialCreditDialogOpen(false);
+                        setPaymentSplits([]);
+                      }}
                     >
                       Cancel
                     </Button>

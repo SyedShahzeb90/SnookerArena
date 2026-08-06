@@ -22,8 +22,12 @@ export interface ProfitLossTotals {
   cafeRevenue: number;
   totalExpenses: number;
   netProfit: number;
+  profitMargin: number;
   salesCount: number;
   expenseCount: number;
+  transactions: number;
+  highestSale: number;
+  lowestSale: number;
   averageSale: number;
   averageExpense: number;
 }
@@ -37,6 +41,7 @@ export interface ProfitLossReport {
     revenue: number;
     expenses: number;
     netProfit: number;
+    profitMargin: number;
     salesCount: number;
     expenseCount: number;
   }[];
@@ -147,6 +152,10 @@ export function calculateProfitLoss(
     (total, expense) => total + expense.amount,
     0
   );
+  const netProfit = totals.totalRevenue - totalExpenses;
+  const saleAmounts = filteredSales.map((sale) => sale.grandTotal);
+  const highestSale = saleAmounts.length > 0 ? Math.max(...saleAmounts) : 0;
+  const lowestSale = saleAmounts.length > 0 ? Math.min(...saleAmounts) : 0;
 
   const paymentTotals = filteredSales.reduce<Record<PaymentMethod, number>>(
     (paymentSummary, sale) => {
@@ -192,6 +201,7 @@ export function calculateProfitLoss(
       revenue: number;
       expenses: number;
       netProfit: number;
+      profitMargin: number;
       salesCount: number;
       expenseCount: number;
     }
@@ -206,6 +216,7 @@ export function calculateProfitLoss(
         revenue: 0,
         expenses: 0,
         netProfit: 0,
+        profitMargin: 0,
         salesCount: 0,
         expenseCount: 0,
       };
@@ -213,6 +224,10 @@ export function calculateProfitLoss(
     current.revenue += sale.grandTotal;
     current.salesCount += 1;
     current.netProfit = current.revenue - current.expenses;
+    current.profitMargin =
+      current.revenue > 0
+        ? Math.round((current.netProfit / current.revenue) * 1000) / 10
+        : 0;
     dailyMap.set(key, current);
   });
 
@@ -225,6 +240,7 @@ export function calculateProfitLoss(
         revenue: 0,
         expenses: 0,
         netProfit: 0,
+        profitMargin: 0,
         salesCount: 0,
         expenseCount: 0,
       };
@@ -232,6 +248,10 @@ export function calculateProfitLoss(
     current.expenses += expense.amount;
     current.expenseCount += 1;
     current.netProfit = current.revenue - current.expenses;
+    current.profitMargin =
+      current.revenue > 0
+        ? Math.round((current.netProfit / current.revenue) * 1000) / 10
+        : 0;
     dailyMap.set(key, current);
   });
 
@@ -241,9 +261,16 @@ export function calculateProfitLoss(
       tableRevenue: totals.tableRevenue,
       cafeRevenue: totals.cafeRevenue,
       totalExpenses,
-      netProfit: totals.totalRevenue - totalExpenses,
+      netProfit,
+      profitMargin:
+        totals.totalRevenue > 0
+          ? Math.round((netProfit / totals.totalRevenue) * 1000) / 10
+          : 0,
       salesCount: totals.salesCount,
       expenseCount: filteredExpenses.length,
+      transactions: totals.salesCount + filteredExpenses.length,
+      highestSale,
+      lowestSale,
       averageSale:
         totals.salesCount > 0
           ? Math.round(totals.totalRevenue / totals.salesCount)

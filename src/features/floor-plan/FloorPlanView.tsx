@@ -4,6 +4,7 @@ import {
   useState,
   type PointerEvent,
 } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Coffee,
   DoorOpen,
@@ -59,6 +60,7 @@ function FloorPlanView({
   onTableOpen,
   statusFilter = "all",
 }: FloorPlanViewProps) {
+  const navigate = useNavigate();
   const now = useCurrentTime();
   const floorRef = useRef<HTMLDivElement>(null);
   const dragStartRef = useRef<{
@@ -376,6 +378,28 @@ function FloorPlanView({
           tableName={selectedTable.name}
           onClose={closeDialog}
           onReceivePayment={handleReceivePayment}
+          onAddCafe={(player) => {
+            const sessionId =
+              selectedTable.session?.id;
+            if (!sessionId) return;
+
+            closeDialog();
+            const params = new URLSearchParams({
+              tableId: String(selectedTable.id),
+              sessionId,
+            });
+
+            if (player.participantKey) {
+              params.set(
+                "participantKey",
+                player.participantKey
+              );
+            }
+
+            navigate(
+              `/operator/cafe?${params.toString()}`
+            );
+          }}
         />
       )}
     </section>

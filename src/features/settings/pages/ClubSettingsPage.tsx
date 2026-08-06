@@ -1,5 +1,6 @@
-import { Building2, KeyRound, LoaderCircle, Pencil, RotateCcw, Save, ShieldCheck, Trash2, UserPlus } from "lucide-react";
+import { ArrowLeft, Building2, KeyRound, LoaderCircle, Pencil, RotateCcw, Save, ShieldCheck, Trash2, UserPlus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -29,6 +30,7 @@ import {
 
 const LOGO_MAX_FILE_SIZE = 2 * 1024 * 1024;
 const LOGO_MAX_DIMENSION = 256;
+const MAX_OPERATOR_NAME_LENGTH = 15;
 const SUPPORTED_LOGO_TYPES = new Set([
   "image/png",
   "image/jpeg",
@@ -139,6 +141,7 @@ async function processLogoFile(file: File) {
 }
 
 function ClubSettingsPage() {
+  const navigate = useNavigate();
   const settings = useClubSettingsStore((state) => state.settings);
   const updateSettings = useClubSettingsStore((state) => state.updateSettings);
   const resetSettingsToDefaults = useClubSettingsStore(
@@ -255,6 +258,10 @@ function ClubSettingsPage() {
       setErrors(["Operator name is required."]);
       return;
     }
+    if (name.length > MAX_OPERATOR_NAME_LENGTH) {
+      setErrors([`Operator name cannot be more than ${MAX_OPERATOR_NAME_LENGTH} characters.`]);
+      return;
+    }
     if (operatorNameExists(name)) {
       setErrors(["An operator with this name already exists."]);
       return;
@@ -280,6 +287,10 @@ function ClubSettingsPage() {
     const name = editingOperatorName.trim();
     if (!name) {
       setErrors(["Operator name is required."]);
+      return;
+    }
+    if (name.length > MAX_OPERATOR_NAME_LENGTH) {
+      setErrors([`Operator name cannot be more than ${MAX_OPERATOR_NAME_LENGTH} characters.`]);
       return;
     }
     if (operatorNameExists(name, operatorId)) {
@@ -433,6 +444,15 @@ function ClubSettingsPage() {
 
   return (
     <PageShell width="compact">
+        <Button
+          type="button"
+          variant="ghost"
+          className="-ml-2 w-fit gap-2"
+          onClick={() => navigate("/admin")}
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back to Admin Dashboard
+        </Button>
         <PageHeading
           icon={Building2}
           title="Club Settings"
@@ -580,8 +600,11 @@ function ClubSettingsPage() {
             <Input
               aria-label="New operator name"
               placeholder="Operator name"
+              maxLength={MAX_OPERATOR_NAME_LENGTH}
               value={newOperatorName}
-              onChange={(event) => setNewOperatorName(event.target.value)}
+              onChange={(event) =>
+                setNewOperatorName(event.target.value.slice(0, MAX_OPERATOR_NAME_LENGTH))
+              }
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
                   event.preventDefault();
@@ -609,8 +632,11 @@ function ClubSettingsPage() {
                       {editing ? (
                         <Input
                           aria-label={`Edit ${operator.name}`}
+                          maxLength={MAX_OPERATOR_NAME_LENGTH}
                           value={editingOperatorName}
-                          onChange={(event) => setEditingOperatorName(event.target.value)}
+                          onChange={(event) =>
+                            setEditingOperatorName(event.target.value.slice(0, MAX_OPERATOR_NAME_LENGTH))
+                          }
                           onKeyDown={(event) => {
                             if (event.key === "Enter") saveOperatorName(operator.id);
                             if (event.key === "Escape") setEditingOperatorId(null);

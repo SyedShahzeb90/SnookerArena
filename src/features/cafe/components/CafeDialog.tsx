@@ -116,7 +116,10 @@ function CafeDialog({
       updateSessionCafe({
         tableId: table.id,
         cafeOrders:
-          getTableOrderItems(table.id),
+          getTableOrderItems(
+            table.id,
+            table.session.id
+          ),
       });
     });
   }, [
@@ -397,7 +400,8 @@ function CafeDialog({
           selectedPlayer &&
           selectedTable
             ? getTableOrderItems(
-                selectedTable
+                selectedTable,
+                selectedTableRecord?.session?.id
               )
             : currentWaitingCustomer
                 ?.orderItems ?? [];

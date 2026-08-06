@@ -5,7 +5,7 @@ import {
   Map,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
@@ -153,6 +153,7 @@ export function BusinessDayPage() {
 }
 
 export function TablesRoomsPage() {
+  const navigate = useNavigate();
   const [activeView, setActiveView] = useState<DashboardView>("grid");
   const [focusedTableId, setFocusedTableId] = useState<number | null>(null);
   const [statusFilter, setStatusFilter] =
@@ -220,6 +221,7 @@ export function TablesRoomsPage() {
         <TableStatusStats
           activeFilter={statusFilter}
           onFilterChange={handleStatusFilterChange}
+          onPaymentPendingClick={() => navigate("/operator/billing")}
         />
         <section>
           <div className="mb-4 flex flex-col gap-3 border-b border-slate-200 pb-3 sm:flex-row sm:items-end sm:justify-between">

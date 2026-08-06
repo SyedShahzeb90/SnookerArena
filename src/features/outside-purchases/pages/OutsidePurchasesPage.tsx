@@ -15,10 +15,10 @@ function OutsidePurchasesPage() {
           type="button"
           variant="ghost"
           className="mb-3 gap-2"
-          onClick={() => navigate("/operator/customer-bills")}
+          onClick={() => navigate("/operator/billing")}
         >
           <ArrowLeft className="h-4 w-4" />
-          Customer Bills
+          Collect Payment
         </Button>
 
         <div className="mb-5 flex items-start gap-3">

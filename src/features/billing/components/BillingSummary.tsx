@@ -1,15 +1,16 @@
 import type { Session } from "@/types/session";
 import type { Table } from "@/types/table";
-import { getSessionPlayers } from "@/features/sessions/utils/sessionPlayers";
-
 import { calculateGamePrice } from "@/features/pricing/utils/calculateGamePrice";
 import { calculateBill } from "@/features/pricing/utils/calculateBill";
-import type { CafeOrderItem } from "@/types/session";
 import {
   calculateDoubleGamePayerBreakdown,
 } from "@/features/sessions/utils/doubleGameBilling";
 import { getWalkInDisplayName } from "@/features/sessions/utils/walkInLabel";
 import { formatAppTime, useAppDateTimeFormats } from "@/lib/dateTime";
+import {
+  getPlayerCafeItems,
+  getSessionPlayerBillingIdentities,
+} from "../utils/playerBillIdentity";
 
 interface Props {
   session: Session;
@@ -40,11 +41,6 @@ function BillingSummary({
     endTime: new Date(session.endTime),
   });
 
-  const bill = calculateBill({
-    gameAmount: pricing.gameAmount,
-    cafeAmount: session.cafeAmount,
-    discount: session.discount,
-  });
   const sessionTypeLabel =
     session.sessionType === "single"
       ? "Single Game"
@@ -62,19 +58,26 @@ function BillingSummary({
         total + item.subtotal,
       0
     );
+  const effectiveCafeAmount =
+    cafeItems.length > 0
+      ? cafeItemsTotal
+      : session.cafeAmount;
+  const bill = calculateBill({
+    gameAmount: pricing.gameAmount,
+    cafeAmount: effectiveCafeAmount,
+    discount: session.discount,
+  });
   const showMissingCafeWarning =
     session.cafeAmount > 0 &&
     cafeItems.length === 0;
 
-  const players =
-    getSessionPlayers(session);
-
-  const getItemPlayerName = (
-    item: CafeOrderItem
-  ) =>
-    item.playerName ??
-    item.customerName ??
-    "";
+  const playerIdentities =
+    getSessionPlayerBillingIdentities(
+      session
+    );
+  const players = playerIdentities.map(
+    (player) => player.playerName
+  );
 
   const payerBreakdown =
     calculateDoubleGamePayerBreakdown({
@@ -87,13 +90,14 @@ function BillingSummary({
       tableAmount: pricing.gameAmount,
     });
 
-  const playerBreakdown = players
-    .map((currentPlayerName) => {
+  const playerBreakdown = playerIdentities
+    .map((player) => {
+      const currentPlayerName =
+        player.playerName;
       const cafeItems =
-        session.cafeOrders.filter(
-          (item) =>
-            getItemPlayerName(item) ===
-            currentPlayerName
+        getPlayerCafeItems(
+          session,
+          player
         );
       const cafeAmount =
         cafeItems.reduce(
@@ -133,6 +137,18 @@ function BillingSummary({
         0
       )
     : bill.total;
+  const displayCafeItems = playerName
+    ? playerBreakdown.flatMap(
+        (player) => player.cafeItems
+      )
+    : cafeItems;
+  const displayCafeAmount = playerName
+    ? playerBreakdown.reduce(
+        (total, player) =>
+          total + player.cafeAmount,
+        0
+      )
+    : effectiveCafeAmount;
   const displayCustomer =
     getWalkInDisplayName({
       name:
@@ -264,9 +280,9 @@ function BillingSummary({
           Cafe
         </p>
 
-        {cafeItems.length > 0 ? (
+        {displayCafeItems.length > 0 ? (
           <div className="overflow-hidden rounded-lg border">
-            {cafeItems.map((item, index) => (
+            {displayCafeItems.map((item, index) => (
               <div
                 key={`${item.menuItemId}-${item.name}-${index}`}
                 className="flex justify-between gap-3 border-b px-3 py-2 text-sm last:border-b-0"
@@ -280,7 +296,8 @@ function BillingSummary({
               </div>
             ))}
           </div>
-        ) : showMissingCafeWarning ? (
+        ) : showMissingCafeWarning &&
+          !playerName ? (
           <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm font-medium text-amber-700">
             Cafe item details are missing.
           </p>
@@ -299,7 +316,7 @@ function BillingSummary({
 
         <div className="flex justify-between text-sm">
           <span>Cafe</span>
-          <span>Rs. {cafeItemsTotal || session.cafeAmount}</span>
+          <span>Rs. {displayCafeAmount}</span>
         </div>
 
         {session.discount > 0 && (

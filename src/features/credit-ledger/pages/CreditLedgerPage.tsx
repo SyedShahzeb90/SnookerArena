@@ -18,6 +18,10 @@ import { buildAdvanceGameBalanceRows } from "@/features/advance-games/utils/adva
 import { useCustomerAccountStore } from "@/features/customers/store/customerAccountStore";
 import { useTableHistoryStore } from "@/features/table-history/store/tableHistoryStore";
 import { getIndividualGameCharges } from "@/features/customers/utils/individualGameCharges";
+import {
+  getHistoryChargeParticipantDisplayLabel,
+  getStableParticipantDisplayLabel,
+} from "@/features/customers/utils/participantDisplay";
 import type {
   PaymentMethod,
   SessionType,
@@ -54,6 +58,64 @@ function statusLabel(status: CreditLedgerStatus) {
   if (status === "outstanding") return "Outstanding";
   if (status === "paid") return "Paid";
   return "Cancelled";
+}
+
+function getAuditOperatorName(
+  entry: CreditLedgerEntry,
+  action: "credit_issued" | "credit_recovered" | "cancelled"
+) {
+  return entry.operatorAudit?.find(
+    (event) => event.action === action
+  )?.operator.operatorName;
+}
+
+function getCreditIssuedBy(entry: CreditLedgerEntry) {
+  return (
+    entry.issuedBy?.operatorName ??
+    getAuditOperatorName(entry, "credit_issued") ??
+    "Not recorded"
+  );
+}
+
+function getCreditClearedBy(entry: CreditLedgerEntry) {
+  if (entry.status === "outstanding") return "-";
+
+  return (
+    entry.recoveredBy?.operatorName ??
+    getAuditOperatorName(entry, "credit_recovered") ??
+    (entry.status === "cancelled"
+      ? entry.cancelledBy?.operatorName ??
+        getAuditOperatorName(entry, "cancelled") ??
+        "Not recorded"
+      : "Not recorded")
+  );
+}
+
+function getCreditCustomerDisplayLabel(
+  entry: CreditLedgerEntry,
+  historyRecords: ReturnType<typeof useTableHistoryStore.getState>["records"]
+) {
+  const sessionIds = Array.from(
+    new Set(
+      [
+        ...entry.gameCharges.map((charge) => charge.sessionId),
+        ...entry.cafeCharges.map((charge) => charge.sessionId),
+        ...entry.accessoryCharges.map((charge) => charge.sessionId),
+      ].filter((sessionId): sessionId is string => Boolean(sessionId))
+    )
+  );
+
+  for (const sessionId of sessionIds) {
+    const label = getStableParticipantDisplayLabel({
+      name: entry.customerName,
+      customerId: entry.sourceCustomerAccountId,
+      sessionId,
+      historyRecords,
+    });
+    if (label !== entry.customerName) return label;
+  }
+
+  return entry.customerName;
 }
 
 function CreditLedgerPage() {
@@ -322,6 +384,8 @@ function CreditLedgerPage() {
           entry.originalBillNumber,
           entry.tableName,
           entry.creditNote,
+          getCreditIssuedBy(entry),
+          getCreditClearedBy(entry),
         ]
           .filter(Boolean)
           .join(" ")
@@ -585,10 +649,10 @@ function CreditLedgerPage() {
         <Button
           variant="ghost"
           className="mb-4 gap-2"
-          onClick={() => navigate("/operator")}
+          onClick={() => navigate("/operator/tables-rooms")}
         >
           <ArrowLeft className="h-4 w-4" />
-          Dashboard
+          Tables & Rooms
         </Button>
 
         <div className="mb-6 flex items-end justify-between gap-4">
@@ -726,6 +790,8 @@ function CreditLedgerPage() {
                   <th className="px-4 py-3">Original Bill</th>
                   <th className="px-4 py-3">Table</th>
                   <th className="px-4 py-3">Credit Date</th>
+                  <th className="px-4 py-3">Given By</th>
+                  <th className="px-4 py-3">Cleared By</th>
                   <th className="px-4 py-3 text-right">Amount</th>
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3 text-right">Action</th>
@@ -735,7 +801,9 @@ function CreditLedgerPage() {
                 {filteredEntries.map((entry) => (
                   <tr key={entry.id} className="border-t">
                     <td className="px-4 py-3">
-                      <p className="font-semibold">{entry.customerName}</p>
+                      <p className="font-semibold">
+                        {getCreditCustomerDisplayLabel(entry, tableHistoryRecords)}
+                      </p>
                       <p className="text-xs text-slate-500">
                         {entry.phone ?? entry.customerNote ?? "-"}
                       </p>
@@ -745,6 +813,12 @@ function CreditLedgerPage() {
                     </td>
                     <td className="px-4 py-3">{entry.tableName ?? "-"}</td>
                     <td className="px-4 py-3">{formatDateTime(entry.creditedAt)}</td>
+                    <td className="px-4 py-3 font-medium">
+                      {getCreditIssuedBy(entry)}
+                    </td>
+                    <td className="px-4 py-3 font-medium">
+                      {getCreditClearedBy(entry)}
+                    </td>
                     <td className="px-4 py-3 text-right font-bold">
                       {money(entry.finalAmount)}
                     </td>
@@ -799,7 +873,7 @@ function CreditLedgerPage() {
                 {filteredEntries.length === 0 && (
                   <tr>
                     <td
-                      colSpan={7}
+                      colSpan={9}
                       className="px-4 py-8 text-center text-sm text-slate-500"
                     >
                       No credit ledger entries found.
@@ -818,7 +892,11 @@ function CreditLedgerPage() {
                 <div>
                   <h2 className="text-xl font-bold">Credit Details</h2>
                   <p className="text-sm text-slate-500">
-                    {selectedEntry.customerName} - {selectedEntry.originalBillNumber}
+                    {getCreditCustomerDisplayLabel(
+                      selectedEntry,
+                      tableHistoryRecords
+                    )}{" "}
+                    - {selectedEntry.originalBillNumber}
                   </p>
                 </div>
                 <Button
@@ -835,6 +913,8 @@ function CreditLedgerPage() {
                 <p><strong>Phone:</strong> {selectedEntry.phone ?? "-"}</p>
                 <p><strong>Note:</strong> {selectedEntry.customerNote ?? "-"}</p>
                 <p><strong>Credit Given:</strong> {formatDateTime(selectedEntry.creditedAt)}</p>
+                <p><strong>Given By:</strong> {getCreditIssuedBy(selectedEntry)}</p>
+                <p><strong>Cleared By:</strong> {getCreditClearedBy(selectedEntry)}</p>
                 <p><strong>Credit Note:</strong> {selectedEntry.creditNote ?? "-"}</p>
                 <p><strong>Paid At:</strong> {formatDateTime(selectedEntry.paidAt)}</p>
                 <p><strong>Sale Ref:</strong> {selectedEntry.saleId ?? "-"}</p>
@@ -910,7 +990,26 @@ function CreditLedgerPage() {
                             {formatChargeTimeRange(charge.startedAt, charge.endedAt, selectedEntry.gameCharges[0]?.startedAt)} · {formatChargeDuration(charge.startedAt, charge.endedAt)}
                           </p>
                           <p className="mt-1 text-xs text-slate-600">
-                            Winner: {charge.winnerName ?? "—"} · Loser: {charge.loserName ?? "—"} · Payer: {charge.payerName ?? "—"}
+                            Winner: {getHistoryChargeParticipantDisplayLabel({
+                              name: charge.winnerName,
+                              role: "winner",
+                              chargeId: charge.id,
+                              sessionId: charge.sessionId,
+                              historyRecords: tableHistoryRecords,
+                            }) ?? "—"} · Loser: {getHistoryChargeParticipantDisplayLabel({
+                              name: charge.loserName,
+                              role: "loser",
+                              chargeId: charge.id,
+                              sessionId: charge.sessionId,
+                              historyRecords: tableHistoryRecords,
+                            }) ?? "—"} · Payer: {getHistoryChargeParticipantDisplayLabel({
+                              name: charge.payerName,
+                              role: "payer",
+                              chargeId: charge.id,
+                              sessionId: charge.sessionId,
+                              fallbackCustomerId: charge.payerCustomerId,
+                              historyRecords: tableHistoryRecords,
+                            }) ?? "—"}
                           </p>
                         </div>
                       ))
@@ -953,7 +1052,7 @@ function CreditLedgerPage() {
             <Card className="w-full max-w-md p-5">
               <h2 className="text-xl font-bold">Receive Credit Payment</h2>
               <p className="mt-1 text-sm text-slate-500">
-                {paymentEntry.customerName} - {money(paymentEntry.finalAmount)}
+                {getCreditCustomerDisplayLabel(paymentEntry, tableHistoryRecords)} - {money(paymentEntry.finalAmount)}
               </p>
               <div className="mt-4">
                 <PaymentMethodSelector

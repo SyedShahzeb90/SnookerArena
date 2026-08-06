@@ -1,5 +1,6 @@
-import { SlidersHorizontal } from "lucide-react";
+import { ArrowLeft, SlidersHorizontal } from "lucide-react";
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { PageHeading, PageShell } from "@/components/layout/page-layout";
@@ -10,6 +11,7 @@ import { useClubSettingsStore, type ClubSettings } from "../store/clubSettingsSt
 import { INTERFACE_SCALE_OPTIONS, type InterfaceScale } from "../interfaceScale";
 
 function GeneralSettingsPage() {
+  const navigate = useNavigate();
   const settings = useClubSettingsStore((state) => state.settings);
   const updateSettings = useClubSettingsStore((state) => state.updateSettings);
   const toast = useToast();
@@ -36,6 +38,15 @@ function GeneralSettingsPage() {
 
   return (
     <PageShell width="compact">
+        <Button
+          type="button"
+          variant="ghost"
+          className="-ml-2 w-fit gap-2"
+          onClick={() => navigate("/admin")}
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back to Admin Dashboard
+        </Button>
         <PageHeading
           icon={SlidersHorizontal}
           title="General Settings"

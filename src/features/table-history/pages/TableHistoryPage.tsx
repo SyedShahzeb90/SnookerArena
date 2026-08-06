@@ -23,6 +23,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useTableStore } from "@/store/tableStore";
+import { useBusinessDayStore } from "@/features/business-day/store/businessDayStore";
+import { paymentMethodLabels } from "@/features/business-day/types/businessDay";
+import { useCheckoutStore } from "@/features/billing/store/checkoutStore";
+import { useSalesStore } from "@/features/sales/store/salesStore";
 
 import { useTableHistoryStore } from "../store/tableHistoryStore";
 import type { TableHistoryRecord } from "../types/tableHistory";
@@ -55,7 +59,7 @@ type HistoryDisplayRow = {
 };
 
 function formatCurrency(amount: number) {
-  return `Rs. ${amount}`;
+  return `Rs. ${Math.round(amount).toLocaleString()}`;
 }
 
 function formatDateTime(value: string) {
@@ -266,7 +270,8 @@ function getDateRange(
 
 function matchesSearch(
   record: TableHistoryRecord,
-  query: string
+  query: string,
+  extraValues: Array<string | undefined> = []
 ) {
   if (!query.trim()) return true;
 
@@ -275,6 +280,14 @@ function matchesSearch(
     .toLowerCase();
   const values = [
     record.tableName,
+    record.billNo,
+    record.invoiceNumber,
+    record.staffBillNumber,
+    record.payerName,
+    record.winnerName,
+    record.loserName,
+    ...record.players,
+    ...extraValues,
     record.sessionType,
     getRecordTypeLabel(record),
     ...getRecordChargeLines(record).map((line) =>
@@ -291,6 +304,68 @@ function matchesSearch(
     );
 }
 
+function getRecordCustomer(record: TableHistoryRecord) {
+  return (
+    record.payerName ??
+    record.winnerName ??
+    record.loserName ??
+    record.players[0] ??
+    "-"
+  );
+}
+
+function getRecordStatusClass(status: string) {
+  if (status === "paid") return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200";
+  if (status === "pending") return "bg-amber-50 text-amber-700 ring-1 ring-amber-200";
+  if (status === "cancelled") return "bg-red-50 text-red-700 ring-1 ring-red-200";
+  return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
+}
+
+function formatStatusLabel(status: string) {
+  return status.charAt(0).toUpperCase() + status.slice(1);
+}
+
+function getPaymentBadgeClass(label: string) {
+  const normalized = label.toLowerCase();
+
+  if (normalized.includes("cash") && normalized.includes("+")) {
+    return "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200";
+  }
+
+  if (normalized.includes("cash")) {
+    return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200";
+  }
+
+  if (
+    normalized.includes("easypaisa") ||
+    normalized.includes("jazzcash")
+  ) {
+    return "bg-sky-50 text-sky-700 ring-1 ring-sky-200";
+  }
+
+  if (normalized.includes("card")) {
+    return "bg-violet-50 text-violet-700 ring-1 ring-violet-200";
+  }
+
+  if (normalized.includes("pending")) {
+    return "bg-amber-50 text-amber-700 ring-1 ring-amber-200";
+  }
+
+  return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
+}
+
+function getCafeItems(record: TableHistoryRecord) {
+  return record.cafeItems.filter(
+    (item) => !item.name.startsWith("[Accessory]")
+  );
+}
+
+function getAccessoryItems(record: TableHistoryRecord) {
+  return record.cafeItems.filter((item) =>
+    item.name.startsWith("[Accessory]")
+  );
+}
+
 function TableHistoryPage() {
   useAppDateTimeFormats();
   const navigate = useNavigate();
@@ -305,6 +380,15 @@ function TableHistoryPage() {
   const tables = useTableStore(
     (state) => state.tables
   );
+  const sales = useSalesStore(
+    (state) => state.sales
+  );
+  const pendingBills = useCheckoutStore(
+    (state) => state.pendingBills
+  );
+  const businessDays = useBusinessDayStore(
+    (state) => state.days
+  );
 
   const [tableFilter, setTableFilter] =
     useState(
@@ -317,6 +401,10 @@ function TableHistoryPage() {
   const [customEnd, setCustomEnd] =
     useState("");
   const [sessionTypeFilter, setSessionTypeFilter] =
+    useState("all");
+  const [operatorFilter, setOperatorFilter] =
+    useState("all");
+  const [businessDayFilter, setBusinessDayFilter] =
     useState("all");
   const [search, setSearch] = useState("");
   const [historyView, setHistoryView] = useState<
@@ -340,6 +428,73 @@ function TableHistoryPage() {
         ? tableId
         : null;
     });
+
+  const saleById = useMemo(
+    () => new Map(sales.map((sale) => [sale.id, sale])),
+    [sales]
+  );
+  const pendingBillById = useMemo(
+    () =>
+      new Map(
+        pendingBills.map((bill) => [bill.id, bill])
+      ),
+    [pendingBills]
+  );
+  const businessDayById = useMemo(
+    () => new Map(businessDays.map((day) => [day.id, day])),
+    [businessDays]
+  );
+
+  const getRecordSale = (record: TableHistoryRecord) =>
+    record.saleId ? saleById.get(record.saleId) : undefined;
+  const getRecordPendingBill = (record: TableHistoryRecord) =>
+    record.pendingBillId ? pendingBillById.get(record.pendingBillId) : undefined;
+  const getRecordOperator = (record: TableHistoryRecord) =>
+    getRecordSale(record)?.paymentReceivedBy?.operatorName ??
+    getRecordSale(record)?.operatorAudit?.find(
+      (event) => event.action === "payment_received"
+    )?.operator.operatorName ??
+    getRecordPendingBill(record)?.createdBy?.operatorName ??
+    "Not recorded";
+  const getRecordBusinessDayId = (record: TableHistoryRecord) =>
+    getRecordSale(record)?.activeBusinessDayId ?? "none";
+  const getRecordBusinessDayLabel = (record: TableHistoryRecord) => {
+    const dayId = getRecordBusinessDayId(record);
+    const day = dayId === "none" ? undefined : businessDayById.get(dayId);
+    return day ? `${day.dayName} - ${day.openedBy}` : "No Business Day";
+  };
+  const getRecordPaymentLabel = (record: TableHistoryRecord) => {
+    const sale = getRecordSale(record);
+    if (!sale) return record.paymentStatus === "pending" ? "Pending" : "-";
+    if (sale.paymentSplits?.length) {
+      return sale.paymentSplits
+        .map((split) => paymentMethodLabels[split.method])
+        .join(" + ");
+    }
+    return paymentMethodLabels[sale.paymentMethod];
+  };
+  const getRecordAmountReceived = (record: TableHistoryRecord) => {
+    const sale = getRecordSale(record);
+
+    if (!sale) return record.paymentStatus === "paid" ? record.grandTotal : 0;
+
+    if (sale.paymentSplits?.length) {
+      return sale.paymentSplits.reduce(
+        (total, split) => total + split.amount,
+        0
+      );
+    }
+
+    return sale.grandTotal;
+  };
+
+  const operatorOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(records.map((record) => getRecordOperator(record)))
+      ).sort((a, b) => a.localeCompare(b)),
+    [records, saleById, pendingBillById]
+  );
 
   const filteredRecords = useMemo(() => {
     const { start, end } = getDateRange(
@@ -375,7 +530,21 @@ function TableHistoryPage() {
             sessionTypeFilter
       )
       .filter((record) =>
-        matchesSearch(record, search)
+        operatorFilter === "all"
+          ? true
+          : getRecordOperator(record) === operatorFilter
+      )
+      .filter((record) =>
+        businessDayFilter === "all"
+          ? true
+          : getRecordBusinessDayId(record) === businessDayFilter
+      )
+      .filter((record) =>
+        matchesSearch(record, search, [
+          getRecordOperator(record),
+          getRecordBusinessDayLabel(record),
+          getRecordPaymentLabel(record),
+        ])
       )
       .sort(
         (a, b) =>
@@ -389,7 +558,12 @@ function TableHistoryPage() {
     customStart,
     customEnd,
     sessionTypeFilter,
+    operatorFilter,
+    businessDayFilter,
     search,
+    saleById,
+    pendingBillById,
+    businessDayById,
   ]);
 
   const summary = useMemo(
@@ -553,12 +727,12 @@ function TableHistoryPage() {
       <div>
         <button
           onClick={() =>
-            navigate(isAdmin ? "/admin" : "/operator")
+            navigate(isAdmin ? "/admin" : "/operator/tables-rooms")
           }
           className="mb-4 inline-flex items-center gap-2 text-sm font-medium text-slate-900"
         >
           <ArrowLeft className="h-4 w-4" />
-          Dashboard
+          {isAdmin ? "Back to Admin Dashboard" : "Tables & Rooms"}
         </button>
 
         <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -899,7 +1073,7 @@ function TableHistoryPage() {
         {historyView === "sessions" && (
         <Card className="overflow-hidden">
           <div className="border-b p-4">
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr]">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-6">
               <div className="space-y-1.5">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                   Search
@@ -911,7 +1085,7 @@ function TableHistoryPage() {
                     onChange={(event) =>
                       setSearch(event.target.value)
                     }
-                    placeholder="Search table or game type..."
+                    placeholder="Search table, customer, invoice or operator..."
                     className="pl-9"
                   />
                 </div>
@@ -1016,6 +1190,61 @@ function TableHistoryPage() {
                   </SelectContent>
                 </Select>
               </div>
+
+              <div className="space-y-1.5">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Operator
+                </p>
+                <Select
+                  value={operatorFilter}
+                  onValueChange={(value) =>
+                    setOperatorFilter(value ?? "all")
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Operator" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">
+                      All Operators
+                    </SelectItem>
+                    {operatorOptions.map((operator) => (
+                      <SelectItem key={operator} value={operator}>
+                        {operator}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Business Day
+                </p>
+                <Select
+                  value={businessDayFilter}
+                  onValueChange={(value) =>
+                    setBusinessDayFilter(value ?? "all")
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Business Day" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">
+                      All Business Days
+                    </SelectItem>
+                    <SelectItem value="none">
+                      No Business Day
+                    </SelectItem>
+                    {businessDays.map((day) => (
+                      <SelectItem key={day.id} value={day.id}>
+                        {day.dayName} - {day.openedBy}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
             {dateFilter === "custom" && (
@@ -1042,66 +1271,82 @@ function TableHistoryPage() {
             )}
           </div>
 
+          <div className="flex items-center justify-between border-b bg-white px-4 py-3 text-sm text-slate-600">
+            <span>
+              Showing{" "}
+              <strong className="text-slate-950">
+                {displayRows.length}
+              </strong>{" "}
+              sessions
+            </span>
+            <span className="text-xs text-slate-500">
+              {filteredRecords.length} invoices after filters
+            </span>
+          </div>
+
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[780px] text-left text-sm">
-              <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+            <table className="w-full min-w-[1180px] text-left text-sm">
+              <thead className="sticky top-0 z-10 bg-slate-50 text-xs uppercase text-slate-500">
                 <tr>
-                  <th className="w-20 whitespace-nowrap px-4 py-3">
-                    No.
-                  </th>
-                  <th className="px-4 py-3">
-                    Date / Start - End
-                  </th>
-                  <th className="px-4 py-3">
-                    Table
-                  </th>
-                  <th className="px-4 py-3">
-                    Type
-                  </th>
-                  <th className="px-4 py-3">
-                    Duration
-                  </th>
-                  <th className="px-4 py-3">
-                    Table Earnings
-                  </th>
-                  <th className="px-4 py-3 text-right">
-                    Action
-                  </th>
+                  <th className="px-4 py-3">Date</th>
+                  <th className="px-4 py-3">Start Time</th>
+                  <th className="px-4 py-3">End Time</th>
+                  <th className="px-4 py-3">Duration</th>
+                  <th className="px-4 py-3">Table</th>
+                  <th className="px-4 py-3">Operator</th>
+                  <th className="px-4 py-3">Customer</th>
+                  <th className="px-4 py-3">Session Type</th>
+                  <th className="px-4 py-3 text-right">Amount</th>
+                  <th className="px-4 py-3">Payment</th>
+                  <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3 text-right">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {displayRows.map((row, index) => (
+                {displayRows.map((row) => {
+                  const paymentLabel = getRecordPaymentLabel(row.record);
+
+                  return (
                   <tr
                     key={row.rowId}
-                    className="bg-white"
+                    className="bg-white transition-colors hover:bg-slate-50"
                   >
-                    <td className="w-20 whitespace-nowrap px-4 py-3 font-semibold">
-                      {index + 1}
+                    <td className="whitespace-nowrap px-4 py-3">
+                      {formatDate(row.endedAt)}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3">
+                      {formatTime(row.startedAt)}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3">
+                      {formatTime(row.endedAt)}
                     </td>
                     <td className="px-4 py-3">
-                      <div className="whitespace-nowrap">
-                        <p>{formatDate(row.endedAt)}</p>
-                        <p className="text-xs text-slate-500">
-                          {formatTime(row.startedAt)} -{" "}
-                          {formatTime(row.endedAt)}
-                        </p>
-                      </div>
+                      {formatDuration(row.durationMinutes)}
                     </td>
                     <td className="px-4 py-3 font-medium">
                       {row.record.tableName}
                     </td>
+                    <td className="px-4 py-3">
+                      {getRecordOperator(row.record)}
+                    </td>
+                    <td className="px-4 py-3">
+                      {getRecordCustomer(row.record)}
+                    </td>
                     <td className="px-4 py-3 whitespace-nowrap">
                       {row.typeLabel}
                     </td>
-                    <td className="px-4 py-3">
-                      {formatDuration(
-                        row.durationMinutes
-                      )}
+                    <td className="px-4 py-3 text-right font-bold text-emerald-700">
+                      {formatCurrency(row.tableAmount)}
                     </td>
                     <td className="px-4 py-3">
-                      {formatCurrency(
-                        row.tableAmount
-                      )}
+                      <span className={`inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-semibold ${getPaymentBadgeClass(paymentLabel)}`}>
+                        {paymentLabel}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${getRecordStatusClass(row.record.paymentStatus)}`}>
+                        {formatStatusLabel(row.record.paymentStatus)}
+                      </span>
                     </td>
                     <td className="px-4 py-3 text-right">
                       <Button
@@ -1119,15 +1364,18 @@ function TableHistoryPage() {
                       </Button>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
 
                 {displayRows.length === 0 && (
                   <tr>
                     <td
-                      colSpan={7}
+                      colSpan={12}
                       className="px-4 py-12 text-center text-slate-500"
                     >
-                      No table history found.
+                      {records.length === 0
+                        ? "No table history has been recorded yet."
+                        : "No table history matches the selected filters."}
                     </td>
                   </tr>
                 )}
@@ -1162,7 +1410,7 @@ function TableHistoryPage() {
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div className="rounded-lg border p-4">
                 <p className="text-sm font-semibold text-slate-950">
-                  Session
+                  Session Information
                 </p>
                 <div className="mt-3 space-y-2 text-sm text-slate-600">
                   <p>
@@ -1180,6 +1428,15 @@ function TableHistoryPage() {
                     {getRecordTypeLabel(
                       selectedRecord
                     )}
+                  </p>
+                  <p>
+                    Operator: {getRecordOperator(selectedRecord)}
+                  </p>
+                  <p>
+                    Customer: {getRecordCustomer(selectedRecord)}
+                  </p>
+                  <p>
+                    Business Day: {getRecordBusinessDayLabel(selectedRecord)}
                   </p>
                   <p>
                     Time In:{" "}
@@ -1204,16 +1461,53 @@ function TableHistoryPage() {
 
               <div className="rounded-lg border p-4">
                 <p className="text-sm font-semibold text-slate-950">
-                  Table Earnings
+                  Billing Information
                 </p>
                 <div className="mt-3 space-y-2 text-sm text-slate-600">
                   <p>
-                    Session Earnings:{" "}
+                    Table Amount:{" "}
                     {formatCurrency(
                       selectedRecord.tableAmount
                     )}
                   </p>
+                  <p>
+                    Cafe Amount: {formatCurrency(selectedRecord.cafeAmount)}
+                  </p>
+                  <p>
+                    Discount: {formatCurrency(selectedRecord.discount)}
+                  </p>
+                  <p>
+                    Grand Total:{" "}
+                    <strong className="text-emerald-700">
+                      {formatCurrency(selectedRecord.grandTotal)}
+                    </strong>
+                  </p>
                 </div>
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-lg border p-4">
+              <p className="text-sm font-semibold text-slate-950">
+                Payment Information
+              </p>
+              <div className="mt-3 grid gap-2 text-sm text-slate-600 md:grid-cols-3">
+                <p>
+                  Payment:{" "}
+                  <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${getPaymentBadgeClass(getRecordPaymentLabel(selectedRecord))}`}>
+                    {getRecordPaymentLabel(selectedRecord)}
+                  </span>
+                </p>
+                <p>
+                  Status:{" "}
+                  <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${getRecordStatusClass(selectedRecord.paymentStatus)}`}>
+                    {formatStatusLabel(selectedRecord.paymentStatus)}
+                  </span>
+                </p>
+                <p>Invoice: {selectedRecord.invoiceNumber ?? selectedRecord.staffBillNumber ?? selectedRecord.billNo ?? "-"}</p>
+                <p>Amount Received: {formatCurrency(getRecordAmountReceived(selectedRecord))}</p>
+                <p>Change Returned: {formatCurrency(Math.max(0, getRecordAmountReceived(selectedRecord) - selectedRecord.grandTotal))}</p>
+                <p>Paid At: {selectedRecord.paidAt ? formatDateTime(selectedRecord.paidAt) : "-"}</p>
+                <p>Notes: {selectedRecord.cancelledNote ?? selectedRecord.cancelledReason ?? "-"}</p>
               </div>
             </div>
 
@@ -1234,10 +1528,10 @@ function TableHistoryPage() {
                           <strong className="text-slate-950">
                             {line.type === "tableBooking"
                               ? `Booking charge ${index + 1}`
-                              : `Game ${index + 1}`} · {getChargeLineTypeLabel(line, selectedRecord)}
+                              : `Game ${index + 1}`} - {getChargeLineTypeLabel(line, selectedRecord)}
                           </strong>
                           <span className="text-slate-500">
-                            {formatChargeTimeRange(line.startedAt, line.endedAt, selectedRecord.startedAt)} · {formatChargeDuration(line.startedAt, line.endedAt)}
+                            {formatChargeTimeRange(line.startedAt, line.endedAt, selectedRecord.startedAt)} - {formatChargeDuration(line.startedAt, line.endedAt)}
                           </span>
                         </div>
                         <div className="mt-2 flex justify-between border-t pt-2 text-slate-600">
@@ -1256,6 +1550,56 @@ function TableHistoryPage() {
                     No frame breakdown is available for this older record.
                   </p>
                 )}
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <div className="rounded-lg border p-4">
+                <p className="text-sm font-semibold text-slate-950">
+                  Cafe Orders
+                </p>
+                <div className="mt-3 space-y-2">
+                  {getCafeItems(selectedRecord).map((item, index) => (
+                    <div key={`${item.itemId}-${index}`} className="flex justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm">
+                      <span>{item.name} x{item.quantity}</span>
+                      <strong>{formatCurrency(item.subtotal)}</strong>
+                    </div>
+                  ))}
+                  {getCafeItems(selectedRecord).length === 0 && (
+                    <p className="text-sm text-slate-500">No cafe orders.</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-lg border p-4">
+                <p className="text-sm font-semibold text-slate-950">
+                  Accessories
+                </p>
+                <div className="mt-3 space-y-2">
+                  {getAccessoryItems(selectedRecord).map((item, index) => (
+                    <div key={`${item.itemId}-${index}`} className="flex justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm">
+                      <span>{item.name.replace("[Accessory]", "").trim()} x{item.quantity}</span>
+                      <strong>{formatCurrency(item.subtotal)}</strong>
+                    </div>
+                  ))}
+                  {getAccessoryItems(selectedRecord).length === 0 && (
+                    <p className="text-sm text-slate-500">No accessories.</p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-lg border p-4">
+              <p className="text-sm font-semibold text-slate-950">
+                Timeline
+              </p>
+              <div className="mt-3 grid gap-2 text-sm text-slate-600 md:grid-cols-2">
+                <p>Created: {formatDateTime(selectedRecord.createdAt)}</p>
+                <p>Updated: {formatDateTime(selectedRecord.updatedAt)}</p>
+                <p>Started: {formatDateTime(selectedRecord.startedAt)}</p>
+                <p>Ended: {formatDateTime(selectedRecord.endedAt)}</p>
+                <p>Paid: {selectedRecord.paidAt ? formatDateTime(selectedRecord.paidAt) : "-"}</p>
+                <p>Cancelled: {selectedRecord.cancelledAt ? formatDateTime(selectedRecord.cancelledAt) : "-"}</p>
               </div>
             </div>
 

@@ -117,10 +117,11 @@ function ExpensesPage() {
   useAppDateTimeFormats();
   const navigate = useNavigate();
   const location = useLocation();
+  const isAdmin = location.pathname.startsWith("/admin");
   const dashboardPath =
-    location.pathname.startsWith("/admin")
+    isAdmin
       ? "/admin"
-      : "/operator";
+      : "/operator/tables-rooms";
   const expenses = useExpensesStore(
     (state) => state.expenses
   );
@@ -424,7 +425,7 @@ function ExpensesPage() {
               }
             >
               <ArrowLeft className="h-4 w-4" />
-              Dashboard
+              {isAdmin ? "Back to Admin Dashboard" : "Tables & Rooms"}
             </Button>
 
             <h1 className="text-2xl font-bold text-slate-950">

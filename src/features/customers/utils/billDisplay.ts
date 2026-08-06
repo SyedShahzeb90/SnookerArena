@@ -2,9 +2,11 @@ import {
   getWalkInDisplayName,
   isWalkInName,
 } from "@/features/sessions/utils/walkInLabel";
+import { useTableHistoryStore } from "@/features/table-history/store/tableHistoryStore";
 
 import type { CustomerAccount } from "../types/customerAccount";
 import { formatAppTime } from "@/lib/dateTime";
+import { getHistoryParticipantDisplayLabel } from "./participantDisplay";
 
 function getChargeTableNames(account: CustomerAccount) {
   const tableNames = [
@@ -78,7 +80,14 @@ export function getBillTableLabel(account: CustomerAccount) {
 }
 
 export function getBillPrimaryLabel(account: CustomerAccount) {
+  const customerLabel = getBillCustomerLabel(account);
+  const baseCustomerLabel = getBaseBillCustomerLabel(account);
+
   if (!isWalkInName(account.customerName)) {
+    return formatCustomerDisplayLabel(account);
+  }
+
+  if (customerLabel !== baseCustomerLabel) {
     return formatCustomerDisplayLabel(account);
   }
 
@@ -97,7 +106,7 @@ export function getBillPrimaryLabel(account: CustomerAccount) {
   });
 }
 
-export function getBillCustomerLabel(account: CustomerAccount) {
+function getBaseBillCustomerLabel(account: CustomerAccount) {
   if (isWalkInName(account.customerName)) {
     const note = account.customerNote?.trim();
 
@@ -109,6 +118,56 @@ export function getBillCustomerLabel(account: CustomerAccount) {
   return note
     ? `${account.customerName} \u00b7 ${note}`
     : account.customerName;
+}
+
+function getRelevantSessionIds(account: CustomerAccount) {
+  return Array.from(
+    new Set(
+      [
+        ...account.gameCharges.map((charge) => charge.sessionId),
+        ...account.cafeCharges.map((charge) => charge.sessionId),
+        ...(account.accessoryCharges ?? []).map(
+          (charge) => charge.sessionId
+        ),
+      ].filter((sessionId): sessionId is string => Boolean(sessionId))
+    )
+  );
+}
+
+export function getBillCustomerLabel(account: CustomerAccount) {
+  const baseLabel = getBaseBillCustomerLabel(account);
+
+  if (!isWalkInName(account.customerName)) {
+    return baseLabel;
+  }
+
+  const sessionIds = getRelevantSessionIds(account);
+  const records = useTableHistoryStore
+    .getState()
+    .records.filter((record) =>
+      sessionIds.includes(record.sessionId)
+    )
+    .sort(
+      (a, b) =>
+        new Date(b.endedAt).getTime() -
+        new Date(a.endedAt).getTime()
+    );
+
+  for (const record of records) {
+    const participantLabel = getHistoryParticipantDisplayLabel(
+      record,
+      account.id
+    );
+
+    if (participantLabel) {
+      const note = account.customerNote?.trim();
+      return note
+        ? `${participantLabel} \u00b7 ${note}`
+        : participantLabel;
+    }
+  }
+
+  return baseLabel;
 }
 
 export function getBillDetailLabel(account: CustomerAccount) {

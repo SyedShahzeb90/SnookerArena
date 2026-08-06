@@ -45,8 +45,22 @@ function formatDate(value: string) {
 
 function formatProfit(value: number) {
   return value < 0
-    ? `Loss Rs. ${Math.abs(value)}`
-    : `Profit Rs. ${value}`;
+    ? `Loss Rs. ${Math.abs(value).toLocaleString()}`
+    : `Profit Rs. ${value.toLocaleString()}`;
+}
+
+function formatCurrency(value: number) {
+  return `Rs. ${Math.round(value).toLocaleString()}`;
+}
+
+function formatPercent(value: number) {
+  return `${value.toLocaleString()}%`;
+}
+
+function getProfitStatusClass(value: number) {
+  return value < 0
+    ? "bg-red-50 text-red-700 ring-1 ring-red-200"
+    : "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200";
 }
 
 function ProfitLossPage() {
@@ -79,6 +93,16 @@ function ProfitLossPage() {
       ),
     [sales, expenses, dateRange]
   );
+  const visibleExpenseTotals = useMemo(
+    () =>
+      expenseCategories
+        .map((category) => ({
+          category,
+          total: report.expenseTotals[category] ?? 0,
+        }))
+        .filter((item) => item.total > 0),
+    [report.expenseTotals]
+  );
 
   return (
     <PageShell contentClassName="space-y-0">
@@ -91,7 +115,7 @@ function ProfitLossPage() {
               onClick={() => navigate("/admin")}
             >
               <ArrowLeft className="h-4 w-4" />
-              Dashboard
+              Back to Admin Dashboard
             </Button>
 
             <div className="flex items-center gap-3">
@@ -166,42 +190,51 @@ function ProfitLossPage() {
             <div className="mb-4 flex items-center gap-2">
               <ReceiptText className="h-5 w-5 text-emerald-700" />
               <h2 className="font-bold text-slate-950">
-                Revenue Breakdown
+                Revenue Sources
               </h2>
             </div>
 
-            <div className="space-y-3 text-sm">
-              <div className="flex justify-between">
-                <span>Table revenue</span>
-                <span className="font-bold">
-                  Rs. {report.totals.tableRevenue}
-                </span>
+            <div className="space-y-4 text-sm">
+              <div className="space-y-3 rounded-lg border p-3">
+                <p className="text-xs font-semibold uppercase text-slate-500">
+                  Revenue Sources
+                </p>
+                <div className="flex justify-between gap-3">
+                  <span>Table revenue</span>
+                  <span className="font-bold">
+                    {formatCurrency(report.totals.tableRevenue)}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <span>Cafe revenue</span>
+                  <span className="font-bold">
+                    {formatCurrency(report.totals.cafeRevenue)}
+                  </span>
+                </div>
               </div>
-              <div className="flex justify-between">
-                <span>Cafe revenue</span>
-                <span className="font-bold">
-                  Rs. {report.totals.cafeRevenue}
-                </span>
+
+              <div className="space-y-3 rounded-lg border p-3">
+                <p className="text-xs font-semibold uppercase text-slate-500">
+                  Payment Methods
+                </p>
+                {Object.entries(paymentLabels).map(
+                  ([method, label]) => (
+                    <div
+                      key={method}
+                      className="flex justify-between gap-3"
+                    >
+                      <span>{label}</span>
+                      <span className="font-bold">
+                        {formatCurrency(
+                          report.paymentTotals[
+                            method as keyof typeof report.paymentTotals
+                          ]
+                        )}
+                      </span>
+                    </div>
+                  )
+                )}
               </div>
-              <hr />
-              {Object.entries(paymentLabels).map(
-                ([method, label]) => (
-                  <div
-                    key={method}
-                    className="flex justify-between"
-                  >
-                    <span>{label}</span>
-                    <span className="font-bold">
-                      Rs.{" "}
-                      {
-                        report.paymentTotals[
-                          method as keyof typeof report.paymentTotals
-                        ]
-                      }
-                    </span>
-                  </div>
-                )
-              )}
             </div>
           </Card>
 
@@ -214,22 +247,23 @@ function ProfitLossPage() {
             </div>
 
             <div className="space-y-3 text-sm">
-              {expenseCategories.map((category) => (
+              {visibleExpenseTotals.map((item) => (
                 <div
-                  key={category}
-                  className="flex justify-between"
+                  key={item.category}
+                  className="flex justify-between gap-3"
                 >
-                  <span>{category}</span>
+                  <span>{item.category}</span>
                   <span className="font-bold">
-                    Rs.{" "}
-                    {
-                      report.expenseTotals[
-                        category
-                      ]
-                    }
+                    {formatCurrency(item.total)}
                   </span>
                 </div>
               ))}
+
+              {visibleExpenseTotals.length === 0 && (
+                <p className="rounded-lg border border-dashed px-3 py-4 text-center text-sm text-slate-500">
+                  No expenses recorded.
+                </p>
+              )}
             </div>
           </Card>
 
@@ -242,28 +276,40 @@ function ProfitLossPage() {
             </div>
 
             <div className="space-y-3 text-sm">
-              <div className="flex justify-between">
+              <div className="flex justify-between gap-3">
                 <span>Completed sales</span>
                 <span className="font-bold">
-                  {report.totals.salesCount}
+                  {report.totals.salesCount.toLocaleString()}
                 </span>
               </div>
-              <div className="flex justify-between">
-                <span>Expense count</span>
+              <div className="flex justify-between gap-3">
+                <span>Transactions</span>
                 <span className="font-bold">
-                  {report.totals.expenseCount}
+                  {report.totals.transactions.toLocaleString()}
                 </span>
               </div>
-              <div className="flex justify-between">
+              <div className="flex justify-between gap-3">
+                <span>Highest sale</span>
+                <span className="font-bold">
+                  {formatCurrency(report.totals.highestSale)}
+                </span>
+              </div>
+              <div className="flex justify-between gap-3">
+                <span>Lowest sale</span>
+                <span className="font-bold">
+                  {formatCurrency(report.totals.lowestSale)}
+                </span>
+              </div>
+              <div className="flex justify-between gap-3">
                 <span>Average sale</span>
                 <span className="font-bold">
-                  Rs. {report.totals.averageSale}
+                  {formatCurrency(report.totals.averageSale)}
                 </span>
               </div>
-              <div className="flex justify-between">
+              <div className="flex justify-between gap-3">
                 <span>Average expense</span>
                 <span className="font-bold">
-                  Rs. {report.totals.averageExpense}
+                  {formatCurrency(report.totals.averageExpense)}
                 </span>
               </div>
             </div>
@@ -279,34 +325,34 @@ function ProfitLossPage() {
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+            <table className="w-full min-w-[760px] text-left text-sm">
+              <thead className="sticky top-0 z-10 bg-slate-50 text-xs uppercase text-slate-500">
                 <tr>
                   <th className="px-4 py-3">Date</th>
-                  <th className="px-4 py-3">Revenue</th>
-                  <th className="px-4 py-3">Expenses</th>
-                  <th className="px-4 py-3">Net Profit</th>
-                  <th className="px-4 py-3">Sales Count</th>
-                  <th className="px-4 py-3">Expense Count</th>
+                  <th className="px-4 py-3 text-right">Revenue</th>
+                  <th className="px-4 py-3 text-right">Expenses</th>
+                  <th className="px-4 py-3 text-right">Profit</th>
+                  <th className="px-4 py-3 text-right">Profit Margin</th>
+                  <th className="px-4 py-3">Status</th>
                 </tr>
               </thead>
               <tbody>
                 {report.dailyRows.map((row) => (
                   <tr
                     key={row.date}
-                    className="border-t bg-white"
+                    className="border-t bg-white transition-colors hover:bg-slate-50"
                   >
                     <td className="px-4 py-3 font-semibold">
                       {formatDate(row.date)}
                     </td>
-                    <td className="px-4 py-3">
-                      Rs. {row.revenue}
+                    <td className="px-4 py-3 text-right font-medium">
+                      {formatCurrency(row.revenue)}
                     </td>
-                    <td className="px-4 py-3">
-                      Rs. {row.expenses}
+                    <td className="px-4 py-3 text-right">
+                      {formatCurrency(row.expenses)}
                     </td>
                     <td
-                      className={`px-4 py-3 font-bold ${
+                      className={`px-4 py-3 text-right font-bold ${
                         row.netProfit < 0
                           ? "text-red-700"
                           : "text-emerald-700"
@@ -314,11 +360,13 @@ function ProfitLossPage() {
                     >
                       {formatProfit(row.netProfit)}
                     </td>
-                    <td className="px-4 py-3">
-                      {row.salesCount}
+                    <td className="px-4 py-3 text-right font-semibold">
+                      {formatPercent(row.profitMargin)}
                     </td>
                     <td className="px-4 py-3">
-                      {row.expenseCount}
+                      <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${getProfitStatusClass(row.netProfit)}`}>
+                        {row.netProfit < 0 ? "Loss" : "Profit"}
+                      </span>
                     </td>
                   </tr>
                 ))}
@@ -329,7 +377,7 @@ function ProfitLossPage() {
                       colSpan={6}
                       className="px-4 py-10 text-center text-slate-500"
                     >
-                      No sales or expenses found.
+                      No sales or expenses found for the selected period.
                     </td>
                   </tr>
                 )}

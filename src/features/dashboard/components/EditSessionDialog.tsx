@@ -128,6 +128,8 @@ function EditSessionDialog({
         player4CustomerId:
           session.player4CustomerId,
         extraPlayers: session.extraPlayers ?? [],
+        extraPlayerCustomerIds:
+          session.extraPlayerCustomerIds ?? [],
         teamAOneNameEnough:
           session.teamAOneNameEnough,
         teamBOneNameEnough:
@@ -266,6 +268,17 @@ function EditSessionDialog({
                     data.player4Mode
                   )
                 : undefined;
+            const extraPlayerCustomerIds =
+              data.extraPlayers.map(
+                (name, index) =>
+                  resolveSessionCustomerId(
+                    name,
+                    data.extraPlayerCustomerIds[
+                      index
+                    ],
+                    data.extraPlayerModes[index]
+                  )
+              );
 
             const updateLinkedCustomerName = (
               customerId: string | undefined,
@@ -294,6 +307,13 @@ function EditSessionDialog({
               player4CustomerId,
               data.player4
             );
+            data.extraPlayers.forEach(
+              (name, index) =>
+                updateLinkedCustomerName(
+                  extraPlayerCustomerIds[index],
+                  name
+                )
+            );
 
             updateSession({
               tableId: table.id,
@@ -306,6 +326,7 @@ function EditSessionDialog({
               player4: data.player4,
               player4CustomerId,
               extraPlayers: data.extraPlayers,
+              extraPlayerCustomerIds,
               teamAOneNameEnough:
                 data.teamAOneNameEnough,
               teamBOneNameEnough:

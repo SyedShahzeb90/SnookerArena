@@ -127,6 +127,9 @@ export function validateClubSettings(input: ClubSettings): string[] {
     if (!operator.id.trim() || !name) {
       errors.push("Every operator must have an ID and name.");
     }
+    if (name.length > 15) {
+      errors.push("Operator names must be 15 characters or fewer.");
+    }
     if (operatorIds.has(operator.id)) {
       errors.push("Operator IDs must be unique.");
     }

@@ -29,6 +29,7 @@ import { useExpensesStore } from "@/features/expenses/store/expensesStore";
 import { useOutsidePurchaseStore } from "@/features/outside-purchases/store/outsidePurchaseStore";
 import BusinessSummaryCards from "@/features/sales/components/BusinessSummaryCards";
 import { useSalesStore } from "@/features/sales/store/salesStore";
+import { useStaffPayrollStore } from "@/features/staff-payroll/store/staffPayrollStore";
 
 import { AdminNavigationCard } from "./components/AdminNavigationCard";
 
@@ -88,14 +89,14 @@ const destinationGroups: Array<{
   },
   {
     title: "Operations & Management",
-    description: "Maintain expenses, cafe products, deliveries, and accessories.",
+    description: "Maintain cafe products, deliveries, accessories, and staff payroll.",
     items: [
       {
-        title: "Expenses",
-        description: "Record and review club expenses.",
-        path: "/admin/expenses",
+        title: "Staff Payroll",
+        description: "Manage employees, salary advances, and salary payments.",
+        path: "/admin/staff-payroll",
         icon: WalletCards,
-        permission: "view_management_reports",
+        permission: "manage_payroll",
       },
       {
         title: "Menu Management",
@@ -174,6 +175,8 @@ function AdminDashboard() {
   const vendorRestockingRecords = useCafeStore(
     (state) => state.vendorRestockingRecords,
   );
+  const salaryAdvances = useStaffPayrollStore((state) => state.salaryAdvances);
+  const salaryPayments = useStaffPayrollStore((state) => state.salaryPayments);
   const daySummary = activeDay
     ? calculateBusinessDaySummary({
         day: activeDay,
@@ -182,6 +185,8 @@ function AdminDashboard() {
         pendingBills,
         outsidePurchases,
         vendorRestockingRecords,
+        salaryAdvances,
+        salaryPayments,
       })
     : undefined;
 

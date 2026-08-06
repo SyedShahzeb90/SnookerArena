@@ -15,6 +15,7 @@ import type { Table } from "@/types/table";
 import { useCustomerAccountStore } from "@/features/customers/store/customerAccountStore";
 import {
   getSessionParticipantKey,
+  getSessionPlayerEntries,
   getSessionPlayers,
 } from "@/features/sessions/utils/sessionPlayers";
 import { getDoubleGameTeams } from "@/features/sessions/utils/doubleGameBilling";
@@ -39,6 +40,13 @@ interface Props {
     finalGames?: number;
     endTime?: Date;
   }) => void;
+}
+
+interface LoserOption {
+  slot: string;
+  slotLabel: string;
+  name: string;
+  customerId?: string;
 }
 
 function formatDateTimeLocal(date: Date) {
@@ -112,6 +120,26 @@ function EndSessionDialog({
   const isTimeBased =
     session.sessionType === "time" ||
     session.sessionType === "private";
+  const bookingPlayerOptions: LoserOption[] =
+    session.sessionType === "time"
+      ? getSessionPlayerEntries(session).map(
+          (player, index) => ({
+            ...player,
+            slotLabel:
+              index === 0
+                ? "Main Customer"
+                : `Extra Player ${index}`,
+          })
+        )
+      : [];
+  const shouldAskBookingLoser =
+    session.sessionType === "time" &&
+    bookingPlayerOptions.length > 1 &&
+    bookingPlayerOptions.some(
+      (player) => !isWalkInName(player.name)
+    );
+  const shouldAskLoser =
+    !isTimeBased || shouldAskBookingLoser;
   const teams = getDoubleGameTeams(session);
   const teamALabel =
     teams.teamAPlayers.join(", ") ||
@@ -120,23 +148,30 @@ function EndSessionDialog({
     teams.teamBPlayers.join(", ") ||
     "Team B";
 
-  const handleLoser = (loser: {
-    slot: string;
-    name: string;
-    customerId?: string;
-  }) => {
+  const handleLoser = (
+    loser: LoserOption,
+    options: LoserOption[]
+  ) => {
     const finalData = getFinalData();
     if (!finalData) return;
+    const endTime = isTimeBased
+      ? getManualEndTime()
+      : undefined;
+    if (endTime === null) return;
     const winner =
-      singlePlayerOptions.find(
-        (player) => player.slot !== loser.slot
-      );
+      options.length === 2
+        ? options.find(
+            (player) =>
+              player.slot !== loser.slot
+          )
+        : undefined;
     const winnerName =
       winner?.name ??
-      players.find(
-        (player) => player !== loser.name
-      ) ??
-      loser.name;
+      (!isTimeBased
+        ? players.find(
+            (player) => player !== loser.name
+          ) ?? loser.name
+        : undefined);
 
     onConfirm({
       winnerName,
@@ -152,6 +187,7 @@ function EndSessionDialog({
       ),
       payerName: loser.name,
       payerCustomerId: loser.customerId,
+      endTime,
       ...finalData,
     });
   };
@@ -253,18 +289,22 @@ function EndSessionDialog({
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>
-            {isTimeBased ? "End Session" : "Who lost?"}
+            {shouldAskLoser
+              ? "Who lost?"
+              : "End Session"}
           </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4">
           <div className="rounded-lg border bg-slate-50 p-4">
             <p className="text-sm font-medium text-slate-500">
-              {isTimeBased
+              {!shouldAskLoser
                 ? "End this booking now or enter the actual end time manually."
-                : "Select the loser before ending this session."}
+                : shouldAskBookingLoser
+                  ? "Select the loser before ending this booking."
+                  : "Select the loser before ending this session."}
             </p>
-            {!isTimeBased && (
+            {shouldAskLoser && (
               <p className="mt-1 text-sm text-slate-500">
                 The loser will be selected as payer by default.
               </p>
@@ -344,7 +384,7 @@ function EndSessionDialog({
             </div>
           )}
 
-          {isTimeBased ? (
+          {isTimeBased && !shouldAskBookingLoser ? (
             <Button
               size="lg"
               className="h-12 w-full"
@@ -356,6 +396,34 @@ function EndSessionDialog({
             >
               End Session
             </Button>
+          ) : shouldAskBookingLoser ? (
+            <div className="grid gap-3">
+              {bookingPlayerOptions.map(
+                (player) => (
+                  <Button
+                    key={`${player.slot}-${player.customerId ?? player.name}`}
+                    size="lg"
+                    className="h-14 justify-start gap-3 text-base"
+                    onClick={() =>
+                      handleLoser(
+                        player,
+                        bookingPlayerOptions
+                      )
+                    }
+                  >
+                    <CircleX className="h-5 w-5" />
+                    <span className="flex flex-col items-start leading-tight">
+                      <span>
+                        {getPlayerLabel(player)} Lost
+                      </span>
+                      <span className="text-xs font-normal opacity-80">
+                        {player.slotLabel}
+                      </span>
+                    </span>
+                  </Button>
+                )
+              )}
+            </div>
           ) : isDouble && !hasNamedSessionPlayer ? (
             <div className="grid gap-3">
               <Button
@@ -434,7 +502,10 @@ function EndSessionDialog({
                   size="lg"
                   className="h-14 justify-start gap-3 text-base"
                   onClick={() =>
-                    handleLoser(player)
+                    handleLoser(
+                      player,
+                      singlePlayerOptions
+                    )
                   }
                 >
                   <CircleX className="h-5 w-5" />

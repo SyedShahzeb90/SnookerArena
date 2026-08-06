@@ -48,6 +48,8 @@ interface Props {
     player4CustomerId?: string;
     player4Mode: CustomerEntryMode;
     extraPlayers: string[];
+    extraPlayerCustomerIds: string[];
+    extraPlayerModes: CustomerEntryMode[];
     teamAOneNameEnough: boolean;
     teamBOneNameEnough: boolean;
     sessionType: SessionType;
@@ -145,6 +147,12 @@ function SessionForm({
     useState<CustomerEntryMode>("quick");
   const [extraPlayers, setExtraPlayers] =
     useState<string[]>([]);
+  const [
+    extraPlayerCustomerIds,
+    setExtraPlayerCustomerIds,
+  ] = useState<string[]>([]);
+  const [extraPlayerModes, setExtraPlayerModes] =
+    useState<CustomerEntryMode[]>([]);
   const [teamAOneName, setTeamAOneName] =
     useState(false);
   const [teamBOneName, setTeamBOneName] =
@@ -201,6 +209,7 @@ function SessionForm({
     session?.player2CustomerId,
     session?.player3CustomerId,
     session?.player4CustomerId,
+    ...(session?.extraPlayerCustomerIds ?? []),
   ].filter((value): value is string => Boolean(value)));
   const activeCustomers = dedupeActiveCustomers(
     customerAccounts.filter((account) => {
@@ -282,6 +291,7 @@ function SessionForm({
       player2CustomerId,
       player3CustomerId,
       player4CustomerId,
+      ...extraPlayerCustomerIds,
     ].filter(Boolean);
     const availableCustomers =
       activeCustomers.filter(
@@ -296,7 +306,7 @@ function SessionForm({
 
     return (
       <div className="space-y-2">
-        <Label>{label}</Label>
+        {label && <Label>{label}</Label>}
         <select
           className="w-full rounded-md border bg-white p-2 text-sm"
           value={mode}
@@ -472,18 +482,60 @@ function SessionForm({
           ? "existing"
           : "quick"
       );
-      setExtraPlayers(
+      const legacyExtraPlayerEntries =
+        session.sessionType === "time" ||
+        session.sessionType === "private"
+          ? [
+              {
+                name: session.player2,
+                customerId:
+                  session.player2CustomerId,
+              },
+              {
+                name: session.player3,
+                customerId:
+                  session.player3CustomerId,
+              },
+              {
+                name: session.player4,
+                customerId:
+                  session.player4CustomerId,
+              },
+            ].filter((entry) =>
+              Boolean(entry.name?.trim())
+            )
+          : [];
+      const nextExtraPlayers =
         session.extraPlayers ??
-          (session.sessionType === "time" ||
-          session.sessionType === "private"
-            ? [
-                session.player2,
-                session.player3,
-                session.player4,
-              ]
-                .map((name) => name?.trim())
-                .filter(Boolean) as string[]
-            : [])
+        legacyExtraPlayerEntries.map(
+          (entry) => entry.name?.trim() ?? ""
+        );
+      const nextExtraPlayerCustomerIds =
+        nextExtraPlayers.map((_, index) =>
+          session.extraPlayerCustomerIds?.[index] ??
+          (session.extraPlayers === undefined
+            ? legacyExtraPlayerEntries[index]
+                ?.customerId
+            : "") ??
+          ""
+        );
+
+      setExtraPlayers(
+        nextExtraPlayers.map((name, index) =>
+          getCustomerName(
+            nextExtraPlayerCustomerIds[index],
+            name
+          )
+        )
+      );
+      setExtraPlayerCustomerIds(
+        nextExtraPlayerCustomerIds
+      );
+      setExtraPlayerModes(
+        nextExtraPlayerCustomerIds.map(
+          (customerId) =>
+            customerId ? "existing" : "quick"
+        )
       );
       setTeamAOneName(
         session.teamAOneNameEnough ??
@@ -537,6 +589,8 @@ function SessionForm({
       setPlayer4CustomerId("");
       setPlayer4Mode("quick");
       setExtraPlayers([]);
+      setExtraPlayerCustomerIds([]);
+      setExtraPlayerModes([]);
       setTeamAOneName(false);
       setTeamBOneName(false);
 
@@ -603,6 +657,18 @@ function SessionForm({
 
   const removeExtraPlayer = (index: number) => {
     setExtraPlayers((current) =>
+      current.filter(
+        (_, currentIndex) =>
+          currentIndex !== index
+      )
+    );
+    setExtraPlayerCustomerIds((current) =>
+      current.filter(
+        (_, currentIndex) =>
+          currentIndex !== index
+      )
+    );
+    setExtraPlayerModes((current) =>
       current.filter(
         (_, currentIndex) =>
           currentIndex !== index
@@ -710,6 +776,23 @@ function SessionForm({
           }
         }
 
+        const normalizedExtraPlayers =
+          isBooking
+            ? extraPlayers
+                .map((name, index) => ({
+                  name: name.trim(),
+                  customerId:
+                    extraPlayerCustomerIds[index] ??
+                    "",
+                  mode:
+                    extraPlayerModes[index] ??
+                    "quick",
+                }))
+                .filter((entry) =>
+                  Boolean(entry.name)
+                )
+            : [];
+
         onSubmit({
           player1: player1.trim(),
           player1CustomerId:
@@ -744,11 +827,18 @@ function SessionForm({
               ? player4CustomerId || undefined
               : undefined,
           player4Mode,
-          extraPlayers: isBooking
-            ? extraPlayers
-                .map((name) => name.trim())
-                .filter(Boolean)
-            : [],
+          extraPlayers:
+            normalizedExtraPlayers.map(
+              (entry) => entry.name
+            ),
+          extraPlayerCustomerIds:
+            normalizedExtraPlayers.map(
+              (entry) => entry.customerId
+            ),
+          extraPlayerModes:
+            normalizedExtraPlayers.map(
+              (entry) => entry.mode
+            ),
           teamAOneNameEnough:
             isDouble && teamAOneName,
           teamBOneNameEnough:
@@ -933,32 +1023,54 @@ function SessionForm({
           {extraPlayers.map((name, index) => (
             <div
               key={index}
-              className="flex items-end gap-2"
+              className="space-y-2 rounded-md border bg-slate-50/60 p-3"
             >
-              <div className="flex-1">
+              <div className="flex items-center justify-between gap-3">
                 <Label>
                   Extra Player {index + 1}
                 </Label>
-                <Input
-                  value={name}
-                  onChange={(event) =>
-                    updateExtraPlayer(
-                      index,
-                      event.target.value
-                    )
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() =>
+                    removeExtraPlayer(index)
                   }
-                  placeholder="Optional"
-                />
+                >
+                  Remove
+                </Button>
               </div>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() =>
-                  removeExtraPlayer(index)
-                }
-              >
-                Remove
-              </Button>
+
+              {renderCustomerEntry(
+                "",
+                "Type name or select an existing customer",
+                name,
+                (value) =>
+                  updateExtraPlayer(index, value),
+                extraPlayerCustomerIds[index] ?? "",
+                (value) =>
+                  setExtraPlayerCustomerIds(
+                    (current) =>
+                      current.map(
+                        (
+                          customerId,
+                          currentIndex
+                        ) =>
+                          currentIndex === index
+                            ? value
+                            : customerId
+                      )
+                  ),
+                extraPlayerModes[index] ?? "quick",
+                (value) =>
+                  setExtraPlayerModes((current) =>
+                    current.map(
+                      (mode, currentIndex) =>
+                        currentIndex === index
+                          ? value
+                          : mode
+                    )
+                  )
+              )}
             </div>
           ))}
 
@@ -966,12 +1078,19 @@ function SessionForm({
             type="button"
             variant="outline"
             className="w-full"
-            onClick={() =>
+            onClick={() => {
               setExtraPlayers((current) => [
                 ...current,
                 "",
-              ])
-            }
+              ]);
+              setExtraPlayerCustomerIds(
+                (current) => [...current, ""]
+              );
+              setExtraPlayerModes((current) => [
+                ...current,
+                "quick",
+              ]);
+            }}
           >
             + Add Player
           </Button>

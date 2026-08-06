@@ -20,6 +20,8 @@ const emptySummary: BusinessDaySummary = {
   totalExpenses: 0,
   cashExpenses: 0,
   expenseCount: 0,
+  payrollExpensesTotal: 0,
+  cashPayrollExpenses: 0,
   outsidePurchasesPaidFromDrawer: 0,
   outsidePurchaseCashRestored: 0,
   cashCustomerReimbursements: 0,

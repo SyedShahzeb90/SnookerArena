@@ -1,11 +1,11 @@
 import {
   Coffee,
   CalendarClock,
+  ReceiptText,
   LayoutGrid,
   Menu,
   Moon,
   Package,
-  ReceiptText,
   Settings,
   SlidersHorizontal,
   Sun,
@@ -35,14 +35,10 @@ import {
 
 import DashboardHeader from "./DashboardHeader";
 import {
-  isActionableCustomerBill,
   useCustomerAccountStore,
 } from "@/features/customers/store/customerAccountStore";
 import { useTableStore } from "@/store/tableStore";
-import {
-  getBillPrimaryLabel,
-  getBillTableLabel,
-} from "@/features/customers/utils/billDisplay";
+import { getCollectPaymentPendingCount } from "@/features/billing/utils/collectPaymentSummary";
 import {
   selectOutstandingCreditCount,
   useCreditLedgerStore,
@@ -90,6 +86,12 @@ const navigationGroups: NavigationGroup[] = [
         icon: LayoutGrid,
         exact: true,
       },
+      {
+        label: "Expenses",
+        path: "/operator/expenses",
+        icon: ReceiptText,
+        exact: true,
+      },
     ],
   },
   {
@@ -102,7 +104,6 @@ const navigationGroups: NavigationGroup[] = [
   {
     label: "Billing",
     items: [
-      { label: "Customer Bills", path: "/operator/customer-bills", icon: ReceiptText },
       { label: "Collect Payment", path: "/operator/billing", icon: CreditCard, badge: "collect-payment" },
       { label: "Credit Ledger", path: "/operator/credit-ledger", icon: WalletCards, exact: true, badge: "credit-ledger" },
       { label: "Customer Outside Purchases", path: "/operator/outside-purchases", icon: ShoppingBag, exact: true, badge: "outside-purchases" },
@@ -126,7 +127,6 @@ const navigationGroups: NavigationGroup[] = [
 
 const managementPaths = [
   "/admin",
-  "/operator/expenses",
   "/operator/table-history",
   "/operator/club-settings",
   "/operator/backup-restore",
@@ -145,55 +145,10 @@ function SidebarNavigation({ onSelect }: { onSelect?: () => void }) {
     mergeDuplicateWalkInSessionBills();
   }, [mergeDuplicateWalkInSessionBills]);
   const tables = useTableStore((state) => state.tables);
-  const openBillCount = useMemo(() => {
-    const runningSessions = tables
-      .filter(
-        (table) =>
-          table.session &&
-          (table.status === "running" || table.status === "paused")
-      )
-      .map((table) => table.session!);
-
-    const visibleBills = customerAccounts.filter((account) => {
-      if (!isActionableCustomerBill(account) || account.grandTotal <= 0) {
-        return false;
-      }
-
-      const accountSessionIds = new Set(
-        [
-          ...account.gameCharges,
-          ...account.cafeCharges,
-          ...(account.accessoryCharges ?? []),
-        ]
-          .map((charge) => charge.sessionId)
-          .filter(Boolean)
-      );
-
-      return !runningSessions.some((session) =>
-        accountSessionIds.has(session.id) ||
-        [
-          session.player1CustomerId,
-          session.player2CustomerId,
-          session.player3CustomerId,
-          session.player4CustomerId,
-        ].includes(account.id)
-      );
-    });
-    const seen = new Set<string>();
-
-    return visibleBills.filter((account) => {
-      const key = [
-        getBillPrimaryLabel(account),
-        getBillTableLabel(account),
-        account.customerName.trim().toLowerCase(),
-        account.grandTotal,
-      ].join("|");
-
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    }).length;
-  }, [customerAccounts, tables]);
+  const openBillCount = useMemo(
+    () => getCollectPaymentPendingCount(customerAccounts, tables),
+    [customerAccounts, tables],
+  );
   const outstandingCreditCount = useCreditLedgerStore(
     selectOutstandingCreditCount
   );

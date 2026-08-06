@@ -42,6 +42,7 @@ import { useSalesStore } from "@/features/sales/store/salesStore";
 import { useBusinessDayStore } from "@/features/business-day/store/businessDayStore";
 import { useClubSettingsStore } from "@/features/settings/store/clubSettingsStore";
 import { useCustomerAccountStore } from "@/features/customers/store/customerAccountStore";
+import { useCheckoutStore } from "@/features/billing/store/checkoutStore";
 import {
   getBillPrimaryLabel,
   getBillCustomerLabel,
@@ -49,6 +50,12 @@ import {
   getBillSecondaryLabel,
   getBillTableLabel,
 } from "@/features/customers/utils/billDisplay";
+import { getSessionParticipantDisplayLabel } from "@/features/customers/utils/participantDisplay";
+import {
+  getPlayerCafeItems,
+  getSessionPlayerBillingIdentities,
+} from "@/features/billing/utils/playerBillIdentity";
+import type { OrderItem } from "./types/menu";
 
 import MenuPanel from "./components/MenuPanel";
 import OrderCart from "./components/OrderCart";
@@ -78,6 +85,9 @@ type SelectedTarget =
   | null;
 
 function CafePage() {
+  const pendingBills = useCheckoutStore(
+    (state) => state.pendingBills
+  );
   const navigate = useNavigate();
   const toast = useToast();
   const [searchParams] = useSearchParams();
@@ -440,7 +450,10 @@ function CafePage() {
       updateSessionCafe({
         tableId: table.id,
         cafeOrders:
-          getTableOrderItems(table.id),
+          getTableOrderItems(
+            table.id,
+            table.session.id
+          ),
       });
     });
   }, [
@@ -570,27 +583,172 @@ function CafePage() {
 
   const selectedCartTotal =
     selectedOrder?.totalAmount ?? 0;
-  const selectedSavedCafeItems =
-    selectedPanelAccount?.cafeCharges
-      .filter(
-        (charge) =>
-          !charge.name.startsWith(
-            "[Accessory]"
-          )
-      )
-      .map((charge) => ({
-        menuItemId: charge.itemId,
-        name: charge.name,
-        price: charge.price,
-        quantity: charge.quantity,
-        subtotal: charge.subtotal,
-        timeAdded: new Date(
-          charge.createdAt
+  const selectedSavedCafeItems = useMemo(() => {
+    if (!selectedPanelAccount) return [];
+
+    const getPhysicalSessionId = (value?: string) =>
+      (value ?? "").split("-TCL-")[0];
+    const accountItems: OrderItem[] =
+      selectedPanelAccount.cafeCharges
+        .filter(
+          (charge) =>
+            !charge.name.startsWith(
+              "[Accessory]"
+            )
+        )
+        .map((charge) => ({
+          lineId: charge.id,
+          menuItemId: charge.itemId,
+          name: charge.name,
+          price: charge.price,
+          quantity: charge.quantity,
+          subtotal: charge.subtotal,
+          timeAdded: new Date(
+            charge.createdAt
+          ),
+          sessionId: charge.sessionId,
+          customerName:
+            charge.customerName,
+          playerId: charge.customerId,
+          orderedAt: charge.orderedAt,
+        }));
+    const accountSessionIds = new Set(
+      [
+        ...selectedPanelAccount.gameCharges.map(
+          (charge) => charge.sessionId
         ),
-        orderedAt: charge.orderedAt,
-      })) ?? [];
+        ...selectedPanelAccount.cafeCharges.map(
+          (charge) => charge.sessionId
+        ),
+        ...(
+          selectedPanelAccount.accessoryCharges ?? []
+        ).map((charge) => charge.sessionId),
+      ]
+        .map(getPhysicalSessionId)
+        .filter(Boolean)
+    );
+    const matchesAccountSession = (
+      sessionId: string
+    ) =>
+      accountSessionIds.has(
+        getPhysicalSessionId(sessionId)
+      );
+    const hasAccountParticipant = (
+      session: (typeof pendingBills)[number]["session"]
+    ) =>
+      getSessionPlayerEntries(session).some(
+        (entry) =>
+          entry.customerId ===
+          selectedPanelAccount.id
+      );
+    const pendingSession =
+      pendingBills.find((bill) =>
+        matchesAccountSession(bill.session.id)
+      )?.session ??
+      pendingBills.find((bill) =>
+        hasAccountParticipant(bill.session)
+      )?.session;
+    const activeSession = tables
+      .map((table) => table.session)
+      .find(
+        (session) =>
+          session &&
+          (matchesAccountSession(session.id) ||
+            hasAccountParticipant(session))
+      );
+    const matchingSession =
+      pendingSession ?? activeSession;
+    const matchingIdentity = matchingSession
+      ? (() => {
+          const identities =
+            getSessionPlayerBillingIdentities(
+              matchingSession
+            );
+          const customerIdentity =
+            identities.find(
+              (identity) =>
+                identity.customerId ===
+                selectedPanelAccount.id
+            );
+
+          if (customerIdentity) {
+            return customerIdentity;
+          }
+
+          const matchingNames =
+            identities.filter(
+              (identity) =>
+                normalizePlayerName(
+                  identity.playerName
+                ) ===
+                normalizePlayerName(
+                  selectedPanelAccount.customerName
+                )
+            );
+
+          return matchingNames.length === 1
+            ? matchingNames[0]
+            : undefined;
+        })()
+      : undefined;
+    const sessionItems =
+      matchingSession && matchingIdentity
+        ? getPlayerCafeItems(
+            matchingSession,
+            matchingIdentity
+          )
+        : [];
+    const mergedItems = new Map<
+      string,
+      OrderItem
+    >();
+    const getItemKey = (
+      item: OrderItem
+    ) =>
+      [
+        item.menuItemId,
+        item.quantity,
+        item.subtotal,
+        item.orderedAt ?? "",
+      ].join("|");
+
+    accountItems.forEach((item) =>
+      mergedItems.set(getItemKey(item), item)
+    );
+    sessionItems.forEach((item) => {
+      const normalizedItem = {
+        ...item,
+        timeAdded: new Date(item.timeAdded),
+      };
+      mergedItems.set(
+        getItemKey(normalizedItem),
+        normalizedItem
+      );
+    });
+
+    return Array.from(mergedItems.values());
+  }, [
+    pendingBills,
+    selectedPanelAccount,
+    tables,
+  ]);
+  const selectedSavedCafeTotal =
+    selectedSavedCafeItems.reduce(
+      (total, item) =>
+        total + item.subtotal,
+      0
+    );
   const selectedPreviousBillTotal =
-    selectedPanelAccount?.grandTotal ?? 0;
+    selectedPanelAccount
+      ? Math.max(
+          selectedPanelAccount.totalGameAmount +
+            selectedSavedCafeTotal +
+            (selectedPanelAccount.totalAccessoryAmount ??
+              0) -
+            selectedPanelAccount.discount,
+          0
+        )
+      : 0;
   const selectedNewBillTotal =
     selectedPreviousBillTotal + selectedCartTotal;
   const selectedBillPrimaryLabel =
@@ -1003,10 +1161,12 @@ function CafePage() {
     );
     const sessionId =
       searchParams.get("sessionId");
+    const requestedParticipantKey =
+      searchParams.get("participantKey");
 
     if (!tableId || !sessionId) return;
 
-    const urlTargetKey = `${tableId}-${sessionId}`;
+    const urlTargetKey = `${tableId}-${sessionId}-${requestedParticipantKey ?? ""}`;
     if (previousUrlTableTargetKey.current === urlTargetKey) {
       return;
     }
@@ -1021,20 +1181,32 @@ function CafePage() {
     previousUrlTableTargetKey.current =
       urlTargetKey;
 
-    const firstPlayer =
-      getSessionPlayerEntries(table.session)[0];
+    const session = table.session;
+    const sessionPlayers =
+      getSessionPlayerEntries(session);
+    const selectedPlayer =
+      sessionPlayers.find(
+        (player) =>
+          getSessionParticipantKey(
+            session.id,
+            player.slot
+          ) === requestedParticipantKey
+      ) ?? sessionPlayers[0];
     const playerName =
-      firstPlayer?.name ?? "Walk-in Customer";
+      selectedPlayer?.name ?? "Walk-in Customer";
 
     setExpandedTable(table.id);
     setSelectedTarget({
       type: "runningTable",
       tableId: table.id,
-      sessionId: table.session.id,
+      sessionId: session.id,
       playerName,
-      customerId: firstPlayer?.customerId,
-      participantKey: firstPlayer
-        ? getSessionParticipantKey(table.session.id, firstPlayer.slot)
+      customerId: selectedPlayer?.customerId,
+      participantKey: selectedPlayer
+        ? getSessionParticipantKey(
+            session.id,
+            selectedPlayer.slot
+          )
         : undefined,
     });
   }, [searchParams, tables]);
@@ -1045,7 +1217,8 @@ function CafePage() {
   const getRunningPlayerLabel = (
     table: (typeof tables)[number],
     playerName: string,
-    playerCustomerId?: string
+    playerCustomerId?: string,
+    playerSlot?: string
   ) => {
     const playerAccount =
       customerAccounts.find(
@@ -1058,7 +1231,20 @@ function CafePage() {
       playerAccount?.customerNote?.trim();
     const cleanPlayerName =
       playerName.trim();
+    const stablePlayerLabel =
+      playerSlot && table.session
+        ? getSessionParticipantDisplayLabel(
+            table.session,
+            playerSlot
+          )
+        : cleanPlayerName;
 
+    if (
+      stablePlayerLabel &&
+      stablePlayerLabel !== cleanPlayerName
+    ) {
+      return stablePlayerLabel;
+    }
     if (
       accountName &&
       !isWalkInName(accountName) &&
@@ -1362,7 +1548,8 @@ function CafePage() {
             useCafeStore
               .getState()
               .getTableOrderItems(
-                selectedTarget.tableId
+                selectedTarget.tableId,
+                selectedTarget.sessionId
               ),
         });
       }
@@ -1772,7 +1959,8 @@ function CafePage() {
                         getRunningPlayerLabel(
                           table,
                           player.name,
-                          player.customerId
+                          player.customerId,
+                          player.slot
                         );
                       const currentBill =
                         getRunningTableBill(table);

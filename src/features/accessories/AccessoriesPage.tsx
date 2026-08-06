@@ -29,6 +29,7 @@ import { useSalesStore } from "@/features/sales/store/salesStore";
 import {
   getSessionPlayerEntries,
 } from "@/features/sessions/utils/sessionPlayers";
+import { getSessionParticipantDisplayLabel } from "@/features/customers/utils/participantDisplay";
 import { getWalkInDisplayName } from "@/features/sessions/utils/walkInLabel";
 import { useTableStore } from "@/store/tableStore";
 import {
@@ -343,7 +344,10 @@ function AccessoriesPage() {
       return getSessionPlayerEntries(session).map((player) => ({
         value: `table:${table.id}:${player.customerId ?? player.slot}`,
         label: `${table.name} - ${getWalkInDisplayName({
-          name: player.name,
+          name: getSessionParticipantDisplayLabel(
+            session,
+            player.slot
+          ),
           tableId: table.id,
           tableName: table.name,
           tableType: table.type,
@@ -736,7 +740,7 @@ function AccessoriesPage() {
             <h1 className="text-2xl font-bold text-slate-950">Accessories POS</h1>
             <p className="text-sm text-slate-500">Sell accessories or add them to a table or customer bill.</p>
           </div>
-          <Button variant="outline" onClick={() => navigate("/operator")}>Back to Dashboard</Button>
+          <Button variant="outline" onClick={() => navigate("/operator/tables-rooms")}>Back to Tables & Rooms</Button>
         </header>
 
         {(message || error) && (

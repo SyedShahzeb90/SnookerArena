@@ -402,7 +402,7 @@ const TableCard = forwardRef<TableCardHandle, Props>(function TableCard({
       sessionPlayerOptions[0]?.slot ?? ""
     );
     setManualChargeStartEnabled(false);
-    setManualChargeStart("");
+    setManualChargeStart(formatDateTimeLocal(new Date()));
     setAddChargeOpen(true);
   };
 
@@ -506,6 +506,8 @@ const TableCard = forwardRef<TableCardHandle, Props>(function TableCard({
       : table.session?.sessionType === "single"
         ? "singleGame"
         : "tableBooking");
+  const isCurrentTableBooking =
+    currentFrameType === "tableBooking";
   const currentFrameIsDouble =
     currentFrameType === "doubleGame";
   const shouldChooseLoser =
@@ -539,7 +541,7 @@ const TableCard = forwardRef<TableCardHandle, Props>(function TableCard({
   const submitChargeLine = () => {
     if (!table.session) return;
     const parsedChargeStart =
-      chargeType === "tableBooking" && manualChargeStartEnabled
+      manualChargeStartEnabled
         ? new Date(manualChargeStart)
         : undefined;
     const currentLineStartedAt = new Date(
@@ -933,7 +935,8 @@ const TableCard = forwardRef<TableCardHandle, Props>(function TableCard({
                     <Play className="h-4 w-4" />
                     Resume
                   </Button>
-                ) : table.type !== "private-room" ? (
+                ) : table.type !== "private-room" &&
+                  !isCurrentTableBooking ? (
                   <Button
                     className="h-9 gap-1.5"
                     onClick={(event) => {
@@ -1022,7 +1025,8 @@ const TableCard = forwardRef<TableCardHandle, Props>(function TableCard({
                     }
                   }}
                   onAddCharge={
-                    table.type !== "private-room"
+                    table.type !== "private-room" &&
+                    !isCurrentTableBooking
                       ? openAddFrame
                       : undefined
                   }
@@ -1288,8 +1292,6 @@ const TableCard = forwardRef<TableCardHandle, Props>(function TableCard({
                       setLosingTeam("A");
                       setFinalEnabled(false);
                       setFinalValue("");
-                      setManualChargeStartEnabled(false);
-                      setManualChargeStart("");
                     }}
                     disabled={table.type === "private-room"}
                   >
@@ -1304,6 +1306,42 @@ const TableCard = forwardRef<TableCardHandle, Props>(function TableCard({
                     </option>
                   </select>
                 </label>
+
+                <div className="grid gap-3 rounded-lg bg-slate-50 p-3">
+                  <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4"
+                      checked={manualChargeStartEnabled}
+                      onChange={(event) => {
+                        const enabled = event.target.checked;
+                        setManualChargeStartEnabled(enabled);
+                        setManualChargeStart(
+                          enabled
+                            ? manualChargeStart ||
+                                formatDateTimeLocal(new Date())
+                            : formatDateTimeLocal(new Date())
+                        );
+                      }}
+                    />
+                    Set frame start time
+                  </label>
+                  {manualChargeStartEnabled && (
+                    <Input
+                      type="datetime-local"
+                      value={manualChargeStart}
+                      min={formatDateTimeLocal(
+                        new Date(
+                          currentChargeLine?.startedAt ?? table.session.startTime
+                        )
+                      )}
+                      max={formatDateTimeLocal(new Date())}
+                      onChange={(event) =>
+                        setManualChargeStart(event.target.value)
+                      }
+                    />
+                  )}
+                </div>
 
                 {showFinalInput && (
                   <div className="flex items-center justify-between gap-2 rounded-lg border bg-slate-50 p-3">
@@ -1344,42 +1382,12 @@ const TableCard = forwardRef<TableCardHandle, Props>(function TableCard({
               </div>
 
               {chargeType === "tableBooking" && (
-                <div className="grid gap-3 rounded-lg bg-slate-50 p-3">
+                <div className="rounded-lg bg-slate-50 p-3">
                   <p className="text-sm text-slate-600">
                     Time charge starts now and finalizes
                     when the session ends or another
                     charge is added.
                   </p>
-                  <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4"
-                      checked={manualChargeStartEnabled}
-                      onChange={(event) => {
-                        const enabled = event.target.checked;
-                        setManualChargeStartEnabled(enabled);
-                        setManualChargeStart(
-                          enabled ? formatDateTimeLocal(new Date()) : ""
-                        );
-                      }}
-                    />
-                    Start time manually
-                  </label>
-                  {manualChargeStartEnabled && (
-                    <Input
-                      type="datetime-local"
-                      value={manualChargeStart}
-                      min={formatDateTimeLocal(
-                        new Date(
-                          currentChargeLine?.startedAt ?? table.session.startTime
-                        )
-                      )}
-                      max={formatDateTimeLocal(new Date())}
-                      onChange={(event) =>
-                        setManualChargeStart(event.target.value)
-                      }
-                    />
-                  )}
                 </div>
               )}
 

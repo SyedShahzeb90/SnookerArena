@@ -2,6 +2,7 @@ import {
   useEffect,
   useState,
 } from "react";
+import { Coffee } from "lucide-react";
 
 import {
   Dialog,
@@ -17,7 +18,6 @@ import type {
 } from "@/types/session";
 import type { PaymentSplit } from "@/features/sales/types/sale";
 import type { Table } from "@/types/table";
-import { getSessionPlayers } from "@/features/sessions/utils/sessionPlayers";
 import { useClubSettingsStore } from "@/features/settings/store/clubSettingsStore";
 import { formatAppDateTime, useAppDateTimeFormats } from "@/lib/dateTime";
 
@@ -39,7 +39,9 @@ import { getWalkInDisplayName } from "@/features/sessions/utils/walkInLabel";
 import {
   findPayerBreakdownForPlayer,
   getPlayerCafeItems,
+  getSessionPlayerBillingIdentities,
   hasPlayerName,
+  type SessionPlayerBillingIdentity,
 } from "../utils/playerBillIdentity";
 
 const emptyPaidPlayerNames: string[] = [];
@@ -60,6 +62,9 @@ interface Props {
   cancelledReason?: string;
   cancelledNote?: string;
   onPaymentBlocked?: () => void;
+  onAddCafe?: (
+    player: SessionPlayerBillingIdentity
+  ) => void;
   paidPlayerNames?: string[];
   playerName?: string;
   initialPaymentMethod?: PaymentMethod;
@@ -100,6 +105,7 @@ function BillingDialog({
   cancelledReason,
   cancelledNote,
   onPaymentBlocked,
+  onAddCafe,
   paidPlayerNames = emptyPaidPlayerNames,
   playerName,
   initialPaymentMethod,
@@ -128,8 +134,13 @@ function BillingDialog({
   const defaultPayer =
     session.player1?.trim() ||
     "Walk-in Customer";
-  const players =
-    getSessionPlayers(session);
+  const playerIdentities =
+    getSessionPlayerBillingIdentities(
+      session
+    );
+  const players = playerIdentities.map(
+    (player) => player.playerName
+  );
   const [payerName, setPayerName] =
     useState(
       initialPayerName ??
@@ -139,6 +150,17 @@ function BillingDialog({
     );
   const [paidPlayers, setPaidPlayers] =
     useState<string[]>(paidPlayerNames);
+  const cafeTargetName =
+    playerName ?? payerName ?? defaultPayer;
+  const cafeTarget =
+    playerIdentities.find(
+      (identity) =>
+        identity.playerName === cafeTargetName
+    ) ??
+    playerIdentities[0] ??
+    (cafeTargetName
+      ? { playerName: cafeTargetName }
+      : undefined);
 
   useEffect(() => {
     setPayerName(
@@ -190,12 +212,13 @@ function BillingDialog({
       })
     : undefined;
 
-  const playerBills = players.map(
-    (playerName) => {
+  const playerBills = playerIdentities.map(
+    (player) => {
+      const playerName = player.playerName;
       const cafeItems =
         getPlayerCafeItems(
           adjustedSession,
-          playerName
+          player
         );
       const cafeAmount =
         cafeItems.reduce(
@@ -496,6 +519,17 @@ function BillingDialog({
                   </SelectContent>
                 </Select>
               </div>
+            )}
+
+            {onAddCafe && cafeTarget && (
+              <Button
+                type="button"
+                className="w-full gap-2 bg-emerald-950 text-white hover:bg-emerald-900"
+                onClick={() => onAddCafe(cafeTarget)}
+              >
+                <Coffee className="size-4" />
+                Add Cafe
+              </Button>
             )}
 
             <div className="space-y-2">

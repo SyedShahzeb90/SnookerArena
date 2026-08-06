@@ -213,7 +213,7 @@ function DeveloperToolsPage() {
           onClick={() => navigate("/admin")}
         >
           <ArrowLeft className="h-4 w-4" />
-          Admin Dashboard
+          Back to Admin Dashboard
         </Button>
 
         <div className="mb-6">

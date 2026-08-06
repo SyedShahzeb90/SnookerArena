@@ -1,5 +1,6 @@
 import {
   AlertTriangle,
+  ArrowLeft,
   ArchiveRestore,
   Database,
   Download,
@@ -9,6 +10,7 @@ import {
   Upload,
 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { PageShell } from "@/components/layout/page-layout";
@@ -47,6 +49,7 @@ function formatDate(value: string) {
 
 function BackupRestorePage() {
   useAppDateTimeFormats();
+  const navigate = useNavigate();
   const toast = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const tables = useTableStore((state) => state.tables);
@@ -172,6 +175,15 @@ function BackupRestorePage() {
   return (
     <PageShell width="wide">
       <div className="space-y-5">
+        <Button
+          type="button"
+          variant="ghost"
+          className="-ml-2 w-fit gap-2"
+          onClick={() => navigate("/admin")}
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back to Admin Dashboard
+        </Button>
         <header className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700">
             <ArchiveRestore className="h-5 w-5" />

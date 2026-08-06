@@ -850,6 +850,7 @@ interface StartSessionData {
   player4?: string;
   player4CustomerId?: string;
   extraPlayers?: string[];
+  extraPlayerCustomerIds?: string[];
   teamAOneNameEnough?: boolean;
   teamBOneNameEnough?: boolean;
   teamABillOwnerCustomerId?: string;
@@ -878,6 +879,7 @@ interface UpdateSessionData {
   player4?: string;
   player4CustomerId?: string;
   extraPlayers?: string[];
+  extraPlayerCustomerIds?: string[];
   teamAOneNameEnough?: boolean;
   teamBOneNameEnough?: boolean;
   teamABillOwnerCustomerId?: string;
@@ -1075,6 +1077,8 @@ export const useTableStore =
               data.player4CustomerId,
             extraPlayers:
               data.extraPlayers ?? [],
+            extraPlayerCustomerIds:
+              data.extraPlayerCustomerIds ?? [],
             teamAPlayers: [
               player1,
               data.player2,
@@ -1214,6 +1218,8 @@ export const useTableStore =
                 data.player4CustomerId,
               extraPlayers:
                 data.extraPlayers ?? [],
+              extraPlayerCustomerIds:
+                data.extraPlayerCustomerIds ?? [],
               teamAPlayers: compactNames([
                 player1,
                 data.player2,
@@ -1360,8 +1366,10 @@ export const useTableStore =
                 index === lines.length - 1;
 
               if (
-                line.type === "tableBooking" ||
-                line.loserName
+                line.loserName ||
+                (line.type === "tableBooking" &&
+                  (!isLastLine ||
+                    (!loserName && !payerName)))
               ) {
                 return line;
               }

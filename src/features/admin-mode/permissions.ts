@@ -4,6 +4,7 @@ export type AppPermission =
   | "manage_canteen"
   | "manage_inventory"
   | "manage_vendor_restocking"
+  | "manage_payroll"
   | "view_management_reports"
   | "manage_backups"
   | "correct_payments"
@@ -15,6 +16,7 @@ const adminPermissions = new Set<AppPermission>([
   "manage_canteen",
   "manage_inventory",
   "manage_vendor_restocking",
+  "manage_payroll",
   "view_management_reports",
   "manage_backups",
   "correct_payments",

@@ -31,6 +31,31 @@ interface SalesStore {
   resetSalesStore: () => void;
 }
 
+function saleMatchesPaidBill(
+  existingSale: Sale,
+  nextSale: Sale
+) {
+  if (existingSale.paymentStatus !== "paid") {
+    return false;
+  }
+
+  if (existingSale.id === nextSale.id) {
+    return true;
+  }
+
+  if (
+    nextSale.customerAccountId &&
+    existingSale.customerAccountId === nextSale.customerAccountId
+  ) {
+    return true;
+  }
+
+  return Boolean(
+    nextSale.sessionId &&
+      existingSale.sessionId === nextSale.sessionId
+  );
+}
+
 export const useSalesStore =
   create<SalesStore>()(
     persist(
@@ -65,6 +90,14 @@ export const useSalesStore =
 
         addSale: (sale) =>
           set((state) => {
+            if (
+              state.sales.some((existingSale) =>
+                saleMatchesPaidBill(existingSale, sale)
+              )
+            ) {
+              return state;
+            }
+
             const paymentReceivedBy =
               sale.paymentReceivedBy ?? getActiveOperatorSnapshot();
             const hasPaymentAudit = sale.operatorAudit?.some(
