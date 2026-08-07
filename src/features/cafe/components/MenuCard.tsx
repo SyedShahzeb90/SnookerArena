@@ -17,7 +17,7 @@ import type { MenuItem } from "../types/menu";
 
 interface Props {
   item: MenuItem;
-  onAdd: () => void;
+  onAdd: (saleOptionId?: string) => void;
 }
 
 function MenuCard({ item, onAdd }: Props) {
@@ -28,6 +28,7 @@ function MenuCard({ item, onAdd }: Props) {
   const tracked = item.trackStock === true;
   const stock = Math.max(0, item.currentStock ?? 0);
   const outOfStock = tracked && stock === 0;
+  const saleOptions = item.saleOptions ?? [];
   const lowStock =
     tracked &&
     stock > 0 &&
@@ -94,18 +95,35 @@ function MenuCard({ item, onAdd }: Props) {
           ) : null}
         </div>
 
-        <p className="mt-3 text-lg font-bold tabular-nums text-emerald-700 dark:text-emerald-400">
-          Rs. {Math.round(item.price).toLocaleString()}
-        </p>
-
-        <Button
-          className="mt-3 h-9 w-full gap-1.5"
-          onClick={onAdd}
-          disabled={outOfStock}
-        >
-          <Plus className="h-4 w-4" />
-          {outOfStock ? "Out of Stock" : "Add"}
-        </Button>
+        {saleOptions.length > 1 ? (
+          <div className="mt-3 grid gap-2">
+            {saleOptions.map((option) => (
+              <Button
+                key={option.id}
+                className="h-9 w-full justify-between gap-1.5"
+                onClick={() => onAdd(option.id)}
+                disabled={outOfStock || (tracked && option.stockDeductionQuantity > stock)}
+              >
+                <span className="inline-flex items-center gap-1.5"><Plus className="h-4 w-4" />{option.label}</span>
+                <span>Rs. {Math.round(option.price).toLocaleString()}</span>
+              </Button>
+            ))}
+          </div>
+        ) : (
+          <>
+            <p className="mt-3 text-lg font-bold tabular-nums text-emerald-700 dark:text-emerald-400">
+              Rs. {Math.round(saleOptions[0]?.price ?? item.price).toLocaleString()}
+            </p>
+            <Button
+              className="mt-3 h-9 w-full gap-1.5"
+              onClick={() => onAdd(saleOptions[0]?.id)}
+              disabled={outOfStock}
+            >
+              <Plus className="h-4 w-4" />
+              {outOfStock ? "Out of Stock" : "Add"}
+            </Button>
+          </>
+        )}
       </div>
     </Card>
   );

@@ -11,7 +11,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useBusinessDayStore } from "@/features/business-day/store/businessDayStore";
-import { paymentMethodLabels } from "@/features/business-day/types/businessDay";
+import {
+  getPaymentMethodLabels,
+  getPaymentMethodOptions,
+  useClubSettingsStore,
+} from "@/features/settings/store/clubSettingsStore";
 import type { PaymentMethod } from "@/types/session";
 import { useOutsidePurchaseStore } from "../store/outsidePurchaseStore";
 
@@ -43,6 +47,9 @@ function OutsidePurchaseDialog({
   owners,
   onOpenChange,
 }: Props) {
+  const clubSettings = useClubSettingsStore((state) => state.settings);
+  const paymentMethodLabels = getPaymentMethodLabels(clubSettings);
+  const paymentMethodOptions = getPaymentMethodOptions(clubSettings);
   const activeDay = useBusinessDayStore((state) => state.getActiveBusinessDay());
   const createOutsidePurchase = useOutsidePurchaseStore(
     (state) => state.createOutsidePurchase
@@ -164,10 +171,11 @@ function OutsidePurchaseDialog({
                 setPaymentMethod(event.target.value as PaymentMethod)
               }
             >
-              <option value="cash">Cash Drawer</option>
-              <option value="easypaisa">{paymentMethodLabels.easypaisa}</option>
-              <option value="card">{paymentMethodLabels.card}</option>
-              <option value="jazzcash">{paymentMethodLabels.jazzcash}</option>
+              {paymentMethodOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.value === "cash" ? "Cash Drawer" : option.label}
+                </option>
+              ))}
             </select>
           </div>
           <div>

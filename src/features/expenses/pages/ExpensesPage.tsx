@@ -22,6 +22,10 @@ import ExpenseDialog from "../components/ExpenseDialog";
 import ExpenseSummaryCards from "../components/ExpenseSummaryCards";
 import { useExpensesStore } from "../store/expensesStore";
 import { useBusinessDayStore } from "@/features/business-day/store/businessDayStore";
+import {
+  getPaymentMethodOptions,
+  useClubSettingsStore,
+} from "@/features/settings/store/clubSettingsStore";
 import type { PaymentMethod } from "@/types/session";
 import type {
   Expense,
@@ -138,6 +142,8 @@ function ExpensesPage() {
     useBusinessDayStore((state) =>
       state.getActiveBusinessDay()
     );
+  const clubSettings = useClubSettingsStore((state) => state.settings);
+  const paymentMethodOptions = getPaymentMethodOptions(clubSettings);
 
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] =
@@ -508,14 +514,11 @@ function ExpensesPage() {
               <option value="all">
                 All Payments
               </option>
-              <option value="cash">Cash</option>
-              <option value="jazzcash">
-                JazzCash
-              </option>
-              <option value="easypaisa">
-                EasyPaisa
-              </option>
-              <option value="card">Card</option>
+              {paymentMethodOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
             </select>
 
             <select

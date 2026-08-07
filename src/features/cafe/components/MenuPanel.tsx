@@ -28,7 +28,7 @@ type SelectedTarget =
 interface Props {
   disabled?: boolean;
   selectedTarget: SelectedTarget;
-  onAddItem?: (menuItemId: string) => void;
+  onAddItem?: (menuItemId: string, saleOptionId?: string) => void;
 }
 
 function MenuPanel({
@@ -80,9 +80,9 @@ function MenuPanel({
       });
   }, [menu, search, category]);
 
-  const addItem = (menuItemId: string) => {
+  const addItem = (menuItemId: string, saleOptionId?: string) => {
     if (onAddItem) {
-      onAddItem(menuItemId);
+      onAddItem(menuItemId, saleOptionId);
       clearSearch();
       return;
     }
@@ -95,14 +95,18 @@ function MenuPanel({
         selectedTarget.tableId,
         selectedTarget.sessionId,
         selectedTarget.playerName,
-        item
+        item,
+        undefined,
+        undefined,
+        saleOptionId
       );
     } else {
       addItemToWaitingCustomer(
         selectedTarget.type === "waitingCustomer"
           ? selectedTarget.customerId
           : selectedTarget.customerAccountId,
-        item
+        item,
+        saleOptionId
       );
     }
     clearSearch();
@@ -164,7 +168,7 @@ function MenuPanel({
       {controls}
       <div className="grid min-h-0 flex-1 auto-rows-max content-start grid-cols-1 gap-3 overflow-y-auto pr-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
         {filteredMenu.map((item) => (
-          <MenuCard key={item.id} item={item} onAdd={() => addItem(item.id)} />
+          <MenuCard key={item.id} item={item} onAdd={(saleOptionId) => addItem(item.id, saleOptionId)} />
         ))}
         {filteredMenu.length === 0 && (
           <div className="col-span-full">

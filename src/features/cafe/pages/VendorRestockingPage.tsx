@@ -1,4 +1,4 @@
-import { ArrowLeft, PackagePlus, Search } from "lucide-react";
+﻿import { ArrowLeft, PackagePlus, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -37,11 +37,12 @@ function VendorRestockingPage() {
   const cancelRestocking = useCafeStore((state) => state.cancelVendorRestocking);
   const payVendorCredit = useCafeStore((state) => state.payVendorCredit);
   const activeDay = useBusinessDayStore((state) => state.getActiveBusinessDay());
-  const trackedProducts = useMemo(() => menu.filter((item) => item.trackStock === true).sort((a, b) => a.name.localeCompare(b.name)), [menu]);
+  const restockableProducts = useMemo(() => menu.filter((item) => (item.isAvailable ?? item.available) !== false).sort((a, b) => a.name.localeCompare(b.name)), [menu]);
 
   const [vendorName, setVendorName] = useState("");
   const [menuItemId, setMenuItemId] = useState("");
   const [quantity, setQuantity] = useState("");
+  const [unit, setUnit] = useState("pcs");
   const [costPerUnit, setCostPerUnit] = useState("");
   const [paymentSource, setPaymentSource] = useState<VendorRestockingPaymentSource>("cash_drawer");
   const [purchaseDate, setPurchaseDate] = useState(todayInputValue());
@@ -55,11 +56,23 @@ function VendorRestockingPage() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
-  const selectedProduct = trackedProducts.find((item) => item.id === menuItemId);
+  const selectedProduct = restockableProducts.find((item) => item.id === menuItemId);
+  const latestProductCost = useMemo(() => {
+    if (!menuItemId) return undefined;
+    return records
+      .filter((record) => record.menuItemId === menuItemId && record.status === "active")
+      .sort((a, b) => new Date(b.purchaseDate).getTime() - new Date(a.purchaseDate).getTime() || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]?.costPerUnit;
+  }, [records, menuItemId]);
   const parsedQuantity = Number(quantity);
   const parsedCost = Number(costPerUnit);
   const totalCost = Number.isFinite(parsedQuantity) && Number.isFinite(parsedCost) && parsedQuantity > 0 && parsedCost >= 0
     ? parsedQuantity * parsedCost
+    : 0;
+  const baseUnit = selectedProduct?.baseStockUnit || selectedProduct?.stockUnit || "pcs";
+  const purchaseUnit = selectedProduct?.purchaseUnit || selectedProduct?.stockUnit || "pcs";
+  const conversionQuantity = selectedProduct?.purchaseConversionQuantity ?? 1;
+  const baseUnitsAdded = Number.isFinite(parsedQuantity) && parsedQuantity > 0
+    ? parsedQuantity * conversionQuantity
     : 0;
 
   const vendors = useMemo(() => Array.from(new Set(records.map((record) => record.vendorName))).sort(), [records]);
@@ -86,7 +99,8 @@ function VendorRestockingPage() {
         vendorName,
         menuItemId,
         quantityReceived: parsedQuantity,
-        unit: selectedProduct?.stockUnit ?? "",
+        unit,
+        conversionQuantity,
         costPerUnit: parsedCost,
         paymentSource,
         purchaseDate,
@@ -97,9 +111,10 @@ function VendorRestockingPage() {
       setVendorName("");
       setMenuItemId("");
       setQuantity("");
+      setUnit("pcs");
       setCostPerUnit("");
       setNote("");
-      setMessage(`${record.quantityReceived} ${record.unit} added to ${record.productName}.`);
+      setMessage(`${record.quantityReceived} ${record.unit} added to ${record.productName} (${record.baseUnitsAdded ?? record.quantityReceived} ${record.baseUnit ?? record.unit}).`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Restocking could not be saved.");
     }
@@ -162,10 +177,10 @@ function VendorRestockingPage() {
         <Card className="p-5">
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             <div><label className="text-sm font-medium">Vendor Name</label><Input className="mt-1" value={vendorName} onChange={(event) => setVendorName(event.target.value)} /></div>
-            <div><label className="text-sm font-medium">Product</label><select className="mt-1 h-10 w-full rounded-md border bg-white px-3 text-sm" value={menuItemId} onChange={(event) => setMenuItemId(event.target.value)}><option value="">Select tracked product</option>{trackedProducts.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>{selectedProduct && <p className="mt-1 text-xs text-slate-500">Current: {Math.max(0, selectedProduct.currentStock ?? 0)} {selectedProduct.stockUnit || "pcs"}</p>}</div>
+            <div><label className="text-sm font-medium">Product</label><select className="mt-1 h-10 w-full rounded-md border bg-white px-3 text-sm" value={menuItemId} onChange={(event) => { const nextId = event.target.value; setMenuItemId(nextId); const nextProduct = restockableProducts.find((item) => item.id === nextId); setUnit(nextProduct?.purchaseUnit || nextProduct?.stockUnit || "pcs"); const latestCost = records.filter((record) => record.menuItemId === nextId && record.status === "active").sort((a, b) => new Date(b.purchaseDate).getTime() - new Date(a.purchaseDate).getTime() || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]?.costPerUnit; setCostPerUnit(latestCost === undefined ? "" : String(latestCost)); }}><option value="">Select cafe product</option>{restockableProducts.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}{restockableProducts.length === 0 && <option value="" disabled>No cafe products available. Add products in Menu Management.</option>}</select>{selectedProduct && <p className="mt-1 text-xs text-slate-500">Current: {Math.max(0, selectedProduct.currentStock ?? 0)} {baseUnit}</p>}</div>
             <div><label className="text-sm font-medium">Quantity Received</label><Input className="mt-1" type="number" min={1} step={1} value={quantity} onChange={(event) => setQuantity(event.target.value)} /></div>
-            <div><label className="text-sm font-medium">Unit</label><Input className="mt-1" value={selectedProduct?.stockUnit ?? ""} disabled /></div>
-            <div><label className="text-sm font-medium">Cost Per Unit</label><Input className="mt-1" type="number" min={0} step="0.01" value={costPerUnit} onChange={(event) => setCostPerUnit(event.target.value)} /></div>
+            <div><label className="text-sm font-medium">Unit</label><select className="mt-1 h-10 w-full rounded-md border bg-white px-3 text-sm" value={unit} onChange={(event) => setUnit(event.target.value)} disabled={!selectedProduct}><option value={purchaseUnit}>{purchaseUnit}</option></select>{selectedProduct && <p className="mt-1 text-xs text-slate-500">1 {purchaseUnit} = {conversionQuantity} {baseUnit}. Adds {baseUnitsAdded.toLocaleString()} {baseUnit}.</p>}</div>
+            <div><label className="text-sm font-medium">Cost Per Unit</label><Input className="mt-1" type="number" min={0} step="0.01" value={costPerUnit} onChange={(event) => setCostPerUnit(event.target.value)} placeholder={latestProductCost === undefined ? "Enter cost" : undefined} /></div>
             <div><label className="text-sm font-medium">Total Cost</label><Input className="mt-1 font-semibold" value={`Rs. ${totalCost.toLocaleString()}`} disabled /></div>
             <div><label className="text-sm font-medium">Payment Source</label><select className="mt-1 h-10 w-full rounded-md border bg-white px-3 text-sm" value={paymentSource} onChange={(event) => setPaymentSource(event.target.value as VendorRestockingPaymentSource)}>{Object.entries(paymentSourceLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>
             <div><label className="text-sm font-medium">Purchase Date</label><Input className="mt-1" type="date" value={purchaseDate} onChange={(event) => setPurchaseDate(event.target.value)} /></div>
@@ -182,7 +197,7 @@ function VendorRestockingPage() {
             <select className="h-10 rounded-md border bg-white px-3 text-sm" value={paymentFilter} onChange={(event) => setPaymentFilter(event.target.value)}><option value="all">All Payment Sources</option>{Object.entries(paymentSourceLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
             <div className="grid grid-cols-2 gap-2"><Input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /><Input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></div>
           </div>
-          <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>{["Date", "Vendor", "Product", "Quantity", "Cost / Unit", "Total", "Payment Source", "Note", "Created By", "Status", "Action"].map((label) => <th key={label} className="px-3 py-3">{label}</th>)}</tr></thead><tbody>{filteredRecords.map((record) => <tr key={record.id} className="border-t bg-white"><td className="whitespace-nowrap px-3 py-3">{formatAppDate(record.purchaseDate)}</td><td className="px-3 py-3 font-semibold">{record.vendorName}</td><td className="px-3 py-3">{record.productName}</td><td className="whitespace-nowrap px-3 py-3">{record.quantityReceived} {record.unit}</td><td className="px-3 py-3">Rs. {record.costPerUnit.toLocaleString()}</td><td className="px-3 py-3 font-bold">Rs. {record.totalCost.toLocaleString()}</td><td className="whitespace-nowrap px-3 py-3">{record.creditPaymentSource ? `${paymentSourceLabels.vendor_credit} · Paid ${paymentSourceLabels[record.creditPaymentSource]}` : paymentSourceLabels[record.paymentSource]}</td><td className="px-3 py-3">{record.note || "-"}</td><td className="px-3 py-3">{getOperatorDisplayName(record.createdByOperator, record.createdBy)}</td><td className="px-3 py-3"><span className={`rounded-full px-2 py-1 text-xs font-semibold ${record.status === "active" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>{record.status === "active" ? "Active" : "Cancelled"}</span></td><td className="px-3 py-3"><div className="flex gap-2">{record.status === "active" && record.paymentSource === "vendor_credit" && !record.creditPaidAt && <Button size="sm" variant="outline" onClick={() => recordCreditPayment(record.id)}>Record Payment</Button>}{record.status === "active" && <Button size="sm" variant="destructive" onClick={() => cancel(record.id)}>Cancel</Button>}</div></td></tr>)}{filteredRecords.length === 0 && <tr><td colSpan={11} className="px-4 py-10 text-center text-slate-500">No vendor restocking records found.</td></tr>}</tbody></table></div>
+          <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>{["Date", "Vendor", "Product", "Quantity", "Cost / Unit", "Total", "Payment Source", "Note", "Created By", "Status", "Action"].map((label) => <th key={label} className="px-3 py-3">{label}</th>)}</tr></thead><tbody>{filteredRecords.map((record) => <tr key={record.id} className="border-t bg-white"><td className="whitespace-nowrap px-3 py-3">{formatAppDate(record.purchaseDate)}</td><td className="px-3 py-3 font-semibold">{record.vendorName}</td><td className="px-3 py-3">{record.productName}</td><td className="whitespace-nowrap px-3 py-3"><div>{record.quantityReceived} {record.unit}</div><div className="text-xs text-slate-500">1 {record.unit} = {record.conversionQuantity ?? 1} {record.baseUnit ?? record.unit}</div><div className="text-xs font-semibold text-slate-600">{(record.baseUnitsAdded ?? record.quantityReceived).toLocaleString()} {record.baseUnit ?? record.unit} added</div></td><td className="px-3 py-3">Rs. {record.costPerUnit.toLocaleString()}</td><td className="px-3 py-3 font-bold">Rs. {record.totalCost.toLocaleString()}</td><td className="whitespace-nowrap px-3 py-3">{record.creditPaymentSource ? `${paymentSourceLabels.vendor_credit} Â· Paid ${paymentSourceLabels[record.creditPaymentSource]}` : paymentSourceLabels[record.paymentSource]}</td><td className="px-3 py-3">{record.note || "-"}</td><td className="px-3 py-3">{getOperatorDisplayName(record.createdByOperator, record.createdBy)}</td><td className="px-3 py-3"><span className={`rounded-full px-2 py-1 text-xs font-semibold ${record.status === "active" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>{record.status === "active" ? "Active" : "Cancelled"}</span></td><td className="px-3 py-3"><div className="flex gap-2">{record.status === "active" && record.paymentSource === "vendor_credit" && !record.creditPaidAt && <Button size="sm" variant="outline" onClick={() => recordCreditPayment(record.id)}>Record Payment</Button>}{record.status === "active" && <Button size="sm" variant="destructive" onClick={() => cancel(record.id)}>Cancel</Button>}</div></td></tr>)}{filteredRecords.length === 0 && <tr><td colSpan={11} className="px-4 py-10 text-center text-slate-500">No vendor restocking records found.</td></tr>}</tbody></table></div>
         </Card>
       </div>
     </PageShell>
@@ -190,3 +205,4 @@ function VendorRestockingPage() {
 }
 
 export default VendorRestockingPage;
+

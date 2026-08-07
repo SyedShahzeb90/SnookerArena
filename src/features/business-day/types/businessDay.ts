@@ -1,4 +1,5 @@
 import type { PaymentMethod } from "@/types/session";
+import { DEFAULT_PAYMENT_METHOD_LABELS } from "@/features/settings/store/clubSettingsStore";
 
 export type BusinessDayStatus =
   | "active"
@@ -74,9 +75,4 @@ export interface CloseBusinessDayInput {
 export const paymentMethodLabels: Record<
   PaymentMethod,
   string
-> = {
-  cash: "Cash",
-  card: "Card",
-  jazzcash: "JazzCash",
-  easypaisa: "Easypaisa",
-};
+> = DEFAULT_PAYMENT_METHOD_LABELS;

@@ -7,10 +7,12 @@ interface Props {
   customerName: string;
   items: OrderItem[];
   onIncrease?: (
-    menuItemId: string
+    menuItemId: string,
+    saleOptionId?: string
   ) => void;
   onDecrease?: (
-    menuItemId: string
+    menuItemId: string,
+    saleOptionId?: string
   ) => void;
 }
 
@@ -48,7 +50,7 @@ function OrderSummary({
 
         {items.map((item) => (
           <div
-            key={item.menuItemId}
+            key={`${item.menuItemId}-${item.saleOptionId ?? "default"}`}
             className="rounded-lg border p-3"
           >
             <div className="flex items-center justify-between">
@@ -76,7 +78,8 @@ function OrderSummary({
                 variant="destructive"
                 onClick={() =>
                   onDecrease?.(
-                    item.menuItemId
+                    item.menuItemId,
+                    item.saleOptionId
                   )
                 }
               >
@@ -91,7 +94,8 @@ function OrderSummary({
                 size="icon"
                 onClick={() =>
                   onIncrease?.(
-                    item.menuItemId
+                    item.menuItemId,
+                    item.saleOptionId
                   )
                 }
               >

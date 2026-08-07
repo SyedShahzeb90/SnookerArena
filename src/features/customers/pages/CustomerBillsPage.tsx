@@ -14,6 +14,7 @@ import {
   useState,
 } from "react";
 import {
+  useLocation,
   useNavigate,
   useSearchParams,
 } from "react-router-dom";
@@ -26,7 +27,6 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { BillContextMenu, type BillContextMenuAction } from "@/components/ui/bill-context-menu";
 import { useToast } from "@/components/ui/toast";
 import { useBusinessDayStore } from "@/features/business-day/store/businessDayStore";
-import { paymentMethodLabels } from "@/features/business-day/types/businessDay";
 import { useSalesStore } from "@/features/sales/store/salesStore";
 import { useTableStore } from "@/store/tableStore";
 import { useCustomerAccountStore } from "../store/customerAccountStore";
@@ -40,7 +40,11 @@ import { useCreditLedgerStore } from "@/features/credit-ledger/store/creditLedge
 import { useAdvanceGamesStore } from "@/features/advance-games/store/advanceGamesStore";
 import { useCafeStore } from "@/features/cafe/store/cafeStore";
 import { useTableHistoryStore } from "@/features/table-history/store/tableHistoryStore";
-import { useClubSettingsStore } from "@/features/settings/store/clubSettingsStore";
+import {
+  getPaymentMethodLabels,
+  getPaymentMethodOptions,
+  useClubSettingsStore,
+} from "@/features/settings/store/clubSettingsStore";
 import { useAdminModeStore } from "@/features/admin-mode/adminModeStore";
 import OutsidePurchaseDialog from "@/features/outside-purchases/components/OutsidePurchaseDialog";
 import { useOutsidePurchaseStore } from "@/features/outside-purchases/store/outsidePurchaseStore";
@@ -60,16 +64,6 @@ import {
 } from "../utils/billDisplay";
 import { getIndividualGameCharges } from "../utils/individualGameCharges";
 import { getHistoryChargeParticipantDisplayLabel } from "../utils/participantDisplay";
-
-const paymentMethods: {
-  value: PaymentMethod;
-  label: string;
-}[] = [
-  { value: "cash", label: "Cash" },
-  { value: "card", label: "Card" },
-  { value: "jazzcash", label: "JazzCash" },
-  { value: "easypaisa", label: "Easypaisa" },
-];
 
 type DateFilter =
   | "all"
@@ -330,13 +324,10 @@ function getBillAge(value?: string) {
 }
 
 function paymentLabel(
-  method: PaymentMethod
+  method: PaymentMethod,
+  labels: Record<PaymentMethod, string>
 ) {
-  return (
-    paymentMethods.find(
-      (item) => item.value === method
-    )?.label ?? method
-  );
+  return labels[method] ?? method;
 }
 
 function isAccessoryCharge(charge: {
@@ -494,11 +485,16 @@ function accountMatchesSession(
 function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
   useAppDateTimeFormats();
   const navigate = useNavigate();
+  const location = useLocation();
+  const isAdmin = location.pathname.startsWith("/admin");
   const toast = useToast();
   const { pendingPaymentKeys, schedulePayment } = useDeferredPayment();
   const defaultPaymentMethod = useClubSettingsStore(
     (state) => state.settings.defaultPaymentMethod
   );
+  const clubSettings = useClubSettingsStore((state) => state.settings);
+  const paymentMethodLabels = getPaymentMethodLabels(clubSettings);
+  const paymentMethods = getPaymentMethodOptions(clubSettings);
   const [searchParams, setSearchParams] = useSearchParams();
   const accounts = useCustomerAccountStore(
     (state) => state.accounts
@@ -933,6 +929,19 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
           `CUSTOMER-BILL-${selectedAccount.id}`,
       }
     : undefined;
+  const partialReceivedAmount = paymentSplits.reduce(
+    (total, split) => total + split.amount,
+    0
+  );
+  const setPartialReceivedAmount = (value: string) => {
+    const amount =
+      value.trim() === "" ? 0 : Math.max(0, Number(value) || 0);
+    setPaymentSplits(
+      amount > 0
+        ? [{ method: paymentMethod, amount }]
+        : []
+    );
+  };
   const selectedSessionSummary =
     selectedAccount
       ? getSessionSummary(selectedAccount)
@@ -1099,7 +1108,10 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
 
     setIsEditingPaidPayment(false);
     setMessage(
-      `Payment method changed to ${paymentLabel(correctedPaymentMethod)}.`
+      `Payment method changed to ${paymentLabel(
+        correctedPaymentMethod,
+        paymentMethodLabels
+      )}.`
     );
     setError("");
   };
@@ -1609,6 +1621,15 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
     );
 
     paidSessionIds.forEach((sessionId) => {
+      useTableHistoryStore
+        .getState()
+        .updateTableHistoryRecord(`HIST-${sessionId}`, {
+          invoiceNumber,
+          saleId,
+          payerName: selectedAccount.customerName,
+          paymentStatus: "paid",
+          paidAt: now,
+        });
       removePendingBill(`BILL-${sessionId}`);
     });
     };
@@ -1824,10 +1845,12 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
         <Button
           variant="ghost"
           className="mb-4 gap-2"
-          onClick={() => navigate("/operator/tables-rooms")}
+          onClick={() =>
+            navigate(isAdmin ? "/admin" : "/operator/tables-rooms")
+          }
         >
           <ArrowLeft className="h-4 w-4" />
-          Tables & Rooms
+          {isAdmin ? "Back to Admin Dashboard" : "Tables & Rooms"}
         </Button>
 
         <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
@@ -2910,7 +2933,10 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
                             ? `${formatShortDate(selectedAccount.paidAt)} at ${formatTime(selectedAccount.paidAt)}`
                             : "Paid"}
                           {selectedAccount.paymentMethod
-                            ? ` \u00B7 ${paymentLabel(selectedAccount.paymentMethod)}`
+                            ? ` \u00B7 ${paymentLabel(
+                                selectedAccount.paymentMethod,
+                                paymentMethodLabels
+                              )}`
                             : ""}
                         </p>
                         <p className="mt-1">
@@ -2985,9 +3011,17 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
                   </label>
                   <PaymentMethodSelector
                     value={paymentMethod}
-                    onChange={(value) =>
-                      setPaymentMethod(value)
-                    }
+                    onChange={(value) => {
+                      setPaymentMethod(value);
+                      if (partialReceivedAmount > 0) {
+                        setPaymentSplits([
+                          {
+                            method: value,
+                            amount: partialReceivedAmount,
+                          },
+                        ]);
+                      }
+                    }}
                     totalAmount={
                       selectedTotals?.grandTotal ?? 0
                     }
@@ -2996,6 +3030,37 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
                       setPaymentSplits
                     }
                   />
+
+                  <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                    <label
+                      className="text-sm font-semibold text-amber-900"
+                      htmlFor="partial-credit-received-amount"
+                    >
+                      Amount Received for Part Payment
+                    </label>
+                    <Input
+                      id="partial-credit-received-amount"
+                      className="mt-1 bg-white"
+                      type="number"
+                      min={0}
+                      max={Math.max(
+                        0,
+                        (selectedTotals?.grandTotal ?? 0) - 1
+                      )}
+                      value={
+                        partialReceivedAmount === 0
+                          ? ""
+                          : partialReceivedAmount
+                      }
+                      onChange={(event) =>
+                        setPartialReceivedAmount(event.target.value)
+                      }
+                      placeholder="Enter amount before Pay Part & Credit Rest"
+                    />
+                    <p className="mt-1 text-xs text-amber-800">
+                      Use this only when the customer pays some amount and the remaining bill goes to credit.
+                    </p>
+                  </div>
 
                   <Button
                     className="mt-2 w-full gap-2"
@@ -3015,7 +3080,8 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
                           0
                             ? " - Split Payment"
                             : ` - ${paymentLabel(
-                                paymentMethod
+                                paymentMethod,
+                                paymentMethodLabels
                               )}`
                         }`}
                   </Button>

@@ -164,7 +164,7 @@ export function calculateProfitLoss(
           (splitSummary, split) => ({
             ...splitSummary,
             [split.method]:
-              splitSummary[split.method] + split.amount,
+              (splitSummary[split.method] ?? 0) + split.amount,
           }),
           paymentSummary
         );
@@ -173,7 +173,7 @@ export function calculateProfitLoss(
       return {
         ...paymentSummary,
         [sale.paymentMethod]:
-          paymentSummary[sale.paymentMethod] + sale.grandTotal,
+          (paymentSummary[sale.paymentMethod] ?? 0) + sale.grandTotal,
       };
     },
     {

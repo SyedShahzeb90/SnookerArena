@@ -18,6 +18,10 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import type { PaymentMethod } from "@/types/session";
+import {
+  getPaymentMethodOptions,
+  useClubSettingsStore,
+} from "@/features/settings/store/clubSettingsStore";
 
 import type {
   Expense,
@@ -49,6 +53,8 @@ function ExpenseDialog({
   onOpenChange,
   onSave,
 }: Props) {
+  const clubSettings = useClubSettingsStore((state) => state.settings);
+  const paymentMethodOptions = getPaymentMethodOptions(clubSettings);
   const [category, setCategory] =
     useState<ExpenseCategory | "">("");
   const [amount, setAmount] = useState("");
@@ -210,18 +216,11 @@ function ExpenseDialog({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="cash">
-                  Cash
-                </SelectItem>
-                <SelectItem value="card">
-                  Card
-                </SelectItem>
-                <SelectItem value="jazzcash">
-                  JazzCash
-                </SelectItem>
-                <SelectItem value="easypaisa">
-                  Easypaisa
-                </SelectItem>
+                {paymentMethodOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>

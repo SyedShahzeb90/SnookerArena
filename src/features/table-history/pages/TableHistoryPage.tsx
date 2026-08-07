@@ -40,6 +40,7 @@ import {
   formatChargeTimeRange,
   useAppDateTimeFormats,
 } from "@/lib/dateTime";
+import { getBusinessDayWindow } from "@/features/business-day/utils/businessDayWindow";
 
 type DateFilter =
   | "today"
@@ -58,6 +59,16 @@ type HistoryDisplayRow = {
   tableAmount: number;
 };
 
+type DaySheetTable = {
+  tableId: number;
+  tableName: string;
+  sessions: TableHistoryRecord[];
+  validSessions: TableHistoryRecord[];
+  revenue: number;
+  firstStartedAt?: string;
+  lastEndedAt?: string;
+};
+
 function formatCurrency(amount: number) {
   return `Rs. ${Math.round(amount).toLocaleString()}`;
 }
@@ -68,6 +79,14 @@ function formatDateTime(value: string) {
 
 function formatDate(value: string) {
   return formatAppDate(value);
+}
+
+function getDateFilterLabel(filter: DateFilter) {
+  if (filter === "today") return "Today";
+  if (filter === "yesterday") return "Yesterday";
+  if (filter === "this-week") return "This Week";
+  if (filter === "this-month") return "This Month";
+  return "Custom Range";
 }
 
 function formatTime(value: string) {
@@ -200,44 +219,30 @@ function formatDuration(minutes: number) {
   return `${hours}h ${mins}m`;
 }
 
-function startOfDay(date: Date) {
-  const next = new Date(date);
-  next.setHours(0, 0, 0, 0);
-  return next;
-}
-
-function endOfDay(date: Date) {
-  const next = new Date(date);
-  next.setHours(23, 59, 59, 999);
-  return next;
-}
-
 function getDateRange(
   filter: DateFilter,
   customStart: string,
   customEnd: string
 ) {
   const now = new Date();
-  const todayStart = startOfDay(now);
-  const todayEnd = endOfDay(now);
+  const currentBusinessDay = getBusinessDayWindow(now);
 
   if (filter === "yesterday") {
-    const yesterday = new Date(now);
-    yesterday.setDate(now.getDate() - 1);
+    const yesterday = new Date(currentBusinessDay.start);
+    yesterday.setDate(currentBusinessDay.start.getDate() - 1);
 
     return {
-      start: startOfDay(yesterday),
-      end: endOfDay(yesterday),
+      ...getBusinessDayWindow(yesterday),
     };
   }
 
   if (filter === "this-week") {
-    const start = startOfDay(now);
+    const start = new Date(currentBusinessDay.start);
     start.setDate(
       now.getDate() - now.getDay()
     );
 
-    return { start, end: todayEnd };
+    return { start, end: currentBusinessDay.end };
   }
 
   if (filter === "this-month") {
@@ -245,27 +250,28 @@ function getDateRange(
       start: new Date(
         now.getFullYear(),
         now.getMonth(),
-        1
+        1,
+        6,
+        0,
+        0,
+        0
       ),
-      end: todayEnd,
+      end: currentBusinessDay.end,
     };
   }
 
   if (filter === "custom") {
     return {
       start: customStart
-        ? startOfDay(new Date(customStart))
+        ? getBusinessDayWindow(new Date(customStart)).start
         : new Date(0),
       end: customEnd
-        ? endOfDay(new Date(customEnd))
-        : todayEnd,
+        ? getBusinessDayWindow(new Date(customEnd)).end
+        : currentBusinessDay.end,
     };
   }
 
-  return {
-    start: todayStart,
-    end: todayEnd,
-  };
+  return currentBusinessDay;
 }
 
 function matchesSearch(
@@ -312,6 +318,34 @@ function getRecordCustomer(record: TableHistoryRecord) {
     record.players[0] ??
     "-"
   );
+}
+
+function getDaySheetName(record: TableHistoryRecord) {
+  const name =
+    record.payerName ??
+    record.winnerName ??
+    record.loserName ??
+    record.player1Name ??
+    record.players[0];
+
+  if (!name || /^walk-in customer(?:\s*\(\d+\))?$/i.test(name.trim())) {
+    return "Walk-in";
+  }
+
+  return name;
+}
+
+function getDaySheetFrameLabel(record: TableHistoryRecord) {
+  if (record.sessionType === "double") return "Double";
+  if (
+    record.sessionType === "time" ||
+    record.sessionType === "private" ||
+    record.tableType === "private-room"
+  ) {
+    return "Booking";
+  }
+
+  return "Single";
 }
 
 function getRecordStatusClass(status: string) {
@@ -408,7 +442,7 @@ function TableHistoryPage() {
     useState("all");
   const [search, setSearch] = useState("");
   const [historyView, setHistoryView] = useState<
-    "sessions" | "earnings"
+    "sessions" | "day-sheet" | "earnings"
   >(() =>
     searchParams.get("tableId")
       ? "earnings"
@@ -433,6 +467,28 @@ function TableHistoryPage() {
     () => new Map(sales.map((sale) => [sale.id, sale])),
     [sales]
   );
+  const saleBySessionId = useMemo(() => {
+    const map = new Map<string, (typeof sales)[number]>();
+
+    sales.forEach((sale) => {
+      if (sale.paymentStatus !== "paid") return;
+      if (sale.sessionId) {
+        map.set(sale.sessionId, sale);
+      }
+      sale.gameCharges?.forEach((charge) => {
+        if (charge.sessionId) {
+          map.set(charge.sessionId, sale);
+        }
+      });
+      sale.cafeCharges?.forEach((charge) => {
+        if (charge.sessionId) {
+          map.set(charge.sessionId, sale);
+        }
+      });
+    });
+
+    return map;
+  }, [sales]);
   const pendingBillById = useMemo(
     () =>
       new Map(
@@ -446,7 +502,9 @@ function TableHistoryPage() {
   );
 
   const getRecordSale = (record: TableHistoryRecord) =>
-    record.saleId ? saleById.get(record.saleId) : undefined;
+    record.saleId
+      ? saleById.get(record.saleId) ?? saleBySessionId.get(record.sessionId)
+      : saleBySessionId.get(record.sessionId);
   const getRecordPendingBill = (record: TableHistoryRecord) =>
     record.pendingBillId ? pendingBillById.get(record.pendingBillId) : undefined;
   const getRecordOperator = (record: TableHistoryRecord) =>
@@ -487,6 +545,8 @@ function TableHistoryPage() {
 
     return sale.grandTotal;
   };
+  const getRecordEffectiveStatus = (record: TableHistoryRecord) =>
+    getRecordSale(record)?.paymentStatus ?? record.paymentStatus;
 
   const operatorOptions = useMemo(
     () =>
@@ -646,6 +706,132 @@ function TableHistoryPage() {
     () => filteredRecords.flatMap(getDisplayRows),
     [filteredRecords]
   );
+  const daySheetDateRange = getDateRange(
+    dateFilter,
+    customStart,
+    customEnd
+  );
+  const daySheetFilteredRecords = records
+    .filter((record) => {
+      if (businessDayFilter !== "all") {
+        return getRecordBusinessDayId(record) === businessDayFilter;
+      }
+
+      const endedAt = new Date(record.endedAt);
+      return (
+        endedAt >= daySheetDateRange.start &&
+        endedAt <= daySheetDateRange.end
+      );
+    })
+    .filter((record) =>
+      tableFilter === "all"
+        ? true
+        : record.tableId === Number(tableFilter)
+    )
+    .filter((record) =>
+      sessionTypeFilter === "all"
+        ? true
+        : record.sessionType === sessionTypeFilter
+    )
+    .filter((record) =>
+      operatorFilter === "all"
+        ? true
+        : getRecordOperator(record) === operatorFilter
+    );
+  const daySheetTables = useMemo<DaySheetTable[]>(() => {
+    const tableMap = new Map<number, DaySheetTable>();
+    const visibleTables =
+      tableFilter === "all"
+        ? tables
+        : tables.filter((table) => table.id === Number(tableFilter));
+
+    visibleTables.forEach((table) => {
+      tableMap.set(table.id, {
+        tableId: table.id,
+        tableName: table.name,
+        sessions: [],
+        validSessions: [],
+        revenue: 0,
+      });
+    });
+
+    daySheetFilteredRecords.forEach((record) => {
+      if (tableFilter !== "all" && record.tableId !== Number(tableFilter)) {
+        return;
+      }
+
+      const current =
+        tableMap.get(record.tableId) ??
+        {
+          tableId: record.tableId,
+          tableName: record.tableName,
+          sessions: [],
+          validSessions: [],
+          revenue: 0,
+        };
+
+      current.sessions.push(record);
+      if (getRecordEffectiveStatus(record) !== "cancelled") {
+        current.validSessions.push(record);
+      }
+      if (
+        getRecordEffectiveStatus(record) !== "pending" &&
+        getRecordEffectiveStatus(record) !== "cancelled"
+      ) {
+        current.revenue += record.tableAmount;
+      }
+      tableMap.set(record.tableId, current);
+    });
+
+    return [...tableMap.values()]
+      .map((table) => {
+        const sessions = [...table.sessions].sort(
+          (a, b) =>
+            new Date(a.startedAt).getTime() -
+            new Date(b.startedAt).getTime()
+        );
+        return {
+          ...table,
+          sessions,
+          validSessions: sessions.filter(
+            (record) =>
+              getRecordEffectiveStatus(record) !== "cancelled"
+          ),
+          firstStartedAt: sessions[0]?.startedAt,
+          lastEndedAt: sessions.at(-1)?.endedAt,
+        };
+      })
+      .sort((a, b) => a.tableId - b.tableId);
+  }, [daySheetFilteredRecords, tableFilter, tables]);
+  const daySheetSummary = useMemo(() => {
+    const mostUsedTable = [...daySheetTables].sort(
+      (a, b) =>
+        b.validSessions.length - a.validSessions.length ||
+        b.revenue - a.revenue
+    )[0];
+
+    return {
+      totalGames: daySheetTables.reduce(
+        (total, table) => total + table.validSessions.length,
+        0
+      ),
+      totalRevenue: daySheetTables.reduce(
+        (total, table) => total + table.revenue,
+        0
+      ),
+      mostUsedTable:
+        mostUsedTable && mostUsedTable.validSessions.length > 0
+          ? mostUsedTable.tableName
+          : "-",
+      selectedBusinessDay:
+        businessDayFilter === "all"
+          ? getDateFilterLabel(dateFilter)
+          : businessDayFilter === "none"
+            ? "No Business Day"
+            : businessDayById.get(businessDayFilter)?.dayName ??
+              "Selected Business Day",
+    };
+  }, [businessDayById, businessDayFilter, dateFilter, daySheetTables]);
   const tableEarnings = useMemo(() => {
     const earnings = new Map<
       number,
@@ -752,9 +938,11 @@ function TableHistoryPage() {
           </div>
         </div>
 
-        <div className="mb-5 flex gap-2">
+        <div className="mb-5 flex gap-2" role="tablist" aria-label="Table history views">
           <Button
             type="button"
+            role="tab"
+            aria-selected={historyView === "sessions"}
             variant={historyView === "sessions" ? "default" : "outline"}
             onClick={() => {
               setHistoryView("sessions");
@@ -765,6 +953,26 @@ function TableHistoryPage() {
           </Button>
           <Button
             type="button"
+            role="tab"
+            aria-selected={historyView === "day-sheet"}
+            variant={historyView === "day-sheet" ? "default" : "outline"}
+            onClick={() => {
+              setHistoryView("day-sheet");
+              if (businessDayFilter === "all") {
+                setBusinessDayFilter(
+                  useBusinessDayStore.getState().getActiveBusinessDay()?.id ??
+                    "all"
+                );
+              }
+              setSelectedRecord(null);
+            }}
+          >
+            Table Day Sheet
+          </Button>
+          <Button
+            type="button"
+            role="tab"
+            aria-selected={historyView === "earnings"}
             variant={historyView === "earnings" ? "default" : "outline"}
             onClick={() => {
               setHistoryView("earnings");
@@ -775,6 +983,8 @@ function TableHistoryPage() {
           </Button>
         </div>
 
+        {historyView !== "day-sheet" && (
+        <>
         <div className="mb-5 grid grid-cols-1 gap-4 md:grid-cols-3">
           <Card className="p-5">
             <p className="text-sm text-slate-500">
@@ -844,6 +1054,322 @@ function TableHistoryPage() {
             </p>
           </Card>
         </div>
+        </>
+        )}
+
+        {historyView === "day-sheet" && (
+          <div className="mx-auto max-w-7xl space-y-4">
+            <Card className="p-4">
+              <div className="grid items-end gap-3 md:grid-cols-2 xl:grid-cols-[1.35fr_1fr_0.85fr_0.95fr]">
+                <div>
+                  <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Business Day / Date
+                  </p>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <label className="grid gap-1 text-xs font-semibold uppercase text-slate-500">
+                      Business Day
+                      <Select
+                        value={businessDayFilter}
+                        onValueChange={(value) =>
+                          setBusinessDayFilter(value ?? "all")
+                        }
+                      >
+                        <SelectTrigger className="h-10 bg-white text-sm font-normal normal-case">
+                          <SelectValue placeholder="Business Day" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">By Date</SelectItem>
+                          <SelectItem value="none">No Business Day</SelectItem>
+                          {businessDays.map((day) => (
+                            <SelectItem key={day.id} value={day.id}>
+                              {day.dayName} - {day.openedBy}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </label>
+                    <label className="grid gap-1 text-xs font-semibold uppercase text-slate-500">
+                      Date
+                      <Select
+                        value={dateFilter}
+                        onValueChange={(value) =>
+                          setDateFilter(value as DateFilter)
+                        }
+                      >
+                        <SelectTrigger className="h-10 bg-white text-sm font-normal normal-case">
+                          <SelectValue placeholder="Date" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="today">Today</SelectItem>
+                          <SelectItem value="yesterday">Yesterday</SelectItem>
+                          <SelectItem value="this-week">This Week</SelectItem>
+                          <SelectItem value="this-month">This Month</SelectItem>
+                          <SelectItem value="custom">Custom</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </label>
+                  </div>
+                </div>
+
+                <label className="grid gap-1 text-xs font-semibold uppercase text-slate-500">
+                  Operator
+                  <Select
+                    value={operatorFilter}
+                    onValueChange={(value) =>
+                      setOperatorFilter(value ?? "all")
+                    }
+                  >
+                    <SelectTrigger className="h-10 bg-white text-sm font-normal normal-case">
+                      <SelectValue placeholder="Operator" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Operators</SelectItem>
+                      {operatorOptions.map((operator) => (
+                        <SelectItem key={operator} value={operator}>
+                          {operator}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </label>
+
+                <label className="grid gap-1 text-xs font-semibold uppercase text-slate-500">
+                  Table
+                  <Select
+                    value={tableFilter}
+                    onValueChange={(value) =>
+                      setTableFilter(value ?? "all")
+                    }
+                  >
+                    <SelectTrigger className="h-10 bg-white text-sm font-normal normal-case">
+                      <SelectValue placeholder="Table" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Tables</SelectItem>
+                      {tables.map((table) => (
+                        <SelectItem key={table.id} value={String(table.id)}>
+                          {table.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </label>
+
+                <label className="grid gap-1 text-xs font-semibold uppercase text-slate-500">
+                  Session Type
+                  <Select
+                    value={sessionTypeFilter}
+                    onValueChange={(value) =>
+                      setSessionTypeFilter(value ?? "all")
+                    }
+                  >
+                    <SelectTrigger className="h-10 bg-white text-sm font-normal normal-case">
+                      <SelectValue placeholder="Session Type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Types</SelectItem>
+                      <SelectItem value="single">Single</SelectItem>
+                      <SelectItem value="double">Double</SelectItem>
+                      <SelectItem value="time">Booking</SelectItem>
+                      <SelectItem value="private">Private Booking</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </label>
+              </div>
+
+              {businessDayFilter === "all" && dateFilter === "custom" && (
+                <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <label className="grid gap-1 text-xs font-semibold uppercase text-slate-500">
+                    Start Date
+                    <Input
+                      className="h-10 bg-white text-sm font-normal normal-case"
+                      type="date"
+                      value={customStart}
+                      onChange={(event) =>
+                        setCustomStart(event.target.value)
+                      }
+                    />
+                  </label>
+                  <label className="grid gap-1 text-xs font-semibold uppercase text-slate-500">
+                    End Date
+                    <Input
+                      className="h-10 bg-white text-sm font-normal normal-case"
+                      type="date"
+                      value={customEnd}
+                      onChange={(event) =>
+                        setCustomEnd(event.target.value)
+                      }
+                    />
+                  </label>
+                </div>
+              )}
+            </Card>
+
+            <div className="grid overflow-hidden rounded-lg border border-slate-200 bg-white text-sm shadow-sm sm:grid-cols-2 lg:grid-cols-4">
+              {[
+                ["Total Games", daySheetSummary.totalGames],
+                ["Total Table Revenue", formatCurrency(daySheetSummary.totalRevenue)],
+                ["Most Used Table", daySheetSummary.mostUsedTable],
+                ["Selected Business Day", daySheetSummary.selectedBusinessDay],
+              ].map(([label, value], index) => (
+                <div
+                  key={label}
+                  className={`px-4 py-3 ${
+                    index > 0 ? "border-t lg:border-l lg:border-t-0" : ""
+                  }`}
+                >
+                  <span className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    {label}
+                  </span>
+                  <span className="mt-1 block truncate text-base font-extrabold tabular-nums text-slate-950">
+                    {value}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {records.length === 0 ? (
+              <Card className="p-8 text-center text-sm text-slate-500">
+                No table history has been recorded yet.
+              </Card>
+            ) : daySheetTables.every((table) => table.sessions.length === 0) ? (
+              <Card className="p-8 text-center">
+                <p className="text-sm font-semibold text-slate-700">
+                  No table sessions found for the selected filters.
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="mt-3"
+                  onClick={() => {
+                    setOperatorFilter("all");
+                    setTableFilter("all");
+                    setSessionTypeFilter("all");
+                  }}
+                >
+                  Clear Filters
+                </Button>
+              </Card>
+            ) : (
+              <div
+                className={`overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm ${
+                  tableFilter === "all" ? "" : "mx-auto max-w-[960px]"
+                }`}
+              >
+                <div
+                  className={`flex min-w-full items-start ${
+                    tableFilter === "all" ? "gap-0" : "justify-center"
+                  }`}
+                >
+                  {daySheetTables.map((table) => (
+                    <section
+                      key={table.tableId}
+                      className={`shrink-0 border-r border-slate-200 last:border-r-0 ${
+                        tableFilter === "all"
+                          ? "w-[560px]"
+                          : "w-full min-w-[760px] max-w-[960px]"
+                      }`}
+                      aria-label={`${table.tableName} day sheet register`}
+                    >
+                      <div className="sticky top-0 z-20 border-b border-slate-200 bg-white px-4 py-3">
+                        <h2 className="truncate text-xs font-extrabold uppercase tracking-wide text-slate-600">
+                          {table.tableName}
+                        </h2>
+                        <p className="mt-1 text-2xl font-black leading-7 tabular-nums text-slate-950">
+                          {table.validSessions.length} Games
+                        </p>
+                        <p className="mt-0.5 text-base font-extrabold tabular-nums text-slate-900">
+                          {formatCurrency(table.revenue)}
+                        </p>
+                        <p className="mt-0.5 whitespace-nowrap text-xs font-medium tabular-nums text-slate-500">
+                          {table.firstStartedAt && table.lastEndedAt
+                            ? `${formatTime(table.firstStartedAt)} - ${formatTime(table.lastEndedAt)}`
+                            : "No sessions"}
+                        </p>
+                      </div>
+
+                      <div className="max-h-[64vh] overflow-auto">
+                        <table className="w-full table-fixed border-collapse text-left text-xs">
+                          <colgroup>
+                            <col className="w-[34%]" />
+                            <col className="w-[18%]" />
+                            <col className="w-[18%]" />
+                            <col className="w-[14%]" />
+                            <col className="w-[16%]" />
+                          </colgroup>
+                          <thead className="sticky top-0 z-10 bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
+                            <tr>
+                              <th scope="col" className="border-b border-slate-200 px-3 py-2 font-extrabold">Name</th>
+                              <th scope="col" className="border-b border-slate-200 px-2 py-2 font-extrabold">Time In</th>
+                              <th scope="col" className="border-b border-slate-200 px-2 py-2 font-extrabold">Time Out</th>
+                              <th scope="col" className="border-b border-slate-200 px-2 py-2 font-extrabold">Frame</th>
+                              <th scope="col" className="border-b border-slate-200 px-3 py-2 text-right font-extrabold">Rs.</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {table.sessions.map((record) => {
+                              const displayName = getDaySheetName(record);
+                              const selected = selectedRecord?.id === record.id;
+                              const cancelled = record.paymentStatus === "cancelled";
+
+                              return (
+                                <tr
+                                  key={record.id}
+                                  tabIndex={0}
+                                  onClick={() => setSelectedRecord(record)}
+                                  onKeyDown={(event) => {
+                                    if (event.key === "Enter" || event.key === " ") {
+                                      event.preventDefault();
+                                      setSelectedRecord(record);
+                                    }
+                                  }}
+                                  className={`cursor-pointer border-b border-slate-100 transition focus:outline-none focus:ring-2 focus:ring-inset focus:ring-slate-400 ${
+                                    selected
+                                      ? "bg-slate-100"
+                                      : cancelled
+                                        ? "bg-slate-50 text-slate-400 hover:bg-slate-100"
+                                        : "bg-white hover:bg-slate-50"
+                                  }`}
+                                >
+                                  <td className="truncate px-3 py-2 font-semibold text-slate-950" title={record.player1Name || displayName}>
+                                    {displayName}
+                                  </td>
+                                  <td className="whitespace-nowrap px-2 py-2 font-medium tabular-nums text-slate-700">
+                                    {formatTime(record.startedAt)}
+                                  </td>
+                                  <td className="whitespace-nowrap px-2 py-2 font-medium tabular-nums text-slate-700">
+                                    {record.endedAt ? formatTime(record.endedAt) : "Open"}
+                                  </td>
+                                  <td className="whitespace-nowrap px-2 py-2 text-slate-700">
+                                    <span className="inline-flex rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[11px] font-semibold text-slate-700">
+                                      {getDaySheetFrameLabel(record)}
+                                    </span>
+                                  </td>
+                                  <td className="whitespace-nowrap px-3 py-2 text-right font-extrabold tabular-nums text-slate-950">
+                                    {formatCurrency(record.tableAmount)}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+
+                            {table.sessions.length === 0 && (
+                              <tr>
+                                <td colSpan={5} className="px-3 py-8 text-center text-xs text-slate-500">
+                                  No sessions for this table.
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {historyView === "earnings" && (
         <>
@@ -1344,8 +1870,8 @@ function TableHistoryPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${getRecordStatusClass(row.record.paymentStatus)}`}>
-                        {formatStatusLabel(row.record.paymentStatus)}
+                      <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${getRecordStatusClass(getRecordEffectiveStatus(row.record))}`}>
+                        {formatStatusLabel(getRecordEffectiveStatus(row.record))}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right">
@@ -1499,8 +2025,8 @@ function TableHistoryPage() {
                 </p>
                 <p>
                   Status:{" "}
-                  <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${getRecordStatusClass(selectedRecord.paymentStatus)}`}>
-                    {formatStatusLabel(selectedRecord.paymentStatus)}
+                  <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${getRecordStatusClass(getRecordEffectiveStatus(selectedRecord))}`}>
+                    {formatStatusLabel(getRecordEffectiveStatus(selectedRecord))}
                   </span>
                 </p>
                 <p>Invoice: {selectedRecord.invoiceNumber ?? selectedRecord.staffBillNumber ?? selectedRecord.billNo ?? "-"}</p>

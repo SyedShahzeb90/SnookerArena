@@ -13,7 +13,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useBusinessDayStore } from "@/features/business-day/store/businessDayStore";
-import { paymentMethodLabels } from "@/features/business-day/types/businessDay";
+import {
+  getPaymentMethodLabels,
+  getPaymentMethodOptions,
+  useClubSettingsStore,
+} from "@/features/settings/store/clubSettingsStore";
 import type { PaymentMethod } from "@/types/session";
 import { formatAppDateTime, useAppDateTimeFormats } from "@/lib/dateTime";
 import { getOperatorDisplayName } from "@/lib/operatorAttribution";
@@ -45,6 +49,9 @@ function makeId() {
 
 function OutsidePurchasesPanel() {
   useAppDateTimeFormats();
+  const clubSettings = useClubSettingsStore((state) => state.settings);
+  const paymentMethodLabels = getPaymentMethodLabels(clubSettings);
+  const paymentMethodOptions = getPaymentMethodOptions(clubSettings);
   const purchases = useOutsidePurchaseStore((state) => state.purchases);
   const recordReimbursement = useOutsidePurchaseStore((state) => state.recordReimbursement);
   const voidOutsidePurchase = useOutsidePurchaseStore((state) => state.voidOutsidePurchase);
@@ -212,7 +219,7 @@ function OutsidePurchasesPanel() {
           <div className="grid gap-3">
             <p className="text-sm text-slate-500">Outstanding: {money(reimbursing?.outstandingAmount ?? 0)}</p>
             <div><Label>Amount Received</Label><Input type="number" min="0.01" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} /></div>
-            <div><Label>Payment Method</Label><select className="h-10 w-full rounded-md border bg-white px-3 text-sm" value={method} onChange={(event) => setMethod(event.target.value as PaymentMethod)}>{Object.entries(paymentMethodLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>
+            <div><Label>Payment Method</Label><select className="h-10 w-full rounded-md border bg-white px-3 text-sm" value={method} onChange={(event) => setMethod(event.target.value as PaymentMethod)}>{paymentMethodOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></div>
             <div><Label>Optional Note</Label><Textarea value={note} onChange={(event) => setNote(event.target.value)} /></div>
             {error && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
             <Button onClick={submitReimbursement}>Record Reimbursement</Button>

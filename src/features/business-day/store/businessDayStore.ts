@@ -7,6 +7,10 @@ import type {
   CloseBusinessDayInput,
   StartBusinessDayInput,
 } from "../types/businessDay";
+import {
+  getBusinessDayEnd,
+  isBusinessDayStillCurrent,
+} from "../utils/businessDayWindow";
 
 const emptySummary: BusinessDaySummary = {
   totalSales: 0,
@@ -90,10 +94,24 @@ export const useBusinessDayStore =
           }
 
           const now = new Date();
+          const expiredActiveDays = get().days.filter(
+            (day) =>
+              day.status === "active" &&
+              !isBusinessDayStillCurrent(day.startedAt, now)
+          );
+          const startedAt =
+            expiredActiveDays.length > 0
+              ? getBusinessDayEnd(
+                  expiredActiveDays
+                    .map((day) => day.startedAt)
+                    .sort()
+                    .at(-1) ?? now
+                )
+              : now;
           const day: BusinessDay = {
             id: `BD-${Date.now()}`,
-            dayName: makeDayName(now),
-            startedAt: now.toISOString(),
+            dayName: makeDayName(startedAt),
+            startedAt: startedAt.toISOString(),
             status: "active",
             openedBy: input.openedBy,
             openedByOperatorId: input.operatorId,
@@ -107,7 +125,26 @@ export const useBusinessDayStore =
           };
 
           set((state) => ({
-            days: [day, ...state.days],
+            days: [
+              day,
+              ...state.days.map((item) => {
+                if (
+                  !expiredActiveDays.some(
+                    (expired) => expired.id === item.id
+                  )
+                ) {
+                  return item;
+                }
+
+                return {
+                  ...item,
+                  status: "closed" as const,
+                  endedAt: getBusinessDayEnd(item.startedAt).toISOString(),
+                  closedBy: item.closedBy ?? "Auto closed at 6 AM",
+                  updatedAt: now.toISOString(),
+                };
+              }),
+            ],
             message: undefined,
           }));
 
@@ -161,7 +198,9 @@ export const useBusinessDayStore =
 
         getActiveBusinessDay: () =>
           get().days.find(
-            (day) => day.status === "active"
+            (day) =>
+              day.status === "active" &&
+              isBusinessDayStillCurrent(day.startedAt)
           ),
 
         getBusinessDayHistory: () =>

@@ -8,6 +8,7 @@ import type { OperatorSnapshot } from "@/types/operatorAudit";
 import { getActiveOperatorSnapshot } from "@/lib/operatorAttribution";
 import type {
   MenuItem,
+  MenuSaleOption,
   OrderItem,
   WaitingCustomer,
 } from "../types/menu";
@@ -79,6 +80,10 @@ export interface MenuItemInput {
   currentStock: number;
   lowStockAlertQuantity: number;
   stockUnit: string;
+  baseStockUnit: string;
+  purchaseUnit: string;
+  purchaseConversionQuantity: number;
+  saleOptions: MenuSaleOption[];
 }
 
 export interface StockTransaction {
@@ -107,6 +112,9 @@ export interface VendorRestockingRecord {
   productName: string;
   quantityReceived: number;
   unit: string;
+  baseUnit: string;
+  conversionQuantity: number;
+  baseUnitsAdded: number;
   costPerUnit: number;
   totalCost: number;
   paymentSource: VendorRestockingPaymentSource;
@@ -134,6 +142,7 @@ export interface VendorRestockingInput {
   menuItemId: string;
   quantityReceived: number;
   unit: string;
+  conversionQuantity?: number;
   costPerUnit: number;
   paymentSource: VendorRestockingPaymentSource;
   purchaseDate: string;
@@ -242,7 +251,8 @@ interface CafeStore {
     playerName: string,
     item: MenuItem,
     playerId?: string,
-    participantKey?: string
+    participantKey?: string,
+    saleOptionId?: string
   ) => void;
 
   increasePlayerItem: (
@@ -251,7 +261,8 @@ interface CafeStore {
     menuItemId: string,
     playerId?: string,
     sessionId?: string,
-    participantKey?: string
+    participantKey?: string,
+    saleOptionId?: string
   ) => void;
 
   decreasePlayerItem: (
@@ -260,22 +271,26 @@ interface CafeStore {
     menuItemId: string,
     playerId?: string,
     sessionId?: string,
-    participantKey?: string
+    participantKey?: string,
+    saleOptionId?: string
   ) => void;
 
   addItemToWaitingCustomer: (
     customerId: string,
-    item: MenuItem
+    item: MenuItem,
+    saleOptionId?: string
   ) => void;
 
   increaseWaitingItem: (
     customerId: string,
-    menuItemId: string
+    menuItemId: string,
+    saleOptionId?: string
   ) => void;
 
   decreaseWaitingItem: (
     customerId: string,
-    menuItemId: string
+    menuItemId: string,
+    saleOptionId?: string
   ) => void;
 
   clearTableOrders: (
@@ -290,6 +305,8 @@ interface CafeStore {
   deleteSavedOrdersForCustomerAccount: (
     customerAccountId: string
   ) => void;
+
+  deleteSavedOrder: (orderId: string) => void;
 
   saveOrder: (
     input: SaveOrderInput
@@ -321,19 +338,79 @@ const calculateTotal = (
     0
   );
 
+function normalizeUnit(value: string | undefined, fallback = "pcs") {
+  return (value?.trim() || fallback).trim();
+}
+
+function normalizeSaleOptions(input: MenuItemInput): MenuSaleOption[] {
+  const baseUnit = normalizeUnit(input.baseStockUnit || input.stockUnit);
+  const defaultOption: MenuSaleOption = {
+    id: "default",
+    label: baseUnit,
+    price: input.price,
+    stockDeductionQuantity: 1,
+  };
+
+  if (!input.trackStock) return [];
+
+  const options = input.saleOptions
+    .map((option) => ({
+      id: option.id || `OPTION-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      label: option.label.trim(),
+      price: option.price,
+      stockDeductionQuantity: option.stockDeductionQuantity,
+    }))
+    .filter((option) => option.label);
+
+  return options.length > 0 ? options : [defaultOption];
+}
+
+function getBaseStockUnit(item: MenuItem) {
+  return normalizeUnit(item.baseStockUnit || item.stockUnit);
+}
+
+function getPurchaseUnit(item: MenuItem) {
+  return normalizeUnit(item.purchaseUnit || item.stockUnit || item.baseStockUnit);
+}
+
+function getPurchaseConversionQuantity(item: MenuItem) {
+  return Math.max(1, item.purchaseConversionQuantity ?? 1);
+}
+
+function getDefaultSaleOption(item: MenuItem): MenuSaleOption {
+  const baseUnit = getBaseStockUnit(item);
+  return {
+    id: "default",
+    label: baseUnit,
+    price: item.price,
+    stockDeductionQuantity: 1,
+  };
+}
+
+function getSaleOption(item: MenuItem, saleOptionId?: string): MenuSaleOption {
+  return item.saleOptions?.find((option) => option.id === saleOptionId) ?? getDefaultSaleOption(item);
+}
+
+function getLineStockDeduction(item: OrderItem) {
+  return Math.max(1, item.stockDeductionQuantity ?? 1) * item.quantity;
+}
+
 const upsertOrderItem = (
   orderItems: OrderItem[],
   item: MenuItem,
+  saleOption: MenuSaleOption = getDefaultSaleOption(item),
   context: OrderItemContext = {}
 ) => {
   const existing = orderItems.find(
     (orderItem) =>
-      orderItem.menuItemId === item.id
+      orderItem.menuItemId === item.id &&
+      (orderItem.saleOptionId ?? "default") === saleOption.id
   );
 
   if (existing) {
     return orderItems.map((orderItem) =>
-      orderItem.menuItemId === item.id
+      orderItem.menuItemId === item.id &&
+      (orderItem.saleOptionId ?? "default") === saleOption.id
         ? {
             ...orderItem,
             quantity:
@@ -350,10 +427,12 @@ const upsertOrderItem = (
     ...orderItems,
     {
       menuItemId: item.id,
-      name: item.name,
-      price: item.price,
+      saleOptionId: saleOption.id,
+      name: saleOption.id === "default" ? item.name : `${item.name} - ${saleOption.label}`,
+      price: saleOption.price,
       quantity: 1,
-      subtotal: item.price,
+      subtotal: saleOption.price,
+      stockDeductionQuantity: Math.max(1, saleOption.stockDeductionQuantity),
       timeAdded: new Date(),
       tableId: context.tableId,
       sessionId: context.sessionId,
@@ -372,10 +451,12 @@ const upsertOrderItem = (
 
 const increaseOrderItem = (
   orderItems: OrderItem[],
-  menuItemId: string
+  menuItemId: string,
+  saleOptionId?: string
 ) =>
   orderItems.map((item) =>
-    item.menuItemId === menuItemId
+    item.menuItemId === menuItemId &&
+    (!saleOptionId || (item.saleOptionId ?? "default") === saleOptionId)
       ? {
           ...item,
           quantity: item.quantity + 1,
@@ -388,11 +469,13 @@ const increaseOrderItem = (
 
 const decreaseOrderItem = (
   orderItems: OrderItem[],
-  menuItemId: string
+  menuItemId: string,
+  saleOptionId?: string
 ) =>
   orderItems
     .map((item) =>
-      item.menuItemId === menuItemId
+      item.menuItemId === menuItemId &&
+      (!saleOptionId || (item.saleOptionId ?? "default") === saleOptionId)
       ? {
           ...item,
           quantity: item.quantity - 1,
@@ -404,13 +487,17 @@ const decreaseOrderItem = (
     )
     .filter((item) => item.quantity > 0);
 
-function assertStockAvailable(menu: MenuItem[], menuItemId: string, orderItems: OrderItem[]) {
+function assertStockAvailable(menu: MenuItem[], menuItemId: string, orderItems: OrderItem[], saleOptionId?: string) {
   const item = menu.find((current) => current.id === menuItemId);
   if (!item?.trackStock) return;
-  const quantity = orderItems.find((line) => line.menuItemId === menuItemId)?.quantity ?? 0;
+  const saleOption = getSaleOption(item, saleOptionId);
+  const currentDeduction = orderItems
+    .filter((line) => line.menuItemId === menuItemId)
+    .reduce((total, line) => total + getLineStockDeduction(line), 0);
+  const nextDeduction = currentDeduction + Math.max(1, saleOption.stockDeductionQuantity);
   const available = Math.max(0, item.currentStock ?? 0);
   if (available === 0) throw new Error(`${item.name} is out of stock.`);
-  if (quantity >= available) throw new Error(`Only ${available} ${item.stockUnit || "pcs"} of ${item.name} are available.`);
+  if (nextDeduction > available) throw new Error(`Only ${available} ${getBaseStockUnit(item)} of ${item.name} are available.`);
 }
 
 export const useCafeStore =
@@ -448,7 +535,11 @@ export const useCafeStore =
         trackStock: input.trackStock,
         currentStock: input.trackStock ? input.currentStock : 0,
         lowStockAlertQuantity: input.trackStock ? input.lowStockAlertQuantity : 0,
-        stockUnit: input.trackStock ? input.stockUnit.trim() : "pcs",
+        stockUnit: input.trackStock ? normalizeUnit(input.baseStockUnit || input.stockUnit) : "pcs",
+        baseStockUnit: input.trackStock ? normalizeUnit(input.baseStockUnit || input.stockUnit) : "pcs",
+        purchaseUnit: input.trackStock ? normalizeUnit(input.purchaseUnit || input.baseStockUnit || input.stockUnit) : "pcs",
+        purchaseConversionQuantity: input.trackStock ? input.purchaseConversionQuantity : 1,
+        saleOptions: normalizeSaleOptions(input),
       };
 
       set((state) => ({
@@ -483,7 +574,11 @@ export const useCafeStore =
                     : input.currentStock
                   : Math.max(0, item.currentStock ?? 0),
                 lowStockAlertQuantity: input.trackStock ? input.lowStockAlertQuantity : 0,
-                stockUnit: input.trackStock ? input.stockUnit.trim() : "pcs",
+                stockUnit: input.trackStock ? normalizeUnit(input.baseStockUnit || input.stockUnit) : "pcs",
+                baseStockUnit: input.trackStock ? normalizeUnit(input.baseStockUnit || input.stockUnit) : "pcs",
+                purchaseUnit: input.trackStock ? normalizeUnit(input.purchaseUnit || input.baseStockUnit || input.stockUnit) : "pcs",
+                purchaseConversionQuantity: input.trackStock ? input.purchaseConversionQuantity : 1,
+                saleOptions: normalizeSaleOptions(input),
               }
             : item
         ),
@@ -565,7 +660,7 @@ export const useCafeStore =
       set((state) => {
         const desired = items.reduce<Record<string, number>>((totals, item) => {
           if (!state.menu.find((product) => product.id === item.menuItemId)?.trackStock) return totals;
-          totals[item.menuItemId] = (totals[item.menuItemId] ?? 0) + item.quantity;
+          totals[item.menuItemId] = (totals[item.menuItemId] ?? 0) + getLineStockDeduction(item);
           return totals;
         }, {});
         const previous = state.stockCommitments[sourceId] ?? {};
@@ -576,7 +671,7 @@ export const useCafeStore =
           if (!item?.trackStock) continue;
           const deduction = (desired[menuItemId] ?? 0) - (previous[menuItemId] ?? 0);
           if (deduction > Math.max(0, item.currentStock ?? 0)) {
-            throw new Error(`${item.name} has only ${Math.max(0, item.currentStock ?? 0)} ${item.stockUnit || "pcs"} available.`);
+            throw new Error(`${item.name} has only ${Math.max(0, item.currentStock ?? 0)} ${getBaseStockUnit(item)} available.`);
           }
         }
 
@@ -648,9 +743,16 @@ export const useCafeStore =
       if (!input.purchaseDate || Number.isNaN(new Date(input.purchaseDate).getTime())) throw new Error("Purchase date is required.");
 
       const item = get().menu.find((product) => product.id === input.menuItemId);
-      if (!item?.trackStock) throw new Error("Select a stock-tracked Cafe product.");
-      const configuredUnit = (item.stockUnit || "pcs").trim();
+      if (!item) throw new Error("Select a Cafe product.");
+      if ((item.isAvailable ?? item.available) === false) throw new Error("Select an available Cafe product.");
+      const configuredUnit = getPurchaseUnit(item);
+      const baseUnit = getBaseStockUnit(item);
+      const conversionQuantity = input.conversionQuantity ?? getPurchaseConversionQuantity(item);
+      if (!unit) throw new Error("Purchase unit is required.");
+      if (!baseUnit) throw new Error("Base stock unit is required.");
+      if (!Number.isInteger(conversionQuantity) || conversionQuantity <= 0) throw new Error("Conversion quantity must be a positive whole number.");
       if (unit.toLowerCase() !== configuredUnit.toLowerCase()) throw new Error(`Unit must match ${configuredUnit}.`);
+      const baseUnitsAdded = input.quantityReceived * conversionQuantity;
 
       const now = new Date().toISOString();
       const record: VendorRestockingRecord = {
@@ -660,6 +762,9 @@ export const useCafeStore =
         productName: item.name,
         quantityReceived: input.quantityReceived,
         unit: configuredUnit,
+        baseUnit,
+        conversionQuantity,
+        baseUnitsAdded,
         costPerUnit: input.costPerUnit,
         totalCost: input.quantityReceived * input.costPerUnit,
         paymentSource: input.paymentSource,
@@ -674,15 +779,15 @@ export const useCafeStore =
 
       set((state) => {
         const current = Math.max(0, state.menu.find((product) => product.id === item.id)?.currentStock ?? 0);
-        const next = current + record.quantityReceived;
+        const next = current + record.baseUnitsAdded;
         return {
-          menu: state.menu.map((product) => product.id === item.id ? { ...product, currentStock: next, updatedAt: now } : product),
+          menu: state.menu.map((product) => product.id === item.id ? { ...product, trackStock: true, currentStock: next, stockUnit: baseUnit, baseStockUnit: baseUnit, purchaseUnit: configuredUnit, purchaseConversionQuantity: conversionQuantity, updatedAt: now } : product),
           vendorRestockingRecords: [record, ...state.vendorRestockingRecords],
           stockTransactions: [...state.stockTransactions, {
             id: `STOCK-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
             menuItemId: item.id,
             type: "restock",
-            quantityChange: record.quantityReceived,
+            quantityChange: record.baseUnitsAdded,
             balanceAfter: next,
             quantityBefore: current,
             quantityAfter: next,
@@ -704,9 +809,10 @@ export const useCafeStore =
       const item = get().menu.find((product) => product.id === record.menuItemId);
       if (!item) throw new Error("The linked Cafe product was not found.");
       const current = Math.max(0, item.currentStock ?? 0);
-      if (current < record.quantityReceived) throw new Error("This restock cannot be cancelled because it would make stock negative.");
+      const baseUnitsAdded = record.baseUnitsAdded ?? record.quantityReceived;
+      if (current < baseUnitsAdded) throw new Error("This restock cannot be cancelled because it would make stock negative.");
       const now = new Date().toISOString();
-      const next = current - record.quantityReceived;
+      const next = current - baseUnitsAdded;
       set((state) => ({
         menu: state.menu.map((product) => product.id === item.id ? { ...product, currentStock: next, updatedAt: now } : product),
         vendorRestockingRecords: state.vendorRestockingRecords.map((entry) => entry.id === recordId ? {
@@ -722,7 +828,7 @@ export const useCafeStore =
           id: `STOCK-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           menuItemId: item.id,
           type: "restock_cancelled",
-          quantityChange: -record.quantityReceived,
+          quantityChange: -baseUnitsAdded,
           balanceAfter: next,
           quantityBefore: current,
           quantityAfter: next,
@@ -919,9 +1025,11 @@ addItemToPlayer: (
   playerName,
   item,
   playerId,
-  participantKey
+  participantKey,
+  saleOptionId
 ) =>
   set((state) => {
+    const saleOption = getSaleOption(item, saleOptionId);
     const playerKey =
       getPlayerIdentityKey({
         customerId: playerId,
@@ -974,12 +1082,13 @@ addItemToPlayer: (
             return player;
           }
 
-          assertStockAvailable(state.menu, item.id, player.orderItems);
+          assertStockAvailable(state.menu, item.id, player.orderItems, saleOption.id);
 
           const orderItems =
             upsertOrderItem(
               player.orderItems,
               item,
+              saleOption,
               {
                 tableId,
                 sessionId,
@@ -1007,7 +1116,8 @@ increasePlayerItem: (
   menuItemId,
   playerId,
   sessionId,
-  participantKey
+  participantKey,
+  saleOptionId
 ) =>
   set((state) => ({
     playerOrders:
@@ -1026,12 +1136,13 @@ increasePlayerItem: (
           )
             return player;
 
-          assertStockAvailable(state.menu, menuItemId, player.orderItems);
+          assertStockAvailable(state.menu, menuItemId, player.orderItems, saleOptionId);
 
           const orderItems =
             increaseOrderItem(
               player.orderItems,
-              menuItemId
+              menuItemId,
+              saleOptionId
             );
 
           return {
@@ -1050,12 +1161,12 @@ decreasePlayerItem: (
   menuItemId,
   playerId,
   sessionId,
-  participantKey
+  participantKey,
+  saleOptionId
 ) =>
-  set((state) => ({
-    playerOrders:
-      state.playerOrders.map(
-        (player) => {
+  set((state) => {
+    const playerOrders = state.playerOrders
+      .map((player) => {
           if (
             player.tableId !==
               tableId ||
@@ -1072,7 +1183,8 @@ decreasePlayerItem: (
           const orderItems =
             decreaseOrderItem(
               player.orderItems,
-              menuItemId
+              menuItemId,
+              saleOptionId
             );
 
           return {
@@ -1081,13 +1193,18 @@ decreasePlayerItem: (
             totalAmount:
               calculateTotal(orderItems),
           };
-        }
-      ),
-  })),
+        })
+      .filter(
+        (player) => player.orderItems.length > 0
+      );
+
+    return { playerOrders };
+  }),
 
 addItemToWaitingCustomer: (
   customerId,
-  item
+  item,
+  saleOptionId
 ) =>
   set((state) => ({
     waitingCustomers:
@@ -1099,12 +1216,14 @@ addItemToWaitingCustomer: (
           )
             return customer;
 
-          assertStockAvailable(state.menu, item.id, customer.orderItems);
+          const saleOption = getSaleOption(item, saleOptionId);
+          assertStockAvailable(state.menu, item.id, customer.orderItems, saleOption.id);
 
           const orderItems =
             upsertOrderItem(
               customer.orderItems,
               item,
+              saleOption,
               {
                 customerName:
                   customer.name,
@@ -1123,7 +1242,8 @@ addItemToWaitingCustomer: (
 
 increaseWaitingItem: (
   customerId,
-  menuItemId
+  menuItemId,
+  saleOptionId
 ) =>
   set((state) => ({
     waitingCustomers:
@@ -1135,12 +1255,13 @@ increaseWaitingItem: (
           )
             return customer;
 
-          assertStockAvailable(state.menu, menuItemId, customer.orderItems);
+          assertStockAvailable(state.menu, menuItemId, customer.orderItems, saleOptionId);
 
           const orderItems =
             increaseOrderItem(
               customer.orderItems,
-              menuItemId
+              menuItemId,
+              saleOptionId
             );
 
           return {
@@ -1155,7 +1276,8 @@ increaseWaitingItem: (
 
 decreaseWaitingItem: (
   customerId,
-  menuItemId
+  menuItemId,
+  saleOptionId
 ) =>
   set((state) => ({
     waitingCustomers:
@@ -1170,7 +1292,8 @@ decreaseWaitingItem: (
           const orderItems =
             decreaseOrderItem(
               customer.orderItems,
-              menuItemId
+              menuItemId,
+              saleOptionId
             );
 
           return {
@@ -1222,6 +1345,13 @@ deleteSavedOrdersForCustomerAccount: (customerAccountId) =>
     savedOrders: state.savedOrders.filter(
       (order) =>
         order.customerAccountId !== customerAccountId
+    ),
+  })),
+
+deleteSavedOrder: (orderId) =>
+  set((state) => ({
+    savedOrders: state.savedOrders.filter(
+      (order) => order.id !== orderId
     ),
   })),
 

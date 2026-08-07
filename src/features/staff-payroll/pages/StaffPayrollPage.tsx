@@ -1,9 +1,11 @@
 import {
+  ArrowLeft,
   BadgeDollarSign,
   Plus,
 } from "lucide-react";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -19,7 +21,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
 import { PageHeading, PageShell } from "@/components/layout/page-layout";
 import { useBusinessDayStore } from "@/features/business-day/store/businessDayStore";
-import { paymentMethodLabels } from "@/features/business-day/types/businessDay";
+import {
+  getPaymentMethodLabels,
+  getPaymentMethodOptions,
+  useClubSettingsStore,
+} from "@/features/settings/store/clubSettingsStore";
 import type { PaymentMethod } from "@/types/session";
 
 import { useStaffPayrollStore } from "../store/staffPayrollStore";
@@ -28,13 +34,6 @@ import type {
   PayrollEmployeeInput,
   PayrollEmployeeStatus,
 } from "../types/payroll";
-
-const paymentMethods: PaymentMethod[] = [
-  "cash",
-  "card",
-  "jazzcash",
-  "easypaisa",
-];
 
 type EmployeeDialogMode = "new" | "edit";
 type DetailTab = "overview" | "advances" | "salary-history";
@@ -92,9 +91,15 @@ const emptyEmployeeForm: PayrollEmployeeInput = {
 };
 
 function StaffPayrollPage() {
+  const navigate = useNavigate();
   const toast = useToast();
   const activeDay = useBusinessDayStore((state) =>
     state.getActiveBusinessDay()
+  );
+  const clubSettings = useClubSettingsStore((state) => state.settings);
+  const paymentMethodLabels = useMemo(
+    () => getPaymentMethodLabels(clubSettings),
+    [clubSettings]
   );
   const employees = useStaffPayrollStore((state) => state.employees);
   const salaryAdvances = useStaffPayrollStore((state) => state.salaryAdvances);
@@ -306,6 +311,15 @@ function StaffPayrollPage() {
 
   return (
     <PageShell>
+      <Button
+        variant="ghost"
+        className="w-fit gap-2"
+        onClick={() => navigate("/admin")}
+      >
+        <ArrowLeft className="h-4 w-4" />
+        Back to Admin Dashboard
+      </Button>
+
       <div className="flex flex-wrap items-start justify-between gap-3">
         <PageHeading
           icon={BadgeDollarSign}
@@ -703,6 +717,8 @@ function PaymentSelect({
   value: PaymentMethod;
   onChange: (value: PaymentMethod) => void;
 }) {
+  const clubSettings = useClubSettingsStore((state) => state.settings);
+  const paymentMethods = getPaymentMethodOptions(clubSettings);
   return (
     <select
       className="h-10 rounded-md border border-slate-300 bg-white px-3 text-sm"
@@ -710,8 +726,8 @@ function PaymentSelect({
       onChange={(event) => onChange(event.target.value as PaymentMethod)}
     >
       {paymentMethods.map((method) => (
-        <option key={method} value={method}>
-          {paymentMethodLabels[method]}
+        <option key={method.value} value={method.value}>
+          {method.label}
         </option>
       ))}
     </select>

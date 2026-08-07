@@ -18,6 +18,7 @@ import { useSalesStore } from "@/features/sales/store/salesStore";
 import { formatAppDate, useAppDateTimeFormats } from "@/lib/dateTime";
 
 import ProfitLossSummaryCards from "../components/ProfitLossSummaryCards";
+import type { CafeSalesBreakdown } from "../components/ProfitLossSummaryCards";
 import {
   calculateProfitLoss,
   getProfitLossDateRange,
@@ -63,6 +64,77 @@ function getProfitStatusClass(value: number) {
     : "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200";
 }
 
+function isWithinDateRange(value: string, range: { start: Date; end: Date }) {
+  const time = new Date(value).getTime();
+  return time >= range.start.getTime() && time <= range.end.getTime();
+}
+
+function getCafeSalesBreakdown(
+  sales: ReturnType<typeof useSalesStore.getState>["sales"],
+  dateRange: { start: Date; end: Date },
+  cafeRevenue: number
+): CafeSalesBreakdown {
+  const cafeSales = sales.filter(
+    (sale) =>
+      sale.paymentStatus === "paid" &&
+      sale.cafeAmount > 0 &&
+      isWithinDateRange(sale.createdAt, dateRange)
+  );
+  const rowsByItem = cafeSales.reduce<
+    Record<string, { item: string; quantity: number; sales: number }>
+  >((summary, sale) => {
+    (sale.orderedItems ?? [])
+      .filter((item) => !item.name.startsWith("[Accessory]"))
+      .forEach((item) => {
+        const key = item.menuItemId || item.name.trim().toLowerCase();
+        const current = summary[key] ?? {
+          item: item.name,
+          quantity: 0,
+          sales: 0,
+        };
+
+        summary[key] = {
+          item: current.item,
+          quantity: current.quantity + item.quantity,
+          sales: current.sales + item.subtotal,
+        };
+      });
+
+    return summary;
+  }, {});
+  const itemRows = Object.values(rowsByItem);
+  const allocatedRevenue = itemRows.reduce(
+    (total, row) => total + row.sales,
+    0
+  );
+  const unallocatedRevenue = Math.max(0, cafeRevenue - allocatedRevenue);
+  const rows =
+    unallocatedRevenue > 0
+      ? [
+          ...itemRows,
+          {
+            item: "Unallocated Cafe Sales",
+            quantity: 0,
+            sales: unallocatedRevenue,
+          },
+        ]
+      : itemRows;
+
+  return {
+    rows: rows.sort(
+      (a, b) =>
+        b.quantity - a.quantity ||
+        b.sales - a.sales ||
+        a.item.localeCompare(b.item)
+    ),
+    totalRevenue: cafeRevenue,
+    totalItemsSold: itemRows.reduce(
+      (total, row) => total + row.quantity,
+      0
+    ),
+  };
+}
+
 function ProfitLossPage() {
   useAppDateTimeFormats();
   const navigate = useNavigate();
@@ -92,6 +164,15 @@ function ProfitLossPage() {
         dateRange
       ),
     [sales, expenses, dateRange]
+  );
+  const cafeBreakdown = useMemo(
+    () =>
+      getCafeSalesBreakdown(
+        sales,
+        dateRange,
+        report.totals.cafeRevenue
+      ),
+    [sales, dateRange, report.totals.cafeRevenue]
   );
   const visibleExpenseTotals = useMemo(
     () =>
@@ -183,7 +264,10 @@ function ProfitLossPage() {
           </div>
         </Card>
 
-        <ProfitLossSummaryCards totals={report.totals} />
+        <ProfitLossSummaryCards
+          totals={report.totals}
+          cafeBreakdown={cafeBreakdown}
+        />
 
         <section className="mt-5 grid gap-4 lg:grid-cols-3">
           <Card className="p-4 lg:col-span-1">

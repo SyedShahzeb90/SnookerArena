@@ -19,7 +19,10 @@ import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/ui/empty-state";
 import type { PaymentMethod } from "@/types/session";
 import { useBusinessDayStore } from "@/features/business-day/store/businessDayStore";
-import { useClubSettingsStore } from "@/features/settings/store/clubSettingsStore";
+import {
+  getPaymentMethodOptions,
+  useClubSettingsStore,
+} from "@/features/settings/store/clubSettingsStore";
 import { useCustomerAccountStore } from "@/features/customers/store/customerAccountStore";
 import {
   getBillPrimaryLabel,
@@ -176,6 +179,8 @@ function AccessoriesPage() {
       state.getActiveBusinessDay()
     );
   const salesStore = useSalesStore();
+  const clubSettings = useClubSettingsStore((state) => state.settings);
+  const paymentMethodOptions = getPaymentMethodOptions(clubSettings);
 
   const [search, setSearch] = useState("");
   const [category, setCategory] =
@@ -930,7 +935,11 @@ function AccessoriesPage() {
                 {billSaved && <p className="mb-3 rounded-md bg-emerald-50 px-3 py-2 text-center text-sm font-semibold text-emerald-700">Saved</p>}
                 <label className="mb-1 block text-xs font-semibold text-slate-500" htmlFor="accessory-payment-method">Payment Method</label>
                 <select id="accessory-payment-method" className="mb-3 h-10 w-full rounded-md border bg-white px-3 text-sm" value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as PaymentMethod)} disabled={selectedTarget !== null}>
-                  <option value="cash">Cash</option><option value="card">Card</option><option value="jazzcash">JazzCash</option><option value="easypaisa">Easypaisa</option>
+                  {paymentMethodOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
                 </select>
                 <Button className="w-full" disabled={selectedTarget !== null || cart.length === 0} onClick={completeSale}>Complete Sale</Button>
               </div>

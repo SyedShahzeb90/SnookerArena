@@ -47,6 +47,12 @@ import CustomerBillsPage from "@/features/customers/pages/CustomerBillsPage";
 import { useAdminModeStore } from "@/features/admin-mode/adminModeStore";
 import { useTableStore } from "@/store/tableStore";
 import { useDeferredPayment } from "../DeferredPaymentProvider";
+import {
+  DEFAULT_PAYMENT_METHOD_LABELS,
+  getPaymentMethodLabels,
+  getPaymentMethodOptions,
+  useClubSettingsStore,
+} from "@/features/settings/store/clubSettingsStore";
 type StatusFilter = "pending" | "paid" | "cancelled";
 type ViewFilter = StatusFilter | "all";
 type DateFilter =
@@ -64,11 +70,9 @@ type BillTypeFilter =
   | "cafe-only"
   | "accessories-only"
   | "mixed";
-const paymentMethodLabels: Record<PaymentMethod, string> = {
-  cash: "Cash",
-  card: "Card",
-  jazzcash: "JazzCash",
-  easypaisa: "Easypaisa",
+type CurrentlyPlayingBills = {
+  customerIds: Set<string>;
+  sessionIds: Set<string>;
 };
 const cancellationReasons = [
   "Wrong entry",
@@ -88,15 +92,26 @@ function getCustomerAccountSessionIds(account: CustomerAccount) {
       .filter((sessionId): sessionId is string => Boolean(sessionId))
   );
 }
+function isCustomerAccountCurrentlyPlaying(
+  account: CustomerAccount,
+  playing: CurrentlyPlayingBills,
+) {
+  if (playing.customerIds.has(account.id)) return true;
+
+  const accountSessionIds = getCustomerAccountSessionIds(account);
+  return Array.from(accountSessionIds).some((sessionId) =>
+    playing.sessionIds.has(sessionId),
+  );
+}
 function getSalePaymentLabel(sale: {
   paymentMethod: PaymentMethod;
   paymentSplits?: PaymentSplit[];
-}) {
+}, labels: Record<PaymentMethod, string> = DEFAULT_PAYMENT_METHOD_LABELS) {
   if (!sale.paymentSplits?.length) {
-    return paymentMethodLabels[sale.paymentMethod];
+    return labels[sale.paymentMethod];
   }
   return sale.paymentSplits
-    .map((split) => `${paymentMethodLabels[split.method]} Rs. ${split.amount}`)
+    .map((split) => `${labels[split.method]} Rs. ${split.amount}`)
     .join(" + ");
 }
 function getSaleAccessoryAmount(sale: Sale) {
@@ -407,6 +422,15 @@ type CombineSelectableRow = Extract<
   { type: "pending" } | { type: "account" }
 >;
 
+function isPendingRowCurrentlyPlaying(
+  row: Extract<CheckoutRow, { type: "pending" }>,
+  playing: CurrentlyPlayingBills,
+) {
+  return (
+    playing.sessionIds.has(row.bill.session.id) ||
+    (row.customerId ? playing.customerIds.has(row.customerId) : false)
+  );
+}
 function getPendingPlayerPaymentKey(billId: string, playerName: string) {
   return `bill:${billId}:player:${normalizePlayerName(playerName)}`;
 }
@@ -1212,8 +1236,20 @@ function CheckoutPage() {
   );
   const sales = useSalesStore((state) => state.sales);
   const deleteSale = useSalesStore((state) => state.deleteSale);
+  const updateSalePaymentMethod = useSalesStore(
+    (state) => state.updateSalePaymentMethod,
+  );
   const activeBusinessDay = useBusinessDayStore((state) =>
     state.getActiveBusinessDay(),
+  );
+  const clubSettings = useClubSettingsStore((state) => state.settings);
+  const paymentMethodLabels = useMemo(
+    () => getPaymentMethodLabels(clubSettings),
+    [clubSettings],
+  );
+  const paymentMethodOptions = useMemo(
+    () => getPaymentMethodOptions(clubSettings),
+    [clubSettings],
   );
   const customerAccounts = useCustomerAccountStore((state) => state.accounts);
   const tables = useTableStore((state) => state.tables);
@@ -1224,6 +1260,9 @@ function CheckoutPage() {
   );
   const markCustomerBillPaid = useCustomerAccountStore(
     (state) => state.markCustomerBillPaid,
+  );
+  const replaceCafeChargesForOrder = useCustomerAccountStore(
+    (state) => state.replaceCafeChargesForOrder,
   );
   const [selectedBill, setSelectedBill] = useState<PendingBill | null>(null);
   const [contextMenu, setContextMenu] = useState<{
@@ -1238,6 +1277,11 @@ function CheckoutPage() {
   const [selectedSaleReceipt, setSelectedSaleReceipt] = useState<Sale | null>(
     null,
   );
+  const [salePaymentToEdit, setSalePaymentToEdit] = useState<Sale | null>(
+    null,
+  );
+  const [correctedPaymentMethod, setCorrectedPaymentMethod] =
+    useState<PaymentMethod>("cash");
   const [restoredPaymentDraft, setRestoredPaymentDraft] = useState<{
     billId: string;
     paymentMethod: PaymentMethod;
@@ -1281,6 +1325,46 @@ function CheckoutPage() {
       }
     });
   }, [pendingBills, removePendingBill, sales]);
+  useEffect(() => {
+    pendingBills.forEach((bill) => {
+      const tableBillCafeItems = bill.session.cafeOrders.filter(
+        (item) => item.tableBill,
+      );
+      if (!tableBillCafeItems.length) return;
+
+      const payerName =
+        bill.session.payerName ??
+        bill.session.loserName ??
+        tableBillCafeItems[0]?.playerName ??
+        tableBillCafeItems[0]?.customerName;
+      if (!payerName) return;
+
+      const payerCustomerId =
+        bill.session.payerCustomerId ??
+        tableBillCafeItems.find((item) => item.playerId)?.playerId;
+
+      replaceCafeChargesForOrder({
+        customerId: payerCustomerId,
+        customerName: payerName,
+        sourceOrderId: `TABLE-BILL-CAFE-${bill.session.id}`,
+        charges: tableBillCafeItems.map((item) => ({
+          itemId: item.menuItemId,
+          name: item.name,
+          quantity: item.quantity,
+          price: item.price,
+          subtotal: item.subtotal,
+          tableId: bill.tableId,
+          tableName: bill.tableName,
+          sessionId: bill.session.id,
+          orderedAt:
+            item.orderedAt ??
+            new Date(
+              bill.session.endTime ?? bill.createdAt,
+            ).toISOString(),
+        })),
+      });
+    });
+  }, [pendingBills, replaceCafeChargesForOrder]);
   const unpaidBills = useMemo(
     () =>
       pendingBills.filter(
@@ -1344,8 +1428,9 @@ function CheckoutPage() {
       (account) => !pendingCustomerIds.has(account.id),
     );
   }, [displayPendingBills, openCustomerAccountBills]);
-  const currentlyPlayingCustomerIds = useMemo(() => {
+  const currentlyPlayingBills = useMemo<CurrentlyPlayingBills>(() => {
     const customerIds = new Set<string>();
+    const sessionIds = new Set<string>();
 
     tables.forEach((table) => {
       if (
@@ -1355,17 +1440,19 @@ function CheckoutPage() {
         return;
       }
 
+      sessionIds.add(table.session.id);
       [
         table.session.player1CustomerId,
         table.session.player2CustomerId,
         table.session.player3CustomerId,
         table.session.player4CustomerId,
+        ...(table.session.extraPlayerCustomerIds ?? []),
       ]
         .filter((id): id is string => Boolean(id))
         .forEach((id) => customerIds.add(id));
     });
 
-    return customerIds;
+    return { customerIds, sessionIds };
   }, [tables]);
   const collectiblePendingRows = useMemo(
     () =>
@@ -1378,11 +1465,10 @@ function CheckoutPage() {
         )
         .filter(
           (row) =>
-            !row.customerId ||
-            !currentlyPlayingCustomerIds.has(row.customerId)
+            !isPendingRowCurrentlyPlaying(row, currentlyPlayingBills)
         ),
     [
-      currentlyPlayingCustomerIds,
+      currentlyPlayingBills,
       displayPendingBills,
       openCustomerAccountBills,
     ]
@@ -1391,9 +1477,9 @@ function CheckoutPage() {
     () =>
       activeCustomerAccounts.filter(
         (account) =>
-          !currentlyPlayingCustomerIds.has(account.id)
+          !isCustomerAccountCurrentlyPlaying(account, currentlyPlayingBills)
       ),
-    [activeCustomerAccounts, currentlyPlayingCustomerIds]
+    [activeCustomerAccounts, currentlyPlayingBills]
   );
   const checkoutSales = useMemo(
     () => sales.filter(isCheckoutPaidSale),
@@ -1539,7 +1625,9 @@ function CheckoutPage() {
               : row.sale.payerName;
         const displayPayer = getCheckoutRowDisplayName(row, payerName);
         const paymentMethod =
-          row.type === "paid" ? getSalePaymentLabel(row.sale) : "";
+          row.type === "paid"
+            ? getSalePaymentLabel(row.sale, paymentMethodLabels)
+            : "";
         const accountCafeItems =
           row.type === "account"
             ? row.account.cafeCharges.map((charge) => charge.name).join(" ")
@@ -1739,6 +1827,33 @@ function CheckoutPage() {
     toast.success({
       title: "Paid Sale Deleted",
       description: `${sale.invoiceNumber} was removed from paid sales.`,
+    });
+  };
+  const openEditSalePayment = (sale: Sale) => {
+    setSalePaymentToEdit(sale);
+    setCorrectedPaymentMethod(sale.paymentMethod);
+    setContextMenu(null);
+    setContextRowKey(null);
+  };
+  const handleCorrectSalePaymentMethod = () => {
+    if (!salePaymentToEdit) return;
+
+    updateSalePaymentMethod(
+      salePaymentToEdit.id,
+      correctedPaymentMethod,
+    );
+    const updatedSale = {
+      ...salePaymentToEdit,
+      paymentMethod: correctedPaymentMethod,
+      paymentSplits: undefined,
+    };
+    if (selectedSaleReceipt?.id === salePaymentToEdit.id) {
+      setSelectedSaleReceipt(updatedSale);
+    }
+    setSalePaymentToEdit(null);
+    toast.success({
+      title: "Payment Method Updated",
+      description: `${salePaymentToEdit.invoiceNumber} is now ${paymentMethodLabels[correctedPaymentMethod]}.`,
     });
   };
   const emptyColumnCount = 9;
@@ -2197,6 +2312,18 @@ function CheckoutPage() {
     }
 
     if (row.type === "pending") {
+      const account = findPendingPlayerAccount({
+        accounts: customerAccounts,
+        sessionId: row.bill.session.id,
+        customerId: row.customerId,
+        playerName: row.playerName,
+      });
+
+      if (account) {
+        navigate(`/operator/billing?customerBillId=${account.id}`);
+        return;
+      }
+
       const sessionCafeAmount = getPlayerCafeAmount(
         row.bill.session,
         row.playerName
@@ -2398,10 +2525,11 @@ function CheckoutPage() {
                   }
                 >
                   <option value="all">All Payments</option>
-                  <option value="cash">Cash</option>
-                  <option value="card">Card</option>
-                  <option value="jazzcash">JazzCash</option>
-                  <option value="easypaisa">Easypaisa</option>
+                  {paymentMethodOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
                 </select>
               </label>
               <label className="grid min-w-[140px] gap-1 text-xs font-semibold text-slate-500">
@@ -2536,7 +2664,7 @@ function CheckoutPage() {
             <table
               className={`table-fixed text-left text-sm ${
                 statusFilter === "paid" || statusFilter === "cancelled"
-                  ? "w-[1185px]"
+                  ? "w-full min-w-[1080px]"
                   : "w-[1480px]"
               }`}
             >
@@ -2548,19 +2676,19 @@ function CheckoutPage() {
                 <col
                   className={
                     statusFilter === "paid" || statusFilter === "cancelled"
-                      ? "w-[205px]"
+                      ? "w-[190px]"
                       : "w-[250px]"
                   }
                 />
-                <col className="w-[120px]" />
                 <col className="w-[110px]" />
-                <col className="w-[120px]" />
-                <col className="w-[115px]" />
+                <col className="w-[95px]" />
+                <col className="w-[105px]" />
+                <col className="w-[125px]" />
                 {statusFilter !== "paid" && <col className="w-[115px]" />}
                 <col
                   className={
                     statusFilter === "paid" || statusFilter === "cancelled"
-                      ? "w-[170px]"
+                      ? "w-[215px]"
                       : "w-[230px]"
                   }
                 />
@@ -2766,17 +2894,29 @@ function CheckoutPage() {
                         }`}
                       >
                         {row.type === "paid" ? (
-                          <div className="flex items-center justify-center gap-2">
+                          <div className="flex items-center justify-center gap-1.5">
                             <Button
                               type="button"
                               size="sm"
-                              className="h-8 w-[118px] whitespace-nowrap px-2"
+                              className="h-8 w-[100px] whitespace-nowrap px-2"
                               onClick={(event) => {
                                 event.stopPropagation();
                                 setSelectedSaleReceipt(row.sale);
                               }}
                             >
                               View Receipt
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-8 w-[78px] whitespace-nowrap px-2"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openEditSalePayment(row.sale);
+                              }}
+                            >
+                              Edit Pay
                             </Button>
                             {canCancelBills && (
                               <Button
@@ -2894,6 +3034,16 @@ function CheckoutPage() {
                     : "View Details",
               onSelect: () => openCheckoutRow(contextMenu.row),
             },
+            ...(contextMenu.row.type === "paid"
+              ? [{
+                  id: "edit-payment" as const,
+                  label: "Edit Payment Method",
+                  onSelect: () =>
+                    openEditSalePayment(
+                      (contextMenu.row as Extract<CheckoutRow, { type: "paid" }>).sale,
+                    ),
+                }]
+              : []),
             ...(canCancelBills
               ? contextMenu.row.type === "pending" && contextMenu.row.bill.status !== "cancelled"
                 ? [{
@@ -2937,7 +3087,7 @@ function CheckoutPage() {
             </div>
             <div className="mt-4 max-h-52 space-y-2 overflow-y-auto pr-1">
               {combineSelectedRows.map((row) => {
-                const account = row.customerId
+                const account = row.type === "pending" && row.customerId
                   ? customerAccountById.get(row.customerId)
                   : undefined;
                 return (
@@ -2979,7 +3129,7 @@ function CheckoutPage() {
                     setCombinePaymentMethod(event.target.value as PaymentMethod)
                   }
                 >
-                  {Object.entries(paymentMethodLabels).map(([value, label]) => (
+                  {paymentMethodOptions.map(({ value, label }) => (
                     <option key={value} value={value}>
                       {label}
                     </option>
@@ -3030,14 +3180,24 @@ function CheckoutPage() {
                   {selectedSaleReceipt.tableName || "-"}
                 </p>
               </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => setSelectedSaleReceipt(null)}
-              >
-                Close
-              </Button>
+              <div className="flex shrink-0 items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => openEditSalePayment(selectedSaleReceipt)}
+                >
+                  Edit Payment
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSelectedSaleReceipt(null)}
+                >
+                  Close
+                </Button>
+              </div>
             </div>
 
             <div className="min-h-0 space-y-4 overflow-y-auto px-5 py-4">
@@ -3195,7 +3355,9 @@ function CheckoutPage() {
                   </div>
                   <div className="flex justify-between gap-4">
                     <span className="text-slate-500">Payment Method</span>
-                    <strong>{getSalePaymentLabel(selectedSaleReceipt)}</strong>
+                    <strong>
+                      {getSalePaymentLabel(selectedSaleReceipt, paymentMethodLabels)}
+                    </strong>
                   </div>
                 </div>
                 <div className="mt-3 flex items-center justify-between border-t pt-3 text-lg">
@@ -3203,6 +3365,75 @@ function CheckoutPage() {
                   <strong>{formatCurrency(selectedSaleReceipt.grandTotal)}</strong>
                 </div>
               </section>
+            </div>
+          </div>
+        </div>
+      )}
+      {salePaymentToEdit && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/50 px-4"
+          onClick={() => setSalePaymentToEdit(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-bold text-slate-950">
+                  Edit Payment Method
+                </h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  {salePaymentToEdit.staffBillNumber ??
+                    salePaymentToEdit.invoiceNumber}{" "}
+                  - {formatCurrency(salePaymentToEdit.grandTotal)}
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setSalePaymentToEdit(null)}
+              >
+                Close
+              </Button>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              <div>
+                <label className="text-sm font-semibold text-slate-700">
+                  Correct payment method
+                </label>
+                <select
+                  className="mt-1 h-10 w-full rounded-lg border border-input bg-white px-3 text-sm"
+                  value={correctedPaymentMethod}
+                  onChange={(event) =>
+                    setCorrectedPaymentMethod(
+                      event.target.value as PaymentMethod,
+                    )
+                  }
+                >
+                  {paymentMethodOptions.map(
+                    ({ value, label }) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ),
+                  )}
+                </select>
+              </div>
+              {salePaymentToEdit.paymentSplits?.length ? (
+                <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  Saving one method will remove the previous split payment.
+                </p>
+              ) : null}
+              <Button
+                type="button"
+                className="w-full"
+                onClick={handleCorrectSalePaymentMethod}
+              >
+                Save Correction
+              </Button>
             </div>
           </div>
         </div>

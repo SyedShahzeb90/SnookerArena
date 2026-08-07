@@ -21,7 +21,8 @@ interface Props {
   cart: OrderItem[];
 
   onAdd: (
-    item: MenuItem
+    item: MenuItem,
+    saleOptionId?: string
   ) => void;
 
   onIncrease: (
@@ -109,9 +110,10 @@ function MenuGrid({
                       <MenuCard
                         key={item.id}
                         item={item}
-                        onAdd={() =>
+                        onAdd={(saleOptionId) =>
                           onAdd(
-                            item
+                            item,
+                            saleOptionId
                           )
                         }
                       />

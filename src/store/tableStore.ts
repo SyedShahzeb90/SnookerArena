@@ -115,6 +115,79 @@ function normalizeWalkInPlayerName(
     : name.trim();
 }
 
+function isTableBookingCafeItem(
+  item: CafeOrderItem,
+  session: Session
+) {
+  return (
+    item.participantKey ===
+    getSessionParticipantKey(session.id, "table-booking")
+  );
+}
+
+function getSessionCustomerIdForPlayer(
+  session: Session,
+  playerName?: string
+) {
+  const targetName = normalizePlayerName(playerName);
+  if (!targetName) return undefined;
+
+  const players = getSessionPlayerEntries(session);
+  const match = players.find(
+    (player) =>
+      normalizePlayerName(player.name) === targetName
+  );
+
+  return match?.customerId;
+}
+
+function addTableBillCafeChargesToCustomer(
+  table: Table,
+  session: Session
+) {
+  const tableBillItems = session.cafeOrders.filter(
+    (item) => item.tableBill
+  );
+
+  if (tableBillItems.length === 0) return;
+
+  const payerName =
+    session.payerName ??
+    session.loserName ??
+    tableBillItems[0]?.playerName ??
+    tableBillItems[0]?.customerName;
+  if (!payerName) return;
+
+  const customerStore =
+    useCustomerAccountStore.getState();
+  const customerId =
+    session.payerCustomerId ??
+    getSessionCustomerIdForPlayer(session, payerName) ??
+    (!isWalkInName(payerName)
+      ? undefined
+      : customerStore.getOrCreateActiveCustomerByIdOrName({
+          customerName: payerName,
+        }).id);
+
+  customerStore.replaceCafeChargesForOrder({
+    customerId,
+    customerName: payerName,
+    sourceOrderId: `TABLE-BILL-CAFE-${session.id}`,
+    charges: tableBillItems.map((item) => ({
+      itemId: item.menuItemId,
+      name: item.name,
+      quantity: item.quantity,
+      price: item.price,
+      subtotal: item.subtotal,
+      tableId: table.id,
+      tableName: table.name,
+      sessionId: session.id,
+      orderedAt:
+        item.orderedAt ?? new Date().toISOString(),
+    })),
+  });
+}
+
 function buildPlayerBreakdown(
   session: Session,
   tableAmount: number,
@@ -716,6 +789,7 @@ function addSessionGameChargesToCustomers(
       });
     });
 
+    addTableBillCafeChargesToCustomer(table, session);
     return;
   }
   const payerBreakdown: Array<{
@@ -836,6 +910,8 @@ function addSessionGameChargesToCustomers(
           : undefined,
       });
     });
+
+  addTableBillCafeChargesToCustomer(table, session);
 }
 
 interface StartSessionData {
@@ -1403,11 +1479,42 @@ export const useTableStore =
               ? calculateFinalSettlement(table.session, tableChargeLines)
               : undefined;
           const settledAt = new Date().toISOString();
+          const tableBookingCafePayerName =
+            payerName ?? loserName;
+          const tableBookingCafePayerId =
+            payerCustomerId ?? loserCustomerId;
+          const tableBookingCafeParticipantKey =
+            loserParticipantKey;
+          const cafeOrders =
+            table.id >= 1 &&
+            table.id <= 7 &&
+            tableBookingCafePayerName
+              ? table.session.cafeOrders.map((item) =>
+                  isTableBookingCafeItem(
+                    item,
+                    table.session!
+                  )
+                    ? {
+                        ...item,
+                        tableBill: true,
+                        customerName:
+                          tableBookingCafePayerName,
+                        playerName:
+                          tableBookingCafePayerName,
+                        playerId:
+                          tableBookingCafePayerId,
+                        participantKey:
+                          tableBookingCafeParticipantKey,
+                      }
+                    : item
+                )
+              : table.session.cafeOrders;
           const endedSession: Session = {
             ...table.session,
             pausedAt: undefined,
             totalPausedMilliseconds,
             endTime,
+            cafeOrders,
             tableChargeLines: settlement
               ? settlement.lines.map((line) => ({ ...line, settlementProcessedAt: settledAt }))
               : tableChargeLines,

@@ -4,12 +4,18 @@ import { useEffect, useRef, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { ProgressIndicator } from "@/components/ui/progress-indicator";
 import { useCafeStore } from "@/features/cafe/store/cafeStore";
+import { useOutsidePurchaseStore } from "@/features/outside-purchases/store/outsidePurchaseStore";
 import { getCollectPaymentPendingCount } from "@/features/billing/utils/collectPaymentSummary";
 import { useCustomerAccountStore } from "@/features/customers/store/customerAccountStore";
 import { useSalesStore } from "@/features/sales/store/salesStore";
 import { calculatePaymentTotals } from "@/features/sales/utils/salesReports";
 import { useTableStore } from "@/store/tableStore";
 import { CashPositionSummaryCard } from "@/features/business-day/components/BusinessDayCard";
+import { useBusinessDayStore } from "@/features/business-day/store/businessDayStore";
+import {
+  getBusinessDayTransactionWindow,
+  isInsideBusinessDayWindow,
+} from "@/features/business-day/utils/businessDayWindow";
 import { useAnimatedNumber } from "@/hooks/useAnimatedNumber";
 
 import { DashboardMetricCard } from "./DashboardMetricCard";
@@ -18,16 +24,18 @@ function money(value: number) {
   return `Rs. ${Math.round(value).toLocaleString()}`;
 }
 
-function isToday(value?: string) {
-  if (!value) return false;
-  return new Date(value).toDateString() === new Date().toDateString();
-}
-
 function useDashboardStats() {
   const tables = useTableStore((state) => state.tables);
   const customerAccounts = useCustomerAccountStore((state) => state.accounts);
   const sales = useSalesStore((state) => state.sales);
+  const outsidePurchases = useOutsidePurchaseStore((state) => state.purchases);
+  const activeDay = useBusinessDayStore((state) => state.getActiveBusinessDay());
   const menu = useCafeStore((state) => state.menu);
+  const activeDayWindow = activeDay
+    ? getBusinessDayTransactionWindow(activeDay)
+    : undefined;
+  const isInActiveDay = (value?: string) =>
+    activeDayWindow ? isInsideBusinessDayWindow(value, activeDayWindow) : false;
   const total = tables.length;
   const standardTableCount = tables.filter((table) => table.type === "table").length;
   const privateRoomCount = tables.filter((table) => table.type === "private-room").length;
@@ -61,16 +69,28 @@ function useDashboardStats() {
         sale.paymentStatus === "paid" &&
         sale.saleType !== "accessories" &&
         sale.cafeAmount > 0 &&
-        isToday(sale.paidAt ?? sale.createdAt),
+        isInActiveDay(sale.paidAt ?? sale.createdAt),
     )
     .reduce((sum, sale) => sum + sale.cafeAmount, 0);
   const todayPaymentTotals = calculatePaymentTotals(
     sales.filter(
       (sale) =>
         sale.paymentStatus === "paid" &&
-        isToday(sale.paidAt ?? sale.createdAt),
+        isInActiveDay(sale.paidAt ?? sale.createdAt),
     ),
   );
+  const todayReimbursementTotals = outsidePurchases
+    .flatMap((purchase) => purchase.reimbursements)
+    .filter((reimbursement) => isInActiveDay(reimbursement.createdAt))
+    .reduce(
+      (totals, reimbursement) => ({
+        ...totals,
+        [reimbursement.paymentMethod]:
+          (totals[reimbursement.paymentMethod] ?? 0) +
+          reimbursement.amount,
+      }),
+      { cash: 0, card: 0, jazzcash: 0, easypaisa: 0 },
+    );
   return {
     total,
     standardTableCount,
@@ -86,27 +106,53 @@ function useDashboardStats() {
     outOfStockProducts,
     todayCafeTotal,
     todayPaymentTotals,
+    todayReimbursementTotals,
   };
 }
 
 export function BusinessDayStats() {
-  const { todayPaymentTotals } = useDashboardStats();
+  const { todayPaymentTotals, todayReimbursementTotals } = useDashboardStats();
+  const digitalPaymentsTotal =
+    Object.entries(todayPaymentTotals).reduce(
+      (total, [method, amount]) =>
+        method === "cash" ? total : total + amount,
+      0,
+    ) +
+    Object.entries(todayReimbursementTotals).reduce(
+      (total, [method, amount]) =>
+        method === "cash" ? total : total + amount,
+      0,
+    );
   const stats = [
     {
       label: "Digital Payments",
-      value: money(
-        todayPaymentTotals.card +
-          todayPaymentTotals.jazzcash +
-          todayPaymentTotals.easypaisa,
-      ),
+      value: money(digitalPaymentsTotal),
       tone: "text-blue-700",
       bg: "bg-blue-50",
       details: [
-        { label: "JazzCash", value: money(todayPaymentTotals.jazzcash) },
-        { label: "Easypaisa", value: money(todayPaymentTotals.easypaisa) },
-        { label: "Card", value: money(todayPaymentTotals.card) },
+        {
+          label: "JazzCash",
+          value: money(
+            todayPaymentTotals.jazzcash +
+              todayReimbursementTotals.jazzcash,
+          ),
+        },
+        {
+          label: "Easypaisa",
+          value: money(
+            todayPaymentTotals.easypaisa +
+              todayReimbursementTotals.easypaisa,
+          ),
+        },
+        {
+          label: "Card",
+          value: money(
+            todayPaymentTotals.card +
+              todayReimbursementTotals.card,
+          ),
+        },
       ],
-      supportingText: "Paid digital sales",
+      supportingText: "Paid digital received",
     },
   ];
 

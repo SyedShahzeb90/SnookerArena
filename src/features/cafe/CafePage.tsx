@@ -40,7 +40,10 @@ import {
 import { normalizePlayerName } from "./utils/playerIdentity";
 import { useSalesStore } from "@/features/sales/store/salesStore";
 import { useBusinessDayStore } from "@/features/business-day/store/businessDayStore";
-import { useClubSettingsStore } from "@/features/settings/store/clubSettingsStore";
+import {
+  getPaymentMethodOptions,
+  useClubSettingsStore,
+} from "@/features/settings/store/clubSettingsStore";
 import { useCustomerAccountStore } from "@/features/customers/store/customerAccountStore";
 import { useCheckoutStore } from "@/features/billing/store/checkoutStore";
 import {
@@ -68,6 +71,7 @@ type SelectedTarget =
       playerName: string;
       customerId?: string;
       participantKey?: string;
+      attachToTableBill?: boolean;
     }
   | {
       type: "waitingCustomer";
@@ -127,6 +131,7 @@ function CafePage() {
     playerOrders,
     getTableOrderItems,
     getSavedOrderForTable,
+    deleteSavedOrder,
   } = useCafeStore();
 
   const [search, setSearch] = useState("");
@@ -152,6 +157,7 @@ function CafePage() {
   const clubSettings = useClubSettingsStore(
     (state) => state.settings
   );
+  const paymentMethodOptions = getPaymentMethodOptions(clubSettings);
   const [
     openBillsExpanded,
     setOpenBillsExpanded,
@@ -184,7 +190,7 @@ function CafePage() {
     useRef("");
   const selectedTargetKey =
     selectedTarget?.type === "runningTable"
-      ? `runningTable-${selectedTarget.tableId}-${selectedTarget.sessionId}-${selectedTarget.participantKey ?? selectedTarget.customerId ?? normalizePlayerName(selectedTarget.playerName)}`
+      ? `runningTable-${selectedTarget.tableId}-${selectedTarget.sessionId}-${selectedTarget.attachToTableBill ? "table-bill" : selectedTarget.participantKey ?? selectedTarget.customerId ?? normalizePlayerName(selectedTarget.playerName)}`
       : selectedTarget?.type === "waitingCustomer"
         ? `waitingCustomer-${selectedTarget.customerId}-${selectedTarget.customerAccountId ?? ""}`
         : selectedTarget?.type === "openBill"
@@ -210,6 +216,25 @@ function CafePage() {
       );
     });
   }, [tables, search]);
+
+  const canAttachCafeToBookingTable = (
+    table: (typeof tables)[number]
+  ) => {
+    const currentLine =
+      table.session?.tableChargeLines?.at(-1);
+
+    return (
+      table.id >= 1 &&
+      table.id <= 7 &&
+      Boolean(table.session) &&
+      currentLine?.type === "tableBooking" &&
+      !currentLine.endedAt
+    );
+  };
+
+  const getBookingTableTargetName = (
+    table: (typeof tables)[number]
+  ) => `${table.name} Booking`;
 
   const filteredWaiting =
     waitingCustomers.filter((customer) => {
@@ -821,21 +846,26 @@ function CafePage() {
         )
       : undefined;
 
-  const canAddTrackedItem = (menuItemId: string) => {
+  const canAddTrackedItem = (menuItemId: string, saleOptionId?: string) => {
     const item = useCafeStore.getState().menu.find((menuItem) => menuItem.id === menuItemId);
     if (!item?.trackStock) return true;
+    const saleOption = item.saleOptions?.find((option) => option.id === saleOptionId);
     const available = Math.max(0, item.currentStock ?? 0);
-    const cartQuantity = selectedOrder?.orderItems.find((line) => line.menuItemId === menuItemId)?.quantity ?? 0;
-    if (cartQuantity < available) return true;
-    setOrderError(available === 0 ? `${item.name} is out of stock.` : `Only ${available} ${item.stockUnit || "pcs"} of ${item.name} are available.`);
+    const cartDeduction = selectedOrder?.orderItems
+      .filter((line) => line.menuItemId === menuItemId)
+      .reduce((total, line) => total + Math.max(1, line.stockDeductionQuantity ?? 1) * line.quantity, 0) ?? 0;
+    const nextDeduction = Math.max(1, saleOption?.stockDeductionQuantity ?? 1);
+    if (cartDeduction + nextDeduction <= available) return true;
+    setOrderError(available === 0 ? `${item.name} is out of stock.` : `Only ${available} ${item.baseStockUnit || item.stockUnit || "pcs"} of ${item.name} are available.`);
     return false;
   };
 
   const handleIncrease = (
-    menuItemId: string
+    menuItemId: string,
+    saleOptionId?: string
   ) => {
     if (!selectedTarget) return;
-    if (!canAddTrackedItem(menuItemId)) return;
+    if (!canAddTrackedItem(menuItemId, saleOptionId)) return;
 
     if (selectedTarget.type === "runningTable") {
       increasePlayerItem(
@@ -844,7 +874,8 @@ function CafePage() {
         menuItemId,
         selectedTarget.customerId,
         selectedTarget.sessionId,
-        selectedTarget.participantKey
+        selectedTarget.participantKey,
+        saleOptionId
       );
       return;
     }
@@ -858,6 +889,7 @@ function CafePage() {
         );
 
       if (!item) return;
+      const saleOption = item.saleOptions?.find((option) => option.id === saleOptionId);
 
       setOpenBillCarts((state) => {
         const cart =
@@ -866,11 +898,13 @@ function CafePage() {
           ] ?? [];
         const existing = cart.find(
           (cartItem) =>
-            cartItem.menuItemId === menuItemId
+            cartItem.menuItemId === menuItemId &&
+            (cartItem.saleOptionId ?? "default") === (saleOption?.id ?? "default")
         );
         const nextCart = existing
           ? cart.map((cartItem) =>
-              cartItem.menuItemId === menuItemId
+              cartItem.menuItemId === menuItemId &&
+              (cartItem.saleOptionId ?? "default") === (saleOption?.id ?? "default")
                 ? {
                     ...cartItem,
                     quantity:
@@ -886,10 +920,12 @@ function CafePage() {
               {
                 lineId: `CAFE-LINE-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
                 menuItemId: item.id,
-                name: item.name,
-                price: item.price,
+                saleOptionId: saleOption?.id,
+                name: saleOption ? `${item.name} - ${saleOption.label}` : item.name,
+                price: saleOption?.price ?? item.price,
                 quantity: 1,
-                subtotal: item.price,
+                subtotal: saleOption?.price ?? item.price,
+                stockDeductionQuantity: Math.max(1, saleOption?.stockDeductionQuantity ?? 1),
                 timeAdded: new Date(),
                 orderedAt:
                   new Date().toISOString(),
@@ -907,24 +943,58 @@ function CafePage() {
 
     increaseWaitingItem(
       selectedTarget.customerId,
-      menuItemId
+      menuItemId,
+      saleOptionId
     );
   };
 
   const handleDecrease = (
-    menuItemId: string
+    menuItemId: string,
+    saleOptionId?: string
   ) => {
     if (!selectedTarget) return;
 
     if (selectedTarget.type === "runningTable") {
+      const currentQuantity =
+        selectedOrder?.orderItems.find(
+          (item) => item.menuItemId === menuItemId
+        )?.quantity ?? 0;
+      const removingLastItem =
+        currentQuantity <= 1 &&
+        (selectedOrder?.orderItems.length ?? 0) <= 1;
+
       decreasePlayerItem(
         selectedTarget.tableId,
         selectedTarget.playerName,
         menuItemId,
         selectedTarget.customerId,
         selectedTarget.sessionId,
-        selectedTarget.participantKey
+        selectedTarget.participantKey,
+        saleOptionId
       );
+      if (removingLastItem) {
+        if (savedTableOrder) {
+          deleteSavedOrder(savedTableOrder.id);
+          useCustomerAccountStore
+            .getState()
+            .replaceCafeChargesForOrder({
+              customerId: selectedTarget.customerId,
+              customerName: selectedTarget.playerName,
+              sourceOrderId: savedTableOrder.id,
+              charges: [],
+            });
+        }
+
+        updateSessionCafe({
+          tableId: selectedTarget.tableId,
+          cafeOrders: useCafeStore
+            .getState()
+            .getTableOrderItems(
+              selectedTarget.tableId,
+              selectedTarget.sessionId
+            ),
+        });
+      }
       return;
     }
 
@@ -936,7 +1006,8 @@ function CafePage() {
           ] ?? [];
         const nextCart = cart
           .map((cartItem) =>
-            cartItem.menuItemId === menuItemId
+            cartItem.menuItemId === menuItemId &&
+            (!saleOptionId || (cartItem.saleOptionId ?? "default") === saleOptionId)
               ? {
                   ...cartItem,
                   quantity:
@@ -963,7 +1034,8 @@ function CafePage() {
 
     decreaseWaitingItem(
       selectedTarget.customerId,
-      menuItemId
+      menuItemId,
+      saleOptionId
     );
   };
 
@@ -979,10 +1051,11 @@ function CafePage() {
   };
 
   const handleAddMenuItem = (
-    menuItemId: string
+    menuItemId: string,
+    saleOptionId?: string
   ) => {
     if (!selectedTarget) return;
-    if (!canAddTrackedItem(menuItemId)) return;
+    if (!canAddTrackedItem(menuItemId, saleOptionId)) return;
 
     const item = useCafeStore
       .getState()
@@ -1002,7 +1075,8 @@ function CafePage() {
         selectedTarget.playerName,
         item,
         selectedTarget.customerId,
-        selectedTarget.participantKey
+        selectedTarget.participantKey,
+        saleOptionId
       );
       return;
     }
@@ -1013,11 +1087,13 @@ function CafePage() {
     ) {
       addItemToWaitingCustomer(
         selectedTarget.customerId,
-        item
+        item,
+        saleOptionId
       );
       return;
     }
 
+    const saleOption = item.saleOptions?.find((option) => option.id === saleOptionId);
     setOpenBillCarts((state) => {
       const cart =
         state[
@@ -1025,11 +1101,13 @@ function CafePage() {
         ] ?? [];
       const existing = cart.find(
         (cartItem) =>
-          cartItem.menuItemId === menuItemId
+          cartItem.menuItemId === menuItemId &&
+          (cartItem.saleOptionId ?? "default") === (saleOption?.id ?? "default")
       );
       const nextCart = existing
         ? cart.map((cartItem) =>
-            cartItem.menuItemId === menuItemId
+            cartItem.menuItemId === menuItemId &&
+            (cartItem.saleOptionId ?? "default") === (saleOption?.id ?? "default")
               ? {
                   ...cartItem,
                   quantity:
@@ -1045,10 +1123,12 @@ function CafePage() {
             {
               lineId: `CAFE-LINE-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
               menuItemId: item.id,
-              name: item.name,
-              price: item.price,
+              saleOptionId: saleOption?.id,
+              name: saleOption ? `${item.name} - ${saleOption.label}` : item.name,
+              price: saleOption?.price ?? item.price,
               quantity: 1,
-              subtotal: item.price,
+              subtotal: saleOption?.price ?? item.price,
+              stockDeductionQuantity: Math.max(1, saleOption?.stockDeductionQuantity ?? 1),
               timeAdded: new Date(),
               orderedAt:
                 new Date().toISOString(),
@@ -1509,37 +1589,42 @@ function CafePage() {
             ? "waiting_customer"
             : "table_player",
       });
-      useCustomerAccountStore
-        .getState()
-        .replaceCafeChargesForOrder({
-          customerId:
-            selectedTarget.type === "runningTable"
-              ? selectedTarget.customerId
-              : selectedTarget.customerAccountId
-                ? selectedTarget.customerAccountId
-              : undefined,
-          customerName:
-            savedOrder.customerName,
-          sourceOrderId: savedOrder.id,
-          charges:
-            savedOrder.orderItems.map(
-              (item) => ({
-                itemId: item.menuItemId,
-                name: item.name,
-                quantity: item.quantity,
-                price: item.price,
-                subtotal: item.subtotal,
-                tableId: savedOrder.tableId,
-                tableName:
-                  savedOrder.tableName,
-                sessionId:
-                  savedOrder.sessionId,
-                orderedAt:
-                  item.orderedAt ??
-                  new Date().toISOString(),
-              })
-            ),
-        });
+      if (
+        selectedTarget.type !== "runningTable" ||
+        !selectedTarget.attachToTableBill
+      ) {
+        useCustomerAccountStore
+          .getState()
+          .replaceCafeChargesForOrder({
+            customerId:
+              selectedTarget.type === "runningTable"
+                ? selectedTarget.customerId
+                : selectedTarget.customerAccountId
+                  ? selectedTarget.customerAccountId
+                : undefined,
+            customerName:
+              savedOrder.customerName,
+            sourceOrderId: savedOrder.id,
+            charges:
+              savedOrder.orderItems.map(
+                (item) => ({
+                  itemId: item.menuItemId,
+                  name: item.name,
+                  quantity: item.quantity,
+                  price: item.price,
+                  subtotal: item.subtotal,
+                  tableId: savedOrder.tableId,
+                  tableName:
+                    savedOrder.tableName,
+                  sessionId:
+                    savedOrder.sessionId,
+                  orderedAt:
+                    item.orderedAt ??
+                    new Date().toISOString(),
+                })
+              ),
+          });
+      }
 
       if (selectedTarget.type === "runningTable") {
         updateSessionCafe({
@@ -1973,7 +2058,10 @@ function CafePage() {
                         const isAlreadyExpanded =
                           expandedTable === table.id;
 
-                        if (sessionPlayers.length === 1) {
+                        if (
+                          sessionPlayers.length === 1 &&
+                          !canAttachCafeToBookingTable(table)
+                        ) {
                           const [player] = sessionPlayers;
                           setExpandedTable(table.id);
                           setSelectedTarget({
@@ -2069,6 +2157,39 @@ function CafePage() {
                             </Button>
                           );
                         })}
+                        {canAttachCafeToBookingTable(table) && (
+                          <Button
+                            key="attach-to-table"
+                            variant={
+                              selectedTarget?.type ===
+                                "runningTable" &&
+                              selectedTarget.tableId ===
+                                table.id &&
+                              selectedTarget.attachToTableBill
+                                ? "default"
+                                : "secondary"
+                            }
+                            className="h-7 w-full justify-start text-xs"
+                            onClick={() =>
+                              setSelectedTarget({
+                                type: "runningTable",
+                                tableId: table.id,
+                                sessionId:
+                                  table.session!.id,
+                                playerName:
+                                  getBookingTableTargetName(table),
+                                participantKey:
+                                  getSessionParticipantKey(
+                                    table.session!.id,
+                                    "table-booking"
+                                  ),
+                                attachToTableBill: true,
+                              })
+                            }
+                          >
+                            Attach to Table
+                          </Button>
+                        )}
                       </div>
                     )}
                         </>
@@ -2510,18 +2631,16 @@ function CafePage() {
                           <option value="">
                             Select payment method
                           </option>
-                          <option value="cash">
-                            Cash
-                          </option>
-                          <option value="card">
-                            Card
-                          </option>
-                          <option value="jazzcash">
-                            JazzCash
-                          </option>
-                          <option value="easypaisa">
-                            Easypaisa
-                          </option>
+                          {paymentMethodOptions.map(
+                            (option) => (
+                              <option
+                                key={option.value}
+                                value={option.value}
+                              >
+                                {option.label}
+                              </option>
+                            )
+                          )}
                         </select>
                       </div>
 

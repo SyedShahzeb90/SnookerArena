@@ -8,7 +8,8 @@ export type PaymentMethod =
   | "cash"
   | "card"
   | "jazzcash"
-  | "easypaisa";
+  | "easypaisa"
+  | `custom-${string}`;
 
 export type TableChargeLineType =
   | "singleGame"
@@ -77,6 +78,8 @@ export interface CafeOrderItem {
   playerId?: string;
 
   participantKey?: string;
+
+  tableBill?: boolean;
 
   orderedAt?: string;
 }

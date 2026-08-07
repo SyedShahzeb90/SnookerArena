@@ -13,6 +13,12 @@ export interface ClubOperator {
 
 export type RunningCardView = "full" | "compact-expand";
 
+export interface ClubPaymentMethod {
+  id: PaymentMethod;
+  label: string;
+  builtIn?: boolean;
+}
+
 export interface ClubSettings {
   clubName: string;
   tagline: string;
@@ -32,12 +38,35 @@ export interface ClubSettings {
   frameWarningMinutes: number;
   frameDangerMinutes: number;
   defaultPaymentMethod: PaymentMethod;
+  paymentMethodLabels: Record<PaymentMethod, string>;
+  paymentMethods: ClubPaymentMethod[];
   invoicePrefix: string;
   backupReminderEnabled: boolean;
   operators: ClubOperator[];
   adminPinHash: string;
   adminPinSalt: string;
 }
+
+export const PAYMENT_METHOD_ORDER: PaymentMethod[] = [
+  "cash",
+  "easypaisa",
+  "jazzcash",
+  "card",
+];
+
+export const DEFAULT_PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
+  cash: "Cash",
+  easypaisa: "Easypaisa",
+  jazzcash: "JazzCash",
+  card: "Card",
+};
+
+export const DEFAULT_PAYMENT_METHODS: ClubPaymentMethod[] =
+  PAYMENT_METHOD_ORDER.map((id) => ({
+    id,
+    label: DEFAULT_PAYMENT_METHOD_LABELS[id],
+    builtIn: true,
+  }));
 
 export const DEFAULT_CLUB_SETTINGS: ClubSettings = {
   clubName: "Snooker Arena",
@@ -58,6 +87,8 @@ export const DEFAULT_CLUB_SETTINGS: ClubSettings = {
   frameWarningMinutes: 25,
   frameDangerMinutes: 30,
   defaultPaymentMethod: "cash",
+  paymentMethodLabels: DEFAULT_PAYMENT_METHOD_LABELS,
+  paymentMethods: DEFAULT_PAYMENT_METHODS,
   invoicePrefix: "INV",
   backupReminderEnabled: false,
   operators: [],
@@ -65,12 +96,38 @@ export const DEFAULT_CLUB_SETTINGS: ClubSettings = {
   adminPinSalt: "",
 };
 
-const paymentMethods: PaymentMethod[] = [
-  "cash",
-  "easypaisa",
-  "jazzcash",
-  "card",
-];
+export function getPaymentMethodLabels(
+  settings?: Pick<ClubSettings, "paymentMethodLabels"> &
+    Partial<Pick<ClubSettings, "paymentMethods">>
+) {
+  const methodLabels = Object.fromEntries(
+    (settings?.paymentMethods ?? DEFAULT_PAYMENT_METHODS).map((method) => [
+      method.id,
+      method.label,
+    ])
+  ) as Record<PaymentMethod, string>;
+
+  return {
+    ...DEFAULT_PAYMENT_METHOD_LABELS,
+    ...(settings?.paymentMethodLabels ?? {}),
+    ...methodLabels,
+  };
+}
+
+export function getPaymentMethodOptions(
+  settings?: Pick<ClubSettings, "paymentMethodLabels"> &
+    Partial<Pick<ClubSettings, "paymentMethods">>
+) {
+  const labels = getPaymentMethodLabels(settings);
+  const methods = settings?.paymentMethods?.length
+    ? settings.paymentMethods
+    : DEFAULT_PAYMENT_METHODS;
+
+  return methods.map((method) => ({
+    value: method.id,
+    label: labels[method.id] ?? method.label,
+  }));
+}
 
 export function validateClubSettings(input: ClubSettings): string[] {
   const errors: string[] = [];
@@ -113,8 +170,25 @@ export function validateClubSettings(input: ClubSettings): string[] {
   if (!Number.isInteger(input.frameDangerMinutes) || input.frameDangerMinutes <= input.frameWarningMinutes) {
     errors.push("Danger time must be a whole number greater than warning time.");
   }
-  if (!paymentMethods.includes(input.defaultPaymentMethod)) {
-    errors.push("Select a supported default payment method.");
+  const methodIds = new Set<string>();
+  input.paymentMethods.forEach((method) => {
+    const label = method.label.trim();
+    if (methodIds.has(method.id)) {
+      errors.push("Payment methods must be unique.");
+    }
+    methodIds.add(method.id);
+    if (!label) {
+      errors.push("Every payment method needs a name.");
+    }
+    if (label.length > 20) {
+      errors.push("Payment method names must be 20 characters or fewer.");
+    }
+  });
+  if (methodIds.size === 0) {
+    errors.push("At least one payment method is required.");
+  }
+  if (!methodIds.has(input.defaultPaymentMethod)) {
+    errors.push("Default payment method must be in the payment methods list.");
   }
   if (!/^[A-Z0-9-]{1,12}$/i.test(input.invoicePrefix.trim())) {
     errors.push("Invoice prefix must be 1-12 letters, numbers, or hyphens.");
@@ -170,7 +244,7 @@ export const useClubSettingsStore = create<ClubSettingsStore>()(
     }),
     {
       name: "snooker-arena-club-settings",
-      version: 2,
+      version: 4,
       migrate: (persistedState, version) => {
         const stored = persistedState as Partial<ClubSettingsStore> | undefined;
         const storedSettings: Partial<ClubSettings> = stored?.settings ?? {};
@@ -185,6 +259,23 @@ export const useClubSettingsStore = create<ClubSettingsStore>()(
             ...(version < 2 && storedSettings.interfaceScale === 80
               ? { interfaceScale: 100 as const }
               : {}),
+            ...(version < 4
+              ? {
+                  paymentMethodLabels: {
+                    ...DEFAULT_PAYMENT_METHOD_LABELS,
+                    ...(storedSettings.paymentMethodLabels ?? {}),
+                  },
+                  paymentMethods:
+                    storedSettings.paymentMethods?.length
+                      ? storedSettings.paymentMethods
+                      : DEFAULT_PAYMENT_METHODS.map((method) => ({
+                          ...method,
+                          label:
+                            storedSettings.paymentMethodLabels?.[method.id] ??
+                            method.label,
+                        })),
+                }
+              : {}),
           },
         };
       },
@@ -196,6 +287,15 @@ export const useClubSettingsStore = create<ClubSettingsStore>()(
           settings: {
             ...DEFAULT_CLUB_SETTINGS,
             ...(stored?.settings ?? {}),
+            paymentMethodLabels: {
+              ...DEFAULT_PAYMENT_METHOD_LABELS,
+              ...(stored?.settings?.paymentMethodLabels ?? {}),
+            },
+            paymentMethods: Array.isArray(stored?.settings?.paymentMethods)
+              ? stored.settings.paymentMethods.length
+                ? stored.settings.paymentMethods
+                : DEFAULT_PAYMENT_METHODS
+              : DEFAULT_PAYMENT_METHODS,
             operators: Array.isArray(stored?.settings?.operators)
               ? stored.settings.operators
               : [],

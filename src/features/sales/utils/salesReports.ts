@@ -153,7 +153,7 @@ export function calculatePaymentTotals(
           (splitTotals, split) => ({
             ...splitTotals,
             [split.method]:
-              splitTotals[split.method] +
+              (splitTotals[split.method] ?? 0) +
               split.amount,
           }),
           totals
@@ -163,7 +163,7 @@ export function calculatePaymentTotals(
       return {
         ...totals,
         [sale.paymentMethod]:
-          totals[sale.paymentMethod] +
+          (totals[sale.paymentMethod] ?? 0) +
           sale.grandTotal,
       };
     },

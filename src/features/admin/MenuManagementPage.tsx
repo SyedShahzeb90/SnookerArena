@@ -57,6 +57,10 @@ const emptyForm: MenuItemInput = {
   currentStock: 0,
   lowStockAlertQuantity: 0,
   stockUnit: "pcs",
+  baseStockUnit: "pcs",
+  purchaseUnit: "pcs",
+  purchaseConversionQuantity: 1,
+  saleOptions: [],
 };
 
 type StockFilter = "all" | "tracked" | "low" | "out" | "untracked";
@@ -214,8 +218,12 @@ function MenuManagementPage() {
       setError("Price must be greater than 0.");
       return;
     }
-    if (form.trackStock && (!Number.isInteger(form.currentStock) || form.currentStock < 0 || !Number.isInteger(form.lowStockAlertQuantity) || form.lowStockAlertQuantity < 0 || !form.stockUnit.trim())) {
-      setError("Tracked stock requires whole-number quantities and a unit.");
+    if (form.trackStock && (!Number.isInteger(form.currentStock) || form.currentStock < 0 || !Number.isInteger(form.lowStockAlertQuantity) || form.lowStockAlertQuantity < 0 || !form.baseStockUnit.trim() || !form.purchaseUnit.trim() || !Number.isInteger(form.purchaseConversionQuantity) || form.purchaseConversionQuantity <= 0)) {
+      setError("Tracked stock requires whole-number quantities, base unit, purchase unit, and a positive conversion quantity.");
+      return;
+    }
+    if (form.trackStock && form.saleOptions.some((option) => !option.label.trim() || option.price <= 0 || !Number.isInteger(option.stockDeductionQuantity) || option.stockDeductionQuantity <= 0)) {
+      setError("Sale options require a label, price, and positive stock deduction.");
       return;
     }
 
@@ -280,6 +288,10 @@ function MenuManagementPage() {
       currentStock: Math.max(0, item.currentStock ?? 0),
       lowStockAlertQuantity: Math.max(0, item.lowStockAlertQuantity ?? 0),
       stockUnit: item.stockUnit ?? "pcs",
+      baseStockUnit: item.baseStockUnit ?? item.stockUnit ?? "pcs",
+      purchaseUnit: item.purchaseUnit ?? item.stockUnit ?? "pcs",
+      purchaseConversionQuantity: item.purchaseConversionQuantity ?? 1,
+      saleOptions: item.saleOptions ?? [],
     });
     setError("");
   };
@@ -528,7 +540,27 @@ function MenuManagementPage() {
                   <div className="mt-3 grid gap-3 sm:grid-cols-2">
                     <div><label className="text-xs font-medium text-slate-600">Current Stock</label><Input className="mt-1" type="number" min={0} step={1} value={form.currentStock} disabled={Boolean(editingItem?.trackStock)} onChange={(event) => setForm({ ...form, currentStock: Number(event.target.value) })} />{editingItem?.trackStock && <p className="mt-1 text-xs text-slate-500">Use the Stock action to change quantity.</p>}</div>
                     <div><label className="text-xs font-medium text-slate-600">Low Stock Alert At</label><Input className="mt-1" type="number" min={0} step={1} value={form.lowStockAlertQuantity} onChange={(event) => setForm({ ...form, lowStockAlertQuantity: Number(event.target.value) })} /></div>
-                    <div className="sm:col-span-2"><label className="text-xs font-medium text-slate-600">Unit</label><Input className="mt-1" value={form.stockUnit} onChange={(event) => setForm({ ...form, stockUnit: event.target.value })} placeholder="pcs, packs, bottles, cans, boxes" /></div>
+                    <div><label className="text-xs font-medium text-slate-600">Base Stock Unit</label><Input className="mt-1" value={form.baseStockUnit} onChange={(event) => setForm({ ...form, baseStockUnit: event.target.value, stockUnit: event.target.value })} placeholder="pcs, cigarette, bottle" /></div>
+                    <div><label className="text-xs font-medium text-slate-600">Purchase Unit</label><Input className="mt-1" value={form.purchaseUnit} onChange={(event) => setForm({ ...form, purchaseUnit: event.target.value })} placeholder="pcs, pack, carton" /></div>
+                    <div><label className="text-xs font-medium text-slate-600">Conversion Quantity</label><Input className="mt-1" type="number" min={1} step={1} value={form.purchaseConversionQuantity} onChange={(event) => setForm({ ...form, purchaseConversionQuantity: Number(event.target.value) })} /></div>
+                    <div className="flex items-end text-xs text-slate-500">1 {form.purchaseUnit || "purchase unit"} = {form.purchaseConversionQuantity || 0} {form.baseStockUnit || "base units"}</div>
+                    <div className="sm:col-span-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <label className="text-xs font-medium text-slate-600">Sale Options</label>
+                        <Button type="button" size="sm" variant="outline" onClick={() => setForm({ ...form, saleOptions: [...form.saleOptions, { id: `OPTION-${Date.now()}`, label: "", price: form.price || 0, stockDeductionQuantity: 1 }] })}>Add Option</Button>
+                      </div>
+                      <div className="mt-2 space-y-2">
+                        {(form.saleOptions.length > 0 ? form.saleOptions : [{ id: "default-preview", label: form.baseStockUnit || "pcs", price: form.price || 0, stockDeductionQuantity: 1 }]).map((option, index) => (
+                          <div key={option.id} className="grid gap-2 rounded-md border p-2 sm:grid-cols-[1fr_90px_90px_auto]">
+                            <Input value={option.label} disabled={form.saleOptions.length === 0} onChange={(event) => setForm({ ...form, saleOptions: form.saleOptions.map((current) => current.id === option.id ? { ...current, label: event.target.value } : current) })} placeholder="Pack or Loose" />
+                            <Input type="number" min={1} value={option.price || ""} disabled={form.saleOptions.length === 0} onChange={(event) => setForm({ ...form, saleOptions: form.saleOptions.map((current) => current.id === option.id ? { ...current, price: Number(event.target.value) || 0 } : current) })} placeholder="Price" />
+                            <Input type="number" min={1} step={1} value={option.stockDeductionQuantity || ""} disabled={form.saleOptions.length === 0} onChange={(event) => setForm({ ...form, saleOptions: form.saleOptions.map((current) => current.id === option.id ? { ...current, stockDeductionQuantity: Number(event.target.value) || 0 } : current) })} placeholder="Deduct" />
+                            <Button type="button" size="icon" variant="outline" disabled={form.saleOptions.length === 0} onClick={() => setForm({ ...form, saleOptions: form.saleOptions.filter((current) => current.id !== option.id) })}><Trash2 className="h-4 w-4" /></Button>
+                            {index === 0 && form.saleOptions.length === 0 && <p className="text-xs text-slate-500 sm:col-span-4">Default sale option uses product price and deducts 1 {form.baseStockUnit || "base unit"}.</p>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>

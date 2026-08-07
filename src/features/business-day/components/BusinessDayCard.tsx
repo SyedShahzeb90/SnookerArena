@@ -14,16 +14,24 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
 import { useCheckoutStore } from "@/features/billing/store/checkoutStore";
+import { getCollectPaymentPendingSummary } from "@/features/billing/utils/collectPaymentSummary";
 import { useExpensesStore } from "@/features/expenses/store/expensesStore";
+import { useCustomerAccountStore } from "@/features/customers/store/customerAccountStore";
 import { useSalesStore } from "@/features/sales/store/salesStore";
 import { useOutsidePurchaseStore } from "@/features/outside-purchases/store/outsidePurchaseStore";
 import { useCafeStore } from "@/features/cafe/store/cafeStore";
 import { useClubSettingsStore } from "@/features/settings/store/clubSettingsStore";
 import { useStaffPayrollStore } from "@/features/staff-payroll/store/staffPayrollStore";
+import { useTableStore } from "@/store/tableStore";
 import { formatAppDateTime, useAppDateTimeFormats } from "@/lib/dateTime";
+import type { CafeSalesBreakdown } from "@/features/reports/components/ProfitLossSummaryCards";
 
 import { useBusinessDayStore } from "../store/businessDayStore";
 import { calculateBusinessDaySummary } from "../utils/businessDaySummary";
+import {
+  getBusinessDayTransactionWindow,
+  isInsideBusinessDayWindow,
+} from "../utils/businessDayWindow";
 
 function money(value: number) {
   return `Rs. ${Math.round(value).toLocaleString()}`;
@@ -31,6 +39,79 @@ function money(value: number) {
 
 function dateTime(value: string) {
   return formatAppDateTime(value);
+}
+
+function getCafeSalesBreakdown({
+  sales,
+  activeDayId,
+  cafeRevenue,
+  dayWindow,
+}: {
+  sales: ReturnType<typeof useSalesStore.getState>["sales"];
+  activeDayId: string;
+  cafeRevenue: number;
+  dayWindow: ReturnType<typeof getBusinessDayTransactionWindow>;
+}): CafeSalesBreakdown {
+  const cafeSales = sales.filter(
+    (sale) =>
+      sale.paymentStatus === "paid" &&
+      sale.cafeAmount > 0 &&
+      sale.activeBusinessDayId === activeDayId &&
+      isInsideBusinessDayWindow(sale.paidAt ?? sale.createdAt, dayWindow)
+  );
+  const rowsByItem = cafeSales.reduce<
+    Record<string, { item: string; quantity: number; sales: number }>
+  >((summary, sale) => {
+    (sale.orderedItems ?? [])
+      .filter((item) => !item.name.startsWith("[Accessory]"))
+      .forEach((item) => {
+        const key = item.menuItemId || item.name.trim().toLowerCase();
+        const current = summary[key] ?? {
+          item: item.name,
+          quantity: 0,
+          sales: 0,
+        };
+
+        summary[key] = {
+          item: current.item,
+          quantity: current.quantity + item.quantity,
+          sales: current.sales + item.subtotal,
+        };
+      });
+
+    return summary;
+  }, {});
+  const itemRows = Object.values(rowsByItem);
+  const allocatedRevenue = itemRows.reduce(
+    (total, row) => total + row.sales,
+    0
+  );
+  const unallocatedRevenue = Math.max(0, cafeRevenue - allocatedRevenue);
+  const rows =
+    unallocatedRevenue > 0
+      ? [
+          ...itemRows,
+          {
+            item: "Unallocated Cafe Sales",
+            quantity: 0,
+            sales: unallocatedRevenue,
+          },
+        ]
+      : itemRows;
+
+  return {
+    rows: rows.sort(
+      (a, b) =>
+        b.quantity - a.quantity ||
+        b.sales - a.sales ||
+        a.item.localeCompare(b.item)
+    ),
+    totalRevenue: cafeRevenue,
+    totalItemsSold: itemRows.reduce(
+      (total, row) => total + row.quantity,
+      0
+    ),
+  };
 }
 
 function BusinessDayCard() {
@@ -62,6 +143,10 @@ function BusinessDayCard() {
   const pendingBills = useCheckoutStore(
     (state) => state.pendingBills
   );
+  const customerAccounts = useCustomerAccountStore(
+    (state) => state.accounts
+  );
+  const tables = useTableStore((state) => state.tables);
   const outsidePurchases = useOutsidePurchaseStore(
     (state) => state.purchases
   );
@@ -97,6 +182,8 @@ function BusinessDayCard() {
     useState(false);
   const [endOpen, setEndOpen] =
     useState(false);
+  const [cafeBreakdownOpen, setCafeBreakdownOpen] =
+    useState(false);
   const [operatorId, setOperatorId] =
     useState("");
   const [openingCash, setOpeningCash] =
@@ -123,6 +210,30 @@ function BusinessDayCard() {
     actualCashNumber - cashLeftNumber;
   const difference =
     actualCashNumber - expectedCash;
+  const digitalPaymentsTotal =
+    (summary?.totalSales ?? 0) -
+    (summary?.cashSales ?? 0) +
+    (summary?.digitalCustomerReimbursements ?? 0);
+  const collectPaymentPending = useMemo(
+    () =>
+      getCollectPaymentPendingSummary(
+        customerAccounts,
+        tables
+      ),
+    [customerAccounts, tables]
+  );
+  const cafeBreakdown = useMemo(
+    () =>
+      activeDay
+        ? getCafeSalesBreakdown({
+            sales,
+            activeDayId: activeDay.id,
+            cafeRevenue: summary?.cafeSales ?? 0,
+            dayWindow: getBusinessDayTransactionWindow(activeDay),
+          })
+        : undefined,
+    [activeDay, sales, summary?.cafeSales]
+  );
   const openStart = (prefill?: number) => {
     setOperatorId(activeOperators[0]?.id ?? "");
     setOpeningCash(
@@ -361,17 +472,18 @@ function BusinessDayCard() {
                       Digital
                     </p>
                     <p className="font-semibold tabular-nums text-slate-800">
-                      {money(
-                        (summary?.cardSales ?? 0) +
-                          (summary?.jazzCashSales ?? 0) +
-                          (summary?.easypaisaSales ?? 0)
-                      )}
+                      {money(digitalPaymentsTotal)}
                     </p>
                   </div>
                 </div>
               </div>
 
-              <div className="flex h-[144px] flex-col rounded-lg border border-emerald-100 bg-emerald-50/40 p-3.5 dark:!border-emerald-800 dark:!bg-emerald-950/55">
+              <button
+                type="button"
+                className="flex h-[144px] cursor-pointer flex-col rounded-lg border border-emerald-100 bg-emerald-50/40 p-3.5 text-left transition hover:border-emerald-300 hover:bg-emerald-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 dark:!border-emerald-800 dark:!bg-emerald-950/55"
+                onClick={() => setCafeBreakdownOpen(true)}
+                aria-label="Open Cafe sales breakdown"
+              >
                 <p className="text-xs font-semibold text-slate-500">
                   Cafe Sales Today
                 </p>
@@ -381,7 +493,7 @@ function BusinessDayCard() {
                 <p className="mt-auto pt-2 text-xs text-slate-500">
                   Paid cafe revenue
                 </p>
-              </div>
+              </button>
 
               <button
                 type="button"
@@ -393,11 +505,11 @@ function BusinessDayCard() {
                   Pending Bills
                 </p>
                 <p className="mt-2 text-2xl font-bold text-slate-950">
-                  {money(summary?.pendingBillsAmount ?? 0)}
+                  {money(collectPaymentPending.amount)}
                 </p>
                 <p className="mt-auto pt-2 text-sm font-medium text-amber-700">
-                  {summary?.pendingBillsCount ?? 0} open{" "}
-                  {(summary?.pendingBillsCount ?? 0) === 1
+                  {collectPaymentPending.count} open{" "}
+                  {collectPaymentPending.count === 1
                     ? "bill"
                     : "bills"}
                 </p>
@@ -434,6 +546,86 @@ function BusinessDayCard() {
           </div>
         )}
       </Card>
+
+      <Dialog
+        open={cafeBreakdownOpen}
+        onOpenChange={setCafeBreakdownOpen}
+      >
+        <DialogContent className="max-h-[82vh] overflow-hidden sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Cafe Sales</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-2 rounded-md border bg-slate-50 px-3 py-2 text-sm">
+              <div>
+                <p className="text-xs font-semibold uppercase text-slate-500">
+                  Total Revenue
+                </p>
+                <p className="font-bold text-slate-950">
+                  {money(cafeBreakdown?.totalRevenue ?? summary?.cafeSales ?? 0)}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase text-slate-500">
+                  Total Items Sold
+                </p>
+                <p className="font-bold text-slate-950">
+                  {(cafeBreakdown?.totalItemsSold ?? 0).toLocaleString()}
+                </p>
+              </div>
+            </div>
+
+            <div className="max-h-[52vh] overflow-auto rounded-md border">
+              <table className="w-full text-left text-sm">
+                <thead className="sticky top-0 bg-slate-50 text-xs uppercase text-slate-500">
+                  <tr>
+                    <th className="px-3 py-2">Item</th>
+                    <th className="px-3 py-2 text-right">Qty Sold</th>
+                    <th className="px-3 py-2 text-right">Sales</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(cafeBreakdown?.rows ?? []).map((row) => (
+                    <tr key={row.item} className="border-t">
+                      <td className="px-3 py-2 font-medium text-slate-900">
+                        {row.item}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {row.quantity.toLocaleString()}x
+                      </td>
+                      <td className="px-3 py-2 text-right font-semibold">
+                        {money(row.sales)}
+                      </td>
+                    </tr>
+                  ))}
+                  {(cafeBreakdown?.rows.length ?? 0) === 0 && (
+                    <tr>
+                      <td
+                        colSpan={3}
+                        className="px-3 py-8 text-center text-slate-500"
+                      >
+                        No cafe items found for this business day.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+                <tfoot className="border-t bg-slate-50 font-bold">
+                  <tr>
+                    <td className="px-3 py-2">Total</td>
+                    <td className="px-3 py-2 text-right">
+                      {(cafeBreakdown?.totalItemsSold ?? 0).toLocaleString()}x
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {money(cafeBreakdown?.totalRevenue ?? summary?.cafeSales ?? 0)}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={startOpen}

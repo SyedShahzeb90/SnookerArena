@@ -1,3 +1,10 @@
+export interface MenuSaleOption {
+  id: string;
+  label: string;
+  price: number;
+  stockDeductionQuantity: number;
+}
+
 export interface MenuItem {
   id: string;
 
@@ -28,12 +35,22 @@ export interface MenuItem {
   lowStockAlertQuantity?: number;
 
   stockUnit?: string;
+
+  baseStockUnit?: string;
+
+  purchaseUnit?: string;
+
+  purchaseConversionQuantity?: number;
+
+  saleOptions?: MenuSaleOption[];
 }
 
 export interface OrderItem {
   lineId?: string;
 
   menuItemId: string;
+
+  saleOptionId?: string;
 
   name: string;
 
@@ -42,6 +59,8 @@ export interface OrderItem {
   quantity: number;
 
   subtotal: number;
+
+  stockDeductionQuantity?: number;
 
   timeAdded: Date;
 
@@ -56,6 +75,8 @@ export interface OrderItem {
   playerId?: string;
 
   participantKey?: string;
+
+  tableBill?: boolean;
 
   orderedAt?: string;
 }

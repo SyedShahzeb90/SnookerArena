@@ -268,23 +268,49 @@ function TableInfo({
   }) =>
     item.menuItemId?.startsWith("ACC-") ||
     item.name.startsWith("[Accessory]");
+  const sessionCafeChargeKeys = new Set(
+    session.cafeOrders
+      .filter((item) => !isAccessoryOrder(item))
+      .map(
+        (item) =>
+          `${item.menuItemId}|${item.price}|${
+            item.playerId ??
+            item.participantKey ??
+            normalizePlayerName(
+              item.playerName ??
+                item.customerName ??
+                ""
+            )
+          }`
+      )
+  );
+  const activeSessionCafeCharges = activeSessionAccounts.flatMap(
+    (account) =>
+      account.cafeCharges.filter((charge) => {
+        if (charge.name.startsWith("[Accessory]")) {
+          return false;
+        }
+        if (
+          tableId !== undefined &&
+          charge.tableId !== tableId &&
+          charge.tableId
+        ) {
+          return false;
+        }
+        if (charge.sessionId !== session.id) {
+          return !charge.sessionId;
+        }
+
+        const chargeKey = `${charge.itemId}|${charge.price}|${
+          charge.customerId ??
+          normalizePlayerName(charge.customerName)
+        }`;
+        return sessionCafeChargeKeys.has(chargeKey);
+      })
+  );
   const billedCafeTotal =
-    activeSessionAccounts.reduce(
-      (total, account) =>
-        total +
-        account.cafeCharges
-          .filter(
-            (charge) =>
-              !charge.name.startsWith("[Accessory]") &&
-              (tableId === undefined ||
-                charge.tableId === tableId ||
-                !charge.tableId)
-          )
-          .reduce(
-            (sum, charge) =>
-              sum + charge.subtotal,
-            0
-          ),
+    activeSessionCafeCharges.reduce(
+      (sum, charge) => sum + charge.subtotal,
       0
     );
   const billedAccessoriesTotal =
@@ -306,18 +332,9 @@ function TableInfo({
       0
     );
   const currentSessionBilledCafeTotal =
-    activeSessionAccounts.reduce(
-      (total, account) =>
-        total +
-        account.cafeCharges
-          .filter(
-            (charge) =>
-              charge.sessionId === session.id &&
-              !charge.name.startsWith("[Accessory]")
-          )
-          .reduce((sum, charge) => sum + charge.subtotal, 0),
-      0
-    );
+    activeSessionCafeCharges
+      .filter((charge) => charge.sessionId === session.id)
+      .reduce((sum, charge) => sum + charge.subtotal, 0);
   const currentSessionBilledAccessoriesTotal =
     activeSessionAccounts.reduce(
       (total, account) =>
@@ -347,14 +364,8 @@ function TableInfo({
   const latestSessionCafeItem = session.cafeOrders
     .filter((item) => !isAccessoryOrder(item))
     .at(-1);
-  const latestBilledCafeItem = activeSessionAccounts
-    .flatMap((account) =>
-      account.cafeCharges.filter(
-        (charge) =>
-          charge.sessionId === session.id &&
-          !charge.name.startsWith("[Accessory]")
-      )
-    )
+  const latestBilledCafeItem = activeSessionCafeCharges
+    .filter((charge) => charge.sessionId === session.id)
     .sort(
       (a, b) =>
         new Date(a.orderedAt).getTime() -
@@ -392,14 +403,8 @@ function TableInfo({
     }));
   const billedCafeItems = activeSessionAccounts.flatMap(
     (account) =>
-      account.cafeCharges
-        .filter(
-          (charge) =>
-            !charge.name.startsWith("[Accessory]") &&
-            (tableId === undefined ||
-              charge.tableId === tableId ||
-              !charge.tableId)
-        )
+      activeSessionCafeCharges
+        .filter((charge) => charge.customerId === account.id)
         .map((charge) => ({
           id: charge.itemId,
           name: charge.name,

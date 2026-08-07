@@ -22,6 +22,7 @@ import { ClubLogo, type LogoFitMode } from "@/features/settings/components/ClubL
 
 import {
   DEFAULT_CLUB_SETTINGS,
+  getPaymentMethodOptions,
   useClubSettingsStore,
   validateClubSettings,
   type ClubSettings,
@@ -151,6 +152,7 @@ function ClubSettingsPage() {
   const [errors, setErrors] = useState<string[]>([]);
   const [resetOpen, setResetOpen] = useState(false);
   const [newOperatorName, setNewOperatorName] = useState("");
+  const [newPaymentMethodName, setNewPaymentMethodName] = useState("");
   const [editingOperatorId, setEditingOperatorId] = useState<string | null>(null);
   const [editingOperatorName, setEditingOperatorName] = useState("");
   const [currentPin, setCurrentPin] = useState("");
@@ -176,6 +178,63 @@ function ClubSettingsPage() {
     setForm((current) => ({ ...current, ...logoSettings }));
     updateSettings({ ...settings, ...logoSettings });
     setErrors([]);
+  };
+
+  const updatePaymentMethodLabel = (
+    method: PaymentMethod,
+    value: string
+  ) => {
+    const nextLabel = value.slice(0, 20);
+    update("paymentMethodLabels", {
+      ...form.paymentMethodLabels,
+      [method]: nextLabel,
+    });
+    update("paymentMethods", form.paymentMethods.map((item) =>
+      item.id === method ? { ...item, label: nextLabel } : item
+    ));
+  };
+
+  const addPaymentMethod = () => {
+    const label = newPaymentMethodName.trim();
+    if (!label) {
+      setErrors(["Payment method name is required."]);
+      return;
+    }
+    if (label.length > 20) {
+      setErrors(["Payment method names must be 20 characters or fewer."]);
+      return;
+    }
+    const existing = form.paymentMethods.some(
+      (method) => method.label.trim().toLocaleLowerCase() === label.toLocaleLowerCase()
+    );
+    if (existing) {
+      setErrors(["This payment method already exists."]);
+      return;
+    }
+    const id = `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` as PaymentMethod;
+    update("paymentMethods", [
+      ...form.paymentMethods,
+      { id, label, builtIn: false },
+    ]);
+    update("paymentMethodLabels", {
+      ...form.paymentMethodLabels,
+      [id]: label,
+    });
+    setNewPaymentMethodName("");
+  };
+
+  const deletePaymentMethod = (method: PaymentMethod) => {
+    const target = form.paymentMethods.find((item) => item.id === method);
+    if (!target) return;
+    const nextMethods = form.paymentMethods.filter((item) => item.id !== method);
+    if (nextMethods.length === 0) {
+      setErrors(["At least one payment method is required."]);
+      return;
+    }
+    update("paymentMethods", nextMethods);
+    if (form.defaultPaymentMethod === method) {
+      update("defaultPaymentMethod", nextMethods[0].id);
+    }
   };
 
   const save = async () => {
@@ -580,10 +639,75 @@ function ClubSettingsPage() {
               <div className="space-y-1.5">
                 <Label htmlFor="defaultPaymentMethod">Default Payment Method</Label>
                 <select id="defaultPaymentMethod" className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm" value={form.defaultPaymentMethod} onChange={(event) => update("defaultPaymentMethod", event.target.value as PaymentMethod)}>
-                  <option value="cash">Cash</option><option value="easypaisa">Easypaisa</option><option value="jazzcash">JazzCash</option><option value="card">Card</option>
+                  {getPaymentMethodOptions(form).map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
                 </select>
               </div>
               <div className="space-y-1.5"><Label htmlFor="invoicePrefix">Invoice Prefix</Label><Input id="invoicePrefix" maxLength={12} value={form.invoicePrefix} onChange={(event) => update("invoicePrefix", event.target.value)} /></div>
+            </div>
+            <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">
+                  Payment Method Names
+                </h3>
+                <p className="mt-1 text-xs text-slate-500">
+                  Rename the methods shown on billing, cafe, and reports.
+                </p>
+              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                {form.paymentMethods.map((method) => (
+                  <div key={method.id} className="space-y-1.5">
+                    <Label htmlFor={`payment-label-${method.id}`}>
+                      {method.builtIn
+                        ? DEFAULT_CLUB_SETTINGS.paymentMethodLabels[method.id] ?? "Custom"
+                        : "Custom Method"}
+                    </Label>
+                    <div className="flex gap-2">
+                      <Input
+                        id={`payment-label-${method.id}`}
+                        maxLength={20}
+                        value={method.label}
+                        onChange={(event) =>
+                          updatePaymentMethodLabel(method.id, event.target.value)
+                        }
+                      />
+                      {form.paymentMethods.length > 1 && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="shrink-0 px-3 text-red-700"
+                          onClick={() => deletePaymentMethod(method.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                <Input
+                  aria-label="New payment method name"
+                  placeholder="New payment method"
+                  maxLength={20}
+                  value={newPaymentMethodName}
+                  onChange={(event) =>
+                    setNewPaymentMethodName(event.target.value.slice(0, 20))
+                  }
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      addPaymentMethod();
+                    }
+                  }}
+                />
+                <Button type="button" className="shrink-0" onClick={addPaymentMethod}>
+                  Add Payment
+                </Button>
+              </div>
             </div>
           </Card>
         </div>

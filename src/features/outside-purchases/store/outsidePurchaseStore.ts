@@ -193,14 +193,17 @@ export function getOutsidePurchaseSummary(purchases: OutsidePurchase[]) {
       if (purchase.status === "cancelled") return summary;
       const paymentMethod = purchase.paymentMethod ?? "cash";
       summary.paidOut += purchase.amountPaidFromDrawer;
-      summary.fundingByMethod[paymentMethod] += purchase.amountPaidFromDrawer;
+      summary.fundingByMethod[paymentMethod] =
+        (summary.fundingByMethod[paymentMethod] ?? 0) +
+        purchase.amountPaidFromDrawer;
       if (paymentMethod === "cash") {
         summary.paidFromDrawer += purchase.amountPaidFromDrawer;
       }
       summary.reimbursed += purchase.totalReimbursed;
       summary.outstanding += purchase.outstandingAmount;
       purchase.reimbursements.forEach((item) => {
-        summary.byMethod[item.paymentMethod] += item.amount;
+        summary.byMethod[item.paymentMethod] =
+          (summary.byMethod[item.paymentMethod] ?? 0) + item.amount;
       });
       return summary;
     },

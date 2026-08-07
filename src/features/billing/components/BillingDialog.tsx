@@ -561,6 +561,7 @@ function BillingDialog({
                 onSplitsChange={
                   setPaymentSplits
                 }
+                allowSplit={false}
               />
             </div>
           </div>

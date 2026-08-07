@@ -3,6 +3,10 @@ import { useEffect } from "react";
 import { AnimatedCollapsible } from "@/components/ui/animated-collapsible";
 import type { PaymentMethod } from "@/types/session";
 import type { PaymentSplit } from "@/features/sales/types/sale";
+import {
+  getPaymentMethodOptions,
+  useClubSettingsStore,
+} from "@/features/settings/store/clubSettingsStore";
 
 interface Props {
   value: PaymentMethod;
@@ -10,20 +14,12 @@ interface Props {
   totalAmount?: number;
   splits?: PaymentSplit[];
   onSplitsChange?: (splits: PaymentSplit[]) => void;
+  allowSplit?: boolean;
 }
-
-const paymentOptions: {
-  value: PaymentMethod;
-  label: string;
-}[] = [
-  { value: "cash", label: "Cash" },
-  { value: "card", label: "Card" },
-  { value: "jazzcash", label: "JazzCash" },
-  { value: "easypaisa", label: "Easypaisa" },
-];
 
 function getFirstUnusedMethod(
   splits: PaymentSplit[],
+  paymentOptions: ReturnType<typeof getPaymentMethodOptions>,
   fallback: PaymentMethod = "cash"
 ) {
   return (
@@ -37,7 +33,8 @@ function getFirstUnusedMethod(
 }
 
 function normalizeSplitMethods(
-  splits: PaymentSplit[]
+  splits: PaymentSplit[],
+  paymentOptions: ReturnType<typeof getPaymentMethodOptions>
 ) {
   const used = new Set<PaymentMethod>();
 
@@ -70,7 +67,10 @@ function PaymentMethodSelector({
   totalAmount,
   splits = [],
   onSplitsChange,
+  allowSplit = true,
 }: Props) {
+  const clubSettings = useClubSettingsStore((state) => state.settings);
+  const paymentOptions = getPaymentMethodOptions(clubSettings);
   const isSplitPayment =
     Boolean(onSplitsChange) &&
     totalAmount !== undefined &&
@@ -90,7 +90,7 @@ function PaymentMethodSelector({
     }
 
     const normalized =
-      normalizeSplitMethods(splits);
+      normalizeSplitMethods(splits, paymentOptions);
     const changed = normalized.some(
       (split, index) =>
         split.method !== splits[index].method
@@ -99,7 +99,7 @@ function PaymentMethodSelector({
     if (changed) {
       onSplitsChange(normalized);
     }
-  }, [onSplitsChange, splits]);
+  }, [onSplitsChange, paymentOptions, splits]);
 
   const updateSplit = (
     index: number,
@@ -108,7 +108,8 @@ function PaymentMethodSelector({
     const nextSplits = normalizeSplitMethods(
       splits.map((item, currentIndex) =>
         currentIndex === index ? split : item
-      )
+      ),
+      paymentOptions
     );
 
     onSplitsChange?.(nextSplits);
@@ -116,7 +117,7 @@ function PaymentMethodSelector({
 
   return (
     <div className="space-y-2">
-      {!isSplitPayment && (
+      {(!isSplitPayment || !allowSplit) && (
         <select
           id="payment-method"
           name="paymentMethod"
@@ -139,7 +140,7 @@ function PaymentMethodSelector({
         </select>
       )}
 
-      {onSplitsChange && totalAmount !== undefined && (
+      {allowSplit && onSplitsChange && totalAmount !== undefined && (
         <div className="rounded-lg border bg-slate-50 p-3">
           <div className="mb-2 flex items-center justify-between gap-3">
             <p className="text-sm font-semibold text-slate-700">
@@ -262,7 +263,8 @@ function PaymentMethodSelector({
                     ...splits,
                     {
                       method: getFirstUnusedMethod(
-                        splits
+                        splits,
+                        paymentOptions
                       ),
                       amount: 0,
                     },

@@ -44,6 +44,11 @@ import {
   useAppDateTimeFormats,
 } from "@/lib/dateTime";
 import type { PaymentMethod } from "@/types/session";
+import {
+  getPaymentMethodLabels,
+  getPaymentMethodOptions,
+  useClubSettingsStore,
+} from "@/features/settings/store/clubSettingsStore";
 
 import { useSalesStore } from "../store/salesStore";
 import type { ReportRange, Sale } from "../types/sale";
@@ -52,13 +57,6 @@ import {
   calculateSalesTotals,
   filterSalesByRange,
 } from "../utils/salesReports";
-
-const paymentLabels: Record<PaymentMethod, string> = {
-  cash: "Cash",
-  card: "Card",
-  jazzcash: "JazzCash",
-  easypaisa: "Easypaisa",
-};
 
 type SortOrder = "newest" | "oldest";
 type DateFilter = "all" | ReportRange;
@@ -136,13 +134,19 @@ function getAuditActionLabel(action: string) {
   return labels[action] ?? action.replace(/_/g, " ");
 }
 
-function getCompactPaymentLabel(sale: Sale) {
+function getCompactPaymentLabel(
+  sale: Sale,
+  paymentLabels: Record<PaymentMethod, string>
+) {
   const methods = getPaymentMethods(sale);
   if (methods.length > 2) return "Split";
   return methods.map((method) => paymentLabels[method]).join(" + ");
 }
 
-function getFullPaymentLabel(sale: Sale) {
+function getFullPaymentLabel(
+  sale: Sale,
+  paymentLabels: Record<PaymentMethod, string>
+) {
   if (!sale.paymentSplits?.length) {
     return `${paymentLabels[sale.paymentMethod]} · ${formatCurrency(
       sale.grandTotal
@@ -257,7 +261,10 @@ function getPaymentBadgeMethod(sale: Sale): PaymentMethod | "split" {
   return sale.paymentSplits?.length ? "split" : sale.paymentMethod;
 }
 
-function getPaymentBadgeLabel(sale: Sale) {
+function getPaymentBadgeLabel(
+  sale: Sale,
+  paymentLabels: Record<PaymentMethod, string>
+) {
   if (!sale.paymentSplits?.length) {
     return `${getPaymentMethodIcon(sale.paymentMethod)} ${
       paymentLabels[sale.paymentMethod]
@@ -376,6 +383,15 @@ function MetricCard({
 }
 
 function SalesHistoryPage() {
+  const clubSettings = useClubSettingsStore((state) => state.settings);
+  const paymentLabels = useMemo(
+    () => getPaymentMethodLabels(clubSettings),
+    [clubSettings]
+  );
+  const paymentMethodOptions = useMemo(
+    () => getPaymentMethodOptions(clubSettings),
+    [clubSettings]
+  );
   useAppDateTimeFormats();
   const navigate = useNavigate();
   const sales = useSalesStore((state) => state.sales);
@@ -474,7 +490,7 @@ function SalesHistoryPage() {
           sale.settlementLabel,
           getSaleTypeLabel(sale),
           getInvoiceTypeLabel(sale),
-          getCompactPaymentLabel(sale),
+          getCompactPaymentLabel(sale, paymentLabels),
           getOperatorLabel(sale),
           getBusinessDayLabel(sale.activeBusinessDayId),
           ...sale.players.map((player) => player.name),
@@ -702,10 +718,11 @@ function SalesHistoryPage() {
                   }
                 >
                   <option value="all">All Payments</option>
-                  <option value="cash">Cash</option>
-                  <option value="card">Card</option>
-                  <option value="jazzcash">JazzCash</option>
-                  <option value="easypaisa">Easypaisa</option>
+                  {paymentMethodOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
                   <option value="split">Split</option>
                 </select>
               </label>
@@ -880,10 +897,10 @@ function SalesHistoryPage() {
                         </td>
                         <td
                           className="truncate px-3 py-3"
-                          title={getFullPaymentLabel(sale)}
+                          title={getFullPaymentLabel(sale, paymentLabels)}
                         >
                           <Badge className={getPaymentBadgeClass(getPaymentBadgeMethod(sale))}>
-                            {getPaymentBadgeLabel(sale)}
+                            {getPaymentBadgeLabel(sale, paymentLabels)}
                           </Badge>
                         </td>
                         <td className="px-3 py-3">
@@ -1028,7 +1045,7 @@ function SalesHistoryPage() {
                 <div>
                   <p className="text-xs uppercase text-slate-500">Payment</p>
                   <p className="mt-1 font-semibold">
-                    {getFullPaymentLabel(selectedSale)}
+                    {getFullPaymentLabel(selectedSale, paymentLabels)}
                   </p>
                 </div>
                 <div>
@@ -1303,7 +1320,7 @@ function SalesHistoryPage() {
                   ) : (
                     <Smartphone className="h-3.5 w-3.5" />
                   )}
-                  {getCompactPaymentLabel(selectedSale)}
+                  {getCompactPaymentLabel(selectedSale, paymentLabels)}
                 </span>
               </div>
             </DialogFooter>

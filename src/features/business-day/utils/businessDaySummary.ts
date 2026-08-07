@@ -19,6 +19,10 @@ import type {
   BusinessDay,
   BusinessDaySummary,
 } from "../types/businessDay";
+import {
+  getBusinessDayTransactionWindow,
+  isInsideBusinessDayWindow,
+} from "./businessDayWindow";
 
 export function getRemainingPendingBillTotal(
   bill: PendingBill
@@ -94,13 +98,16 @@ export function calculateBusinessDaySummary({
   salaryAdvances?: SalaryAdvance[];
   salaryPayments?: SalaryPayment[];
 }): BusinessDaySummary {
+  const dayWindow = getBusinessDayTransactionWindow(day);
   const daySales = sales.filter(
     (sale) =>
-      sale.activeBusinessDayId === day.id
+      sale.activeBusinessDayId === day.id &&
+      isInsideBusinessDayWindow(sale.paidAt ?? sale.createdAt, dayWindow)
   );
   const dayExpenses = expenses.filter(
     (expense) =>
       expense.activeBusinessDayId === day.id &&
+      isInsideBusinessDayWindow(expense.expenseDate, dayWindow) &&
       isActiveExpense(expense)
   );
 
@@ -112,7 +119,7 @@ export function calculateBusinessDaySummary({
               (summary, split) => ({
                 ...summary,
                 [split.method]:
-                  summary[split.method] +
+                  (summary[split.method] ?? 0) +
                   split.amount,
               }),
               {
@@ -202,10 +209,14 @@ export function calculateBusinessDaySummary({
     }
   );
   const daySalaryAdvances = salaryAdvances.filter(
-    (advance) => advance.activeBusinessDayId === day.id
+    (advance) =>
+      advance.activeBusinessDayId === day.id &&
+      isInsideBusinessDayWindow(advance.createdAt, dayWindow)
   );
   const daySalaryPayments = salaryPayments.filter(
-    (payment) => payment.activeBusinessDayId === day.id
+    (payment) =>
+      payment.activeBusinessDayId === day.id &&
+      isInsideBusinessDayWindow(payment.createdAt, dayWindow)
   );
   const payrollOutflows = [
     ...daySalaryAdvances.map((advance) => ({
@@ -240,7 +251,9 @@ export function calculateBusinessDaySummary({
       0
     );
   const dayOutsidePurchases = outsidePurchases.filter(
-    (purchase) => purchase.businessDayId === day.id
+    (purchase) =>
+      purchase.businessDayId === day.id &&
+      isInsideBusinessDayWindow(purchase.createdAt, dayWindow)
   );
   const outsidePurchasesPaidFromDrawer = dayOutsidePurchases.reduce(
     (total, purchase) =>
@@ -254,7 +267,8 @@ export function calculateBusinessDaySummary({
     .filter(
       (purchase) =>
         purchase.status === "cancelled" &&
-        purchase.cancelledBusinessDayId === day.id
+        purchase.cancelledBusinessDayId === day.id &&
+        isInsideBusinessDayWindow(purchase.cancelledAt, dayWindow)
     )
     .reduce(
       (total, purchase) =>
@@ -268,13 +282,14 @@ export function calculateBusinessDaySummary({
     (purchase) =>
       purchase.reimbursements.filter(
         (item) => item.businessDayId === day.id
+          && isInsideBusinessDayWindow(item.createdAt, dayWindow)
       )
   );
   const reimbursementTotals = dayReimbursements.reduce(
     (totals, item) => ({
       ...totals,
       [item.paymentMethod]:
-        totals[item.paymentMethod] + item.amount,
+        (totals[item.paymentMethod] ?? 0) + item.amount,
     }),
     { cash: 0, card: 0, jazzcash: 0, easypaisa: 0 }
   );
@@ -288,7 +303,10 @@ export function calculateBusinessDaySummary({
       0
     );
   const activeInventoryPurchases = vendorRestockingRecords.filter(
-    (record) => record.businessDayId === day.id && record.status === "active"
+    (record) =>
+      record.businessDayId === day.id &&
+      record.status === "active" &&
+      isInsideBusinessDayWindow(record.createdAt, dayWindow)
   );
   const inventoryPurchasesTotal = activeInventoryPurchases.reduce(
     (total, record) => total + record.totalCost,
@@ -299,9 +317,17 @@ export function calculateBusinessDaySummary({
       (record.businessDayId === day.id && record.paymentSource === "cash_drawer") ||
       (record.creditPaidBusinessDayId === day.id && record.creditPaymentSource === "cash_drawer")
     )
+    .filter((record) =>
+      isInsideBusinessDayWindow(
+        record.creditPaidBusinessDayId === day.id
+          ? record.creditPaidAt
+          : record.createdAt,
+        dayWindow
+      )
+    )
     .reduce((total, record) => total + record.totalCost, 0);
   const cashInventoryPurchaseRestored = vendorRestockingRecords
-    .filter((record) => record.status === "cancelled" && record.cancelledBusinessDayId === day.id && (record.paymentSource === "cash_drawer" || record.creditPaymentSource === "cash_drawer"))
+    .filter((record) => record.status === "cancelled" && record.cancelledBusinessDayId === day.id && (record.paymentSource === "cash_drawer" || record.creditPaymentSource === "cash_drawer") && isInsideBusinessDayWindow(record.cancelledAt, dayWindow))
     .reduce((total, record) => total + record.totalCost, 0);
   const expectedCash =
     day.openingCash +
