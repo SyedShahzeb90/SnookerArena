@@ -469,7 +469,14 @@ function getFinalTableChargeLines(
 function createTableHistoryRecord(
   table: Table,
   session: Session,
-  staffBillNumber?: string
+  staffBillNumber?: string,
+  options: {
+    paymentStatus?: "pending" | "paid" | "cancelled";
+    pendingBillId?: string;
+    cancelledAt?: string;
+    cancelledReason?: string;
+    cancelledNote?: string;
+  } = {}
 ) {
   if (!session.endTime) return;
 
@@ -543,6 +550,8 @@ function createTableHistoryRecord(
     )?.customerId;
   };
   const now = new Date().toISOString();
+  const paymentStatus =
+    options.paymentStatus ?? "pending";
 
   useTableHistoryStore
     .getState()
@@ -616,8 +625,14 @@ function createTableHistoryRecord(
       cafeAmount: session.cafeAmount,
       discount: session.discount,
       grandTotal: bill.total,
-      paymentStatus: "pending",
-      pendingBillId: `BILL-${session.id}`,
+      paymentStatus,
+      pendingBillId:
+        paymentStatus === "pending"
+          ? options.pendingBillId ?? `BILL-${session.id}`
+          : options.pendingBillId,
+      cancelledAt: options.cancelledAt,
+      cancelledReason: options.cancelledReason,
+      cancelledNote: options.cancelledNote,
       createdAt: now,
       updatedAt: now,
       cafeItems: session.cafeOrders.map(
@@ -1566,6 +1581,23 @@ export const useTableStore =
         tables: state.tables.map((table) => {
           if (table.id !== tableId) {
             return table;
+          }
+
+          if (table.session) {
+            const cancelledAt = new Date().toISOString();
+            createTableHistoryRecord(
+              table,
+              {
+                ...table.session,
+                endTime: new Date(cancelledAt),
+              },
+              undefined,
+              {
+                paymentStatus: "cancelled",
+                cancelledAt,
+                cancelledReason: "Session cancelled",
+              }
+            );
           }
 
           useCafeStore

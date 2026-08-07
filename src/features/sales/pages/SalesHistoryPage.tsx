@@ -9,7 +9,7 @@ import {
   Smartphone,
   Trash2,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { Badge } from "@/components/ui/badge";
@@ -29,6 +29,7 @@ import { Input } from "@/components/ui/input";
 import { useBusinessDayStore } from "@/features/business-day/store/businessDayStore";
 import { useCreditLedgerStore } from "@/features/credit-ledger/store/creditLedgerStore";
 import { useTableHistoryStore } from "@/features/table-history/store/tableHistoryStore";
+import type { TableHistoryRecord } from "@/features/table-history/types/tableHistory";
 import type { CustomerAccount } from "@/features/customers/types/customerAccount";
 import {
   formatDuplicateParticipantLabel,
@@ -138,6 +139,8 @@ function getCompactPaymentLabel(
   sale: Sale,
   paymentLabels: Record<PaymentMethod, string>
 ) {
+  if (getSaleStatus(sale) === "cancelled") return "No payment";
+
   const methods = getPaymentMethods(sale);
   if (methods.length > 2) return "Split";
   return methods.map((method) => paymentLabels[method]).join(" + ");
@@ -147,6 +150,10 @@ function getFullPaymentLabel(
   sale: Sale,
   paymentLabels: Record<PaymentMethod, string>
 ) {
+  if (getSaleStatus(sale) === "cancelled") {
+    return "No payment - cancelled";
+  }
+
   if (!sale.paymentSplits?.length) {
     return `${paymentLabels[sale.paymentMethod]} · ${formatCurrency(
       sale.grandTotal
@@ -186,6 +193,8 @@ function getSaleTypeLabel(sale: Sale) {
 }
 
 function getInvoiceType(sale: Sale): Exclude<InvoiceTypeFilter, "all"> {
+  if (sale.saleType === "table") return "table";
+
   const hasTable = sale.tableAmount > 0;
   const hasCafe = getCanteenAmount(sale) > 0;
   const hasAccessories = getAccessoryAmount(sale) > 0;
@@ -265,6 +274,10 @@ function getPaymentBadgeLabel(
   sale: Sale,
   paymentLabels: Record<PaymentMethod, string>
 ) {
+  if (getSaleStatus(sale) === "cancelled") {
+    return "No payment";
+  }
+
   if (!sale.paymentSplits?.length) {
     return `${getPaymentMethodIcon(sale.paymentMethod)} ${
       paymentLabels[sale.paymentMethod]
@@ -278,6 +291,75 @@ function getPaymentBadgeLabel(
 
 function getSaleStatus(sale: Sale): SalesHistoryStatus {
   return (sale.paymentStatus as SalesHistoryStatus) ?? "paid";
+}
+
+function createCancelledSaleFromHistory(record: TableHistoryRecord): Sale {
+  const invoiceNumber =
+    record.invoiceNumber ??
+    record.staffBillNumber ??
+    record.billNo ??
+    `CANCEL-${record.sessionId}`;
+
+  return {
+    id: `CANCELLED-HISTORY-${record.id}`,
+    invoiceNumber,
+    staffBillNumber: record.staffBillNumber,
+    tableId: record.tableId,
+    tableName: record.tableName,
+    saleType: "table",
+    sessionId: record.sessionId,
+    players: record.players.map((name) => ({ name })),
+    sessionType: record.sessionType,
+    winnerName: record.winnerName,
+    loserName: record.loserName,
+    payerName: record.payerName,
+    teamAPlayers: record.teamAPlayers,
+    teamBPlayers: record.teamBPlayers,
+    teamAOneNameEnough: record.teamAOneNameEnough,
+    teamBOneNameEnough: record.teamBOneNameEnough,
+    extraPlayers: record.extraPlayers,
+    winningTeam: record.winningTeam,
+    losingTeam: record.losingTeam,
+    payerBreakdown: record.payerBreakdown,
+    startedAt: record.startedAt,
+    endedAt: record.endedAt,
+    durationMinutes: record.durationMinutes,
+    createdAt: record.cancelledAt ?? record.updatedAt ?? record.createdAt,
+    tableAmount: 0,
+    cafeAmount: 0,
+    subtotal: 0,
+    discount: 0,
+    grandTotal: 0,
+    originalTableAmount: record.originalTableAmount ?? record.tableAmount,
+    originalGameCount: record.originalGameCount,
+    advanceGamesApplied: record.advanceGamesApplied,
+    advanceReduction: record.advanceReduction,
+    settlementLabel: record.cancelledReason
+      ? `Cancelled: ${record.cancelledReason}`
+      : "Cancelled",
+    paymentMethod: "cash",
+    paymentStatus: "cancelled",
+    orderedItems: record.cafeItems,
+    playerBreakdown: record.playerBreakdown,
+    customerName: record.player1Name,
+    tableChargeLines: record.tableChargeLines,
+    operatorAudit: record.cancelledAt
+      ? [
+          {
+            id: `AUDIT-${record.id}-cancelled`,
+            action: "cancelled",
+            occurredAt: record.cancelledAt,
+            note: [record.cancelledReason, record.cancelledNote]
+              .filter(Boolean)
+              .join(": "),
+            operator: {
+              operatorId: "unknown",
+              operatorName: "Not recorded",
+            },
+          },
+        ]
+      : undefined,
+  };
 }
 
 function getStatusBadgeClass(status: SalesHistoryStatus) {
@@ -396,6 +478,7 @@ function SalesHistoryPage() {
   const navigate = useNavigate();
   const sales = useSalesStore((state) => state.sales);
   const deleteSale = useSalesStore((state) => state.deleteSale);
+  const tableHistoryRecords = useTableHistoryStore((state) => state.records);
   const addCreditFromCustomerBill = useCreditLedgerStore(
     (state) => state.addCreditFromCustomerBill
   );
@@ -419,32 +502,50 @@ function SalesHistoryPage() {
     [businessDays]
   );
 
-  const getBusinessDayLabel = (businessDayId?: string) => {
-    const day = businessDayId ? businessDayById.get(businessDayId) : undefined;
-    return day ? `${day.dayName} · ${day.openedBy}` : "No Business Day";
-  };
+  const salesHistoryRows = useMemo(() => {
+    const saleSessionIds = new Set(sales.map((sale) => sale.sessionId));
+    const cancelledHistoryRows = tableHistoryRecords
+      .filter(
+        (record) =>
+          record.paymentStatus === "cancelled" &&
+          !saleSessionIds.has(record.sessionId)
+      )
+      .map(createCancelledSaleFromHistory);
+
+    return [...sales, ...cancelledHistoryRows];
+  }, [sales, tableHistoryRecords]);
+
+  const getBusinessDayLabel = useCallback(
+    (businessDayId?: string) => {
+      const day = businessDayId
+        ? businessDayById.get(businessDayId)
+        : undefined;
+      return day ? `${day.dayName} · ${day.openedBy}` : "No Business Day";
+    },
+    [businessDayById]
+  );
 
   const operatorOptions = useMemo(
     () =>
-      Array.from(new Set(sales.map(getOperatorLabel))).sort((a, b) =>
+      Array.from(new Set(salesHistoryRows.map(getOperatorLabel))).sort((a, b) =>
         a.localeCompare(b)
       ),
-    [sales]
+    [salesHistoryRows]
   );
 
   const dateFilteredSales = useMemo(() => {
-    if (dateFilter === "all") return sales;
+    if (dateFilter === "all") return salesHistoryRows;
     if (dateFilter !== "custom") {
-      return filterSalesByRange(sales, dateFilter);
+      return filterSalesByRange(salesHistoryRows, dateFilter);
     }
-    if (!customStart || !customEnd) return sales;
+    if (!customStart || !customEnd) return salesHistoryRows;
     return filterSalesByRange(
-      sales,
+      salesHistoryRows,
       "custom",
       new Date(`${customStart}T00:00:00`),
       new Date(`${customEnd}T23:59:59.999`)
     );
-  }, [sales, dateFilter, customStart, customEnd]);
+  }, [salesHistoryRows, dateFilter, customStart, customEnd]);
 
   const filteredSales = useMemo(() => {
     const query = search.trim().toLocaleLowerCase();
@@ -516,7 +617,8 @@ function SalesHistoryPage() {
     statusFilter,
     operatorFilter,
     invoiceTypeFilter,
-    businessDayById,
+    getBusinessDayLabel,
+    paymentLabels,
   ]);
 
   const filteredTotals = useMemo(
@@ -642,16 +744,22 @@ function SalesHistoryPage() {
               label="Total Revenue"
               value={formatCurrency(filteredTotals.revenue)}
             />
-            <MetricCard label="Cash" value={formatCurrency(paymentTotals.cash)} />
             <MetricCard
-              label="Easypaisa"
+              label={paymentLabels.cash}
+              value={formatCurrency(paymentTotals.cash)}
+            />
+            <MetricCard
+              label={paymentLabels.easypaisa}
               value={formatCurrency(paymentTotals.easypaisa)}
             />
             <MetricCard
-              label="JazzCash"
+              label={paymentLabels.jazzcash}
               value={formatCurrency(paymentTotals.jazzcash)}
             />
-            <MetricCard label="Card" value={formatCurrency(paymentTotals.card)} />
+            <MetricCard
+              label={paymentLabels.card}
+              value={formatCurrency(paymentTotals.card)}
+            />
           </div>
         </section>
 
@@ -806,9 +914,9 @@ function SalesHistoryPage() {
 
           <div className="border-b bg-slate-50 px-4 py-2 text-sm font-medium text-slate-600 dark:bg-slate-900 dark:text-slate-300">
             Showing {filteredSales.length.toLocaleString()}
-            {filteredSales.length === sales.length
+            {filteredSales.length === salesHistoryRows.length
               ? ""
-              : ` of ${sales.length.toLocaleString()}`}{" "}
+              : ` of ${salesHistoryRows.length.toLocaleString()}`}{" "}
             invoices
           </div>
 
@@ -899,7 +1007,7 @@ function SalesHistoryPage() {
                           className="truncate px-3 py-3"
                           title={getFullPaymentLabel(sale, paymentLabels)}
                         >
-                          <Badge className={getPaymentBadgeClass(getPaymentBadgeMethod(sale))}>
+                          <Badge className={getSaleStatus(sale) === "cancelled" ? getStatusBadgeClass("cancelled") : getPaymentBadgeClass(getPaymentBadgeMethod(sale))}>
                             {getPaymentBadgeLabel(sale, paymentLabels)}
                           </Badge>
                         </td>
@@ -933,17 +1041,17 @@ function SalesHistoryPage() {
               <EmptyState
                 icon={ReceiptText}
                 title={
-                  sales.length === 0
+                  salesHistoryRows.length === 0
                     ? "No Sales History Yet"
                     : "No Matching Transactions"
                 }
                 description={
-                  sales.length === 0
+                  salesHistoryRows.length === 0
                     ? "Completed transactions will appear here after payments are received."
                     : "No transactions match the selected search and filters."
                 }
-                actionLabel={sales.length > 0 ? "Clear Filters" : undefined}
-                onAction={sales.length > 0 ? clearFilters : undefined}
+                actionLabel={salesHistoryRows.length > 0 ? "Clear Filters" : undefined}
+                onAction={salesHistoryRows.length > 0 ? clearFilters : undefined}
                 compact
               />
             </div>

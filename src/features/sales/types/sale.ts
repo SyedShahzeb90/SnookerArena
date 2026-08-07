@@ -12,7 +12,13 @@ import type {
   TransactionAuditEvent,
 } from "@/types/operatorAudit";
 
-export type PaymentStatus = "paid";
+export type PaymentStatus =
+  | "paid"
+  | "pending"
+  | "credit"
+  | "cancelled"
+  | "refunded"
+  | "complimentary";
 
 export interface SalePlayer {
   name: string;
