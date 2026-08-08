@@ -117,6 +117,8 @@ function EndSessionDialog({
     getSessionPlayers(session);
   const isDouble =
     currentFrameType === "doubleGame";
+  const isTeamCentury =
+    session.sessionType === "century";
   const isTimeBased =
     session.sessionType === "time" ||
     session.sessionType === "private";
@@ -127,19 +129,16 @@ function EndSessionDialog({
             ...player,
             slotLabel:
               index === 0
-                ? "Main Customer"
-                : `Extra Player ${index}`,
+                ? "Player 1"
+                : `Player ${index + 1}`,
           })
         )
       : [];
   const shouldAskBookingLoser =
     session.sessionType === "time" &&
-    bookingPlayerOptions.length > 1 &&
-    bookingPlayerOptions.some(
-      (player) => !isWalkInName(player.name)
-    );
+    bookingPlayerOptions.length > 1;
   const shouldAskLoser =
-    !isTimeBased || shouldAskBookingLoser;
+    isTeamCentury || !isTimeBased || shouldAskBookingLoser;
   const teams = getDoubleGameTeams(session);
   const teamALabel =
     teams.teamAPlayers.join(", ") ||
@@ -289,7 +288,9 @@ function EndSessionDialog({
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>
-            {shouldAskLoser
+            {isTeamCentury
+              ? "Which team lost?"
+              : shouldAskLoser
               ? "Who lost?"
               : "End Session"}
           </DialogTitle>
@@ -300,13 +301,20 @@ function EndSessionDialog({
             <p className="text-sm font-medium text-slate-500">
               {!shouldAskLoser
                 ? "End this booking now or enter the actual end time manually."
+                : isTeamCentury
+                  ? "Select the team that lost before ending this Team Century session."
                 : shouldAskBookingLoser
                   ? "Select the loser before ending this booking."
                   : "Select the loser before ending this session."}
             </p>
-            {shouldAskLoser && (
+            {shouldAskLoser && !isTeamCentury && (
               <p className="mt-1 text-sm text-slate-500">
                 The loser will be selected as payer by default.
+              </p>
+            )}
+            {isTeamCentury && (
+              <p className="mt-1 text-sm text-slate-500">
+                The losing team players will be charged.
               </p>
             )}
           </div>
@@ -396,7 +404,7 @@ function EndSessionDialog({
             >
               End Session
             </Button>
-          ) : shouldAskBookingLoser ? (
+          ) : shouldAskBookingLoser && !isTeamCentury ? (
             <div className="grid gap-3">
               {bookingPlayerOptions.map(
                 (player) => (
@@ -424,7 +432,7 @@ function EndSessionDialog({
                 )
               )}
             </div>
-          ) : isDouble && !hasNamedSessionPlayer ? (
+          ) : (isDouble || isTeamCentury) && !hasNamedSessionPlayer ? (
             <div className="grid gap-3">
               <Button
                 size="lg"
@@ -449,7 +457,7 @@ function EndSessionDialog({
                 Walk-in Customer Lost
               </Button>
             </div>
-          ) : isDouble ? (
+          ) : isDouble || isTeamCentury ? (
             <div className="grid gap-3">
               <Button
                 size="lg"
@@ -470,7 +478,12 @@ function EndSessionDialog({
                 }}
               >
                 <CircleX className="h-5 w-5" />
-                {teamALabel} Lost
+                <span className="flex flex-col items-start leading-tight">
+                  <span>Team A Lost</span>
+                  <span className="text-xs font-normal opacity-80">
+                    {teamALabel}
+                  </span>
+                </span>
               </Button>
               <Button
                 size="lg"
@@ -491,7 +504,12 @@ function EndSessionDialog({
                 }}
               >
                 <CircleX className="h-5 w-5" />
-                {teamBLabel} Lost
+                <span className="flex flex-col items-start leading-tight">
+                  <span>Team B Lost</span>
+                  <span className="text-xs font-normal opacity-80">
+                    {teamBLabel}
+                  </span>
+                </span>
               </Button>
             </div>
           ) : (

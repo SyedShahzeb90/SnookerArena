@@ -337,9 +337,30 @@ function isAccessoryCharge(charge: {
 }
 
 function getCafeCharges(account: CustomerAccount) {
-  return account.cafeCharges.filter(
-    (charge) => !isAccessoryCharge(charge)
-  );
+  const seen = new Set<string>();
+
+  return account.cafeCharges.filter((charge) => {
+    if (isAccessoryCharge(charge)) {
+      return false;
+    }
+
+    const key = [
+      charge.itemId,
+      charge.quantity,
+      charge.price,
+      charge.subtotal,
+      charge.sessionId ?? "",
+      charge.tableId ?? "",
+      charge.orderedAt ?? charge.createdAt,
+    ].join("|");
+
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
 }
 
 function getAccessoryCharges(
@@ -638,6 +659,14 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
     useState("1");
   const [isOutsidePurchaseOpen, setIsOutsidePurchaseOpen] =
     useState(false);
+  const [isGameHistoryOpen, setIsGameHistoryOpen] =
+    useState(false);
+  const [isCafeChargesOpen, setIsCafeChargesOpen] =
+    useState(false);
+  const [isAccessoryChargesOpen, setIsAccessoryChargesOpen] =
+    useState(false);
+  const [showPartialPaymentAmount, setShowPartialPaymentAmount] =
+    useState(false);
 
   useEffect(() => {
     splitGenericWalkInBills();
@@ -646,6 +675,13 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
     splitGenericWalkInBills,
     mergeDuplicateWalkInSessionBills,
   ]);
+
+  useEffect(() => {
+    setIsGameHistoryOpen(false);
+    setIsCafeChargesOpen(false);
+    setIsAccessoryChargesOpen(false);
+    setShowPartialPaymentAmount(false);
+  }, [selectedId]);
 
   useEffect(() => {
     accounts.forEach((account) => {
@@ -995,6 +1031,15 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
     : undefined;
   const selectedGameLines = selectedAccount
     ? getIndividualGameCharges(selectedAccount.gameCharges, tableHistoryRecords)
+    : [];
+  const selectedSortedGameLines = selectedGameLines
+    .slice()
+    .sort(compareChargeTimestamps);
+  const selectedCafeCharges = selectedAccount
+    ? getCafeCharges(selectedAccount)
+    : [];
+  const selectedAccessoryCharges = selectedAccount
+    ? getAccessoryCharges(selectedAccount)
     : [];
   const selectedAdvanceBalance = selectedAccount
     ? safeAdvanceTransactions
@@ -1717,6 +1762,11 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
     setError("");
 
     if (!selectedAccount || !selectedTotals) return;
+
+    if (!showPartialPaymentAmount) {
+      setShowPartialPaymentAmount(true);
+      return;
+    }
 
     if (isSelectedBillStillRunning) {
       setError(
@@ -2489,7 +2539,7 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
                             }
                           </p>
                         )}
-                        <div className={`mt-3 grid gap-2 ${selectedAccount.paymentStatus === "paid" ? "grid-cols-1" : "grid-cols-[0.7fr_0.9fr_1.15fr]"}`}>
+                        <div className={`mt-3 grid gap-2 ${selectedAccount.paymentStatus === "paid" ? "grid-cols-1" : "grid-cols-2 xl:grid-cols-[0.7fr_0.9fr_1.15fr_1.15fr]"}`}>
                           <Button
                             size="sm"
                             variant="outline"
@@ -2539,6 +2589,39 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
                               </Button>
                             </>
                           )}
+                          {selectedGameLines.length > 0 && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-9 justify-center gap-2 px-2"
+                              onClick={() => setIsGameHistoryOpen(true)}
+                            >
+                              <ReceiptText className="h-4 w-4" />
+                              Game History
+                            </Button>
+                          )}
+                          {selectedCafeCharges.length > 0 && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-9 justify-center gap-2 px-2"
+                              onClick={() => setIsCafeChargesOpen(true)}
+                            >
+                              <Coffee className="h-4 w-4" />
+                              Cafe Charges
+                            </Button>
+                          )}
+                          {selectedAccessoryCharges.length > 0 && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-9 justify-center gap-2 px-2"
+                              onClick={() => setIsAccessoryChargesOpen(true)}
+                            >
+                              <Package className="h-4 w-4" />
+                              Accessories Charges
+                            </Button>
+                          )}
                         </div>
                       </>
                     )}
@@ -2569,6 +2652,9 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
                           setMessage("");
                           setPaymentSplits([]);
                           setIsEditingCustomer(false);
+                          setIsGameHistoryOpen(false);
+                          setIsCafeChargesOpen(false);
+                          setIsAccessoryChargesOpen(false);
                           if (paymentMode) {
                             navigate("/operator/billing", { replace: true });
                           }
@@ -2581,8 +2667,8 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
                 </div>
               </div>
 
-              <div className="flex-1 overflow-y-auto px-5 py-2.5 pr-7 [scrollbar-color:#cbd5e1_transparent] [scrollbar-width:thin]">
-                <section className="mb-3 rounded-lg border bg-slate-50 px-3 py-2">
+              <div className="px-5 py-4 pr-7">
+                <section className="rounded-lg border bg-slate-50 px-3 py-3">
                   <h3 className="mb-2 text-sm font-bold text-slate-900">
                     Session Time
                   </h3>
@@ -2626,7 +2712,7 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
                   </div>
                 </section>
 
-                <section className="mb-3">
+                <section className="hidden">
                   <h3 className="mb-2 font-bold">
                     Sessions
                   </h3>
@@ -2658,7 +2744,7 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
                                 Winner: {getHistoryChargeParticipantDisplayLabel({
                                   name: charge.winnerName,
                                   role: "winner",
-                                  chargeId: charge.id,
+                                  chargeId: "",
                                   sessionId: charge.sessionId,
                                   historyRecords: tableHistoryRecords,
                                 }) ?? "—"}
@@ -2674,11 +2760,11 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
                               </p>
                               <p className="mt-0.5 text-xs text-slate-500">
                                 Payer: {getHistoryChargeParticipantDisplayLabel({
-                                  name: charge.payerName,
+                                  name: selectedAccount.customerName,
                                   role: "payer",
                                   chargeId: charge.id,
                                   sessionId: charge.sessionId,
-                                  fallbackCustomerId: charge.payerCustomerId,
+                                  fallbackCustomerId: selectedAccount.id,
                                   historyRecords: tableHistoryRecords,
                                 }) ?? "—"}
                               </p>
@@ -2705,7 +2791,7 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
                   </div>
                 </section>
 
-                <section className="mb-3">
+                <section className="hidden">
                   <h3 className="mb-2 font-bold">
                     Cafe Charges
                   </h3>
@@ -2740,7 +2826,7 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
                   </div>
                 </section>
 
-                <section className="mb-1">
+                <section className="hidden">
                   <h3 className="mb-2 font-bold">
                     Accessories Charges
                   </h3>
@@ -3031,36 +3117,38 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
                     }
                   />
 
-                  <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
-                    <label
-                      className="text-sm font-semibold text-amber-900"
-                      htmlFor="partial-credit-received-amount"
-                    >
-                      Amount Received for Part Payment
-                    </label>
-                    <Input
-                      id="partial-credit-received-amount"
-                      className="mt-1 bg-white"
-                      type="number"
-                      min={0}
-                      max={Math.max(
-                        0,
-                        (selectedTotals?.grandTotal ?? 0) - 1
-                      )}
-                      value={
-                        partialReceivedAmount === 0
-                          ? ""
-                          : partialReceivedAmount
-                      }
-                      onChange={(event) =>
-                        setPartialReceivedAmount(event.target.value)
-                      }
-                      placeholder="Enter amount before Pay Part & Credit Rest"
-                    />
-                    <p className="mt-1 text-xs text-amber-800">
-                      Use this only when the customer pays some amount and the remaining bill goes to credit.
-                    </p>
-                  </div>
+                  {showPartialPaymentAmount && (
+                    <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                      <label
+                        className="text-sm font-semibold text-amber-900"
+                        htmlFor="partial-credit-received-amount"
+                      >
+                        Amount Received for Part Payment
+                      </label>
+                      <Input
+                        id="partial-credit-received-amount"
+                        className="mt-1 bg-white"
+                        type="number"
+                        min={0}
+                        max={Math.max(
+                          0,
+                          (selectedTotals?.grandTotal ?? 0) - 1
+                        )}
+                        value={
+                          partialReceivedAmount === 0
+                            ? ""
+                            : partialReceivedAmount
+                        }
+                        onChange={(event) =>
+                          setPartialReceivedAmount(event.target.value)
+                        }
+                        placeholder="Enter amount before Pay Part & Credit Rest"
+                      />
+                      <p className="mt-1 text-xs text-amber-800">
+                        Use this only when the customer pays some amount and the remaining bill goes to credit.
+                      </p>
+                    </div>
+                  )}
 
                   <Button
                     className="mt-2 w-full gap-2"
@@ -3118,6 +3206,190 @@ function CustomerBillsPage({ paymentMode = false }: { paymentMode?: boolean }) {
             </div>
           )}
         </div>
+
+        {isGameHistoryOpen && selectedAccount && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 px-4">
+            <Card className="flex max-h-[86vh] w-full max-w-2xl flex-col overflow-hidden p-0">
+              <div className="flex items-start justify-between gap-4 border-b px-5 py-4">
+                <div>
+                  <h2 className="text-xl font-bold text-slate-950">
+                    Game History
+                  </h2>
+                  <p className="text-sm text-slate-500">
+                    {getBillPrimaryLabel(selectedAccount)}
+                  </p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-9 w-9 p-0"
+                  onClick={() => setIsGameHistoryOpen(false)}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+
+              <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-5 py-4 [scrollbar-color:#cbd5e1_transparent] [scrollbar-width:thin]">
+                {selectedSortedGameLines.map((charge, index) => (
+                  <div
+                    key={charge.id}
+                    className="rounded-lg border bg-white px-3 py-2 shadow-sm"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-semibold text-slate-950">
+                          {charge.sessionType === "time"
+                            ? "Time Charge"
+                            : `Game ${index + 1} - ${getChargeTypeLabel(charge.sessionType)}`}
+                        </p>
+                        <p className="mt-0.5 text-xs text-slate-500">
+                          {formatChargeTimeRange(
+                            charge.startedAt,
+                            charge.endedAt,
+                            selectedGameLines[0]?.startedAt
+                          )}{" "}
+                          - {formatChargeDuration(charge.startedAt, charge.endedAt)}
+                        </p>
+                        <p className="mt-0.5 text-xs font-medium text-slate-600">
+                          Winner: {getHistoryChargeParticipantDisplayLabel({
+                            name: charge.winnerName,
+                            role: "winner",
+                            chargeId: "",
+                            sessionId: charge.sessionId,
+                            historyRecords: tableHistoryRecords,
+                          }) ?? "-"}
+                        </p>
+                        <p className="mt-0.5 text-xs font-medium text-slate-600">
+                          Loser: {getHistoryChargeParticipantDisplayLabel({
+                            name: charge.loserName,
+                            role: "loser",
+                            chargeId: charge.id,
+                            sessionId: charge.sessionId,
+                            historyRecords: tableHistoryRecords,
+                          }) ?? "-"}
+                        </p>
+                        <p className="mt-0.5 text-xs text-slate-500">
+                          Payer: {getHistoryChargeParticipantDisplayLabel({
+                            name: selectedAccount.customerName,
+                            role: "payer",
+                            chargeId: charge.id,
+                            sessionId: charge.sessionId,
+                            fallbackCustomerId: selectedAccount.id,
+                            historyRecords: tableHistoryRecords,
+                          }) ?? "-"}
+                        </p>
+                        {charge.isFinal && (
+                          <span className="mt-1 inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700 ring-1 ring-amber-200">
+                            Final {charge.finalGames ?? 1}
+                          </span>
+                        )}
+                      </div>
+                      <p className="shrink-0 font-bold text-slate-950">
+                        {formatCurrency(charge.amount)}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+
+                {selectedSortedGameLines.length === 0 && (
+                  <p className="rounded-lg border bg-slate-50 px-3 py-8 text-center text-sm text-slate-500">
+                    No game charges.
+                  </p>
+                )}
+              </div>
+            </Card>
+          </div>
+        )}
+
+        {isCafeChargesOpen && selectedAccount && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 px-4">
+            <Card className="flex max-h-[86vh] w-full max-w-xl flex-col overflow-hidden p-0">
+              <div className="flex items-start justify-between gap-4 border-b px-5 py-4">
+                <div>
+                  <h2 className="text-xl font-bold text-slate-950">
+                    Cafe Charges
+                  </h2>
+                  <p className="text-sm text-slate-500">
+                    {getBillPrimaryLabel(selectedAccount)}
+                  </p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-9 w-9 p-0"
+                  onClick={() => setIsCafeChargesOpen(false)}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+
+              <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-5 py-4 [scrollbar-color:#cbd5e1_transparent] [scrollbar-width:thin]">
+                {selectedCafeCharges.map((charge) => (
+                  <div
+                    key={charge.id}
+                    className="flex justify-between gap-3 rounded-lg border bg-slate-50 px-3 py-2"
+                  >
+                    <div>
+                      <p className="font-semibold">{charge.name}</p>
+                      <p className="text-xs text-slate-500">
+                        {charge.quantity} x {formatCurrency(charge.price)}
+                      </p>
+                    </div>
+                    <p className="font-bold">
+                      {formatCurrency(charge.subtotal)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          </div>
+        )}
+
+        {isAccessoryChargesOpen && selectedAccount && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 px-4">
+            <Card className="flex max-h-[86vh] w-full max-w-xl flex-col overflow-hidden p-0">
+              <div className="flex items-start justify-between gap-4 border-b px-5 py-4">
+                <div>
+                  <h2 className="text-xl font-bold text-slate-950">
+                    Accessories Charges
+                  </h2>
+                  <p className="text-sm text-slate-500">
+                    {getBillPrimaryLabel(selectedAccount)}
+                  </p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-9 w-9 p-0"
+                  onClick={() => setIsAccessoryChargesOpen(false)}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+
+              <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-5 py-4 [scrollbar-color:#cbd5e1_transparent] [scrollbar-width:thin]">
+                {selectedAccessoryCharges.map((charge) => (
+                  <div
+                    key={charge.id}
+                    className="flex justify-between gap-3 rounded-lg border bg-indigo-50 px-3 py-2"
+                  >
+                    <div>
+                      <p className="font-semibold">
+                        {charge.name.replace("[Accessory]", "").trim()}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        {charge.quantity} x {formatCurrency(charge.price)}
+                      </p>
+                    </div>
+                    <p className="font-bold">
+                      {formatCurrency(charge.subtotal)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          </div>
+        )}
 
         {isCreditDialogOpen &&
           selectedAccount &&

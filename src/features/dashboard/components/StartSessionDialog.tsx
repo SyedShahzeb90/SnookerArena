@@ -71,7 +71,7 @@ function StartSessionDialog({
       open={open}
       onOpenChange={onOpenChange}
     >
-      <DialogContent className="flex max-h-[calc(100vh-5rem)] w-[min(92vw,480px)] flex-col overflow-hidden sm:max-w-md">
+      <DialogContent className="flex max-h-[calc(100vh-3rem)] w-[min(94vw,680px)] flex-col overflow-hidden sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>
             Start Session - {table.name}
@@ -145,6 +145,8 @@ function StartSessionDialog({
                 data.teamAOneNameEnough,
               teamBOneNameEnough:
                 data.teamBOneNameEnough,
+              centuryTeamSize:
+                data.centuryTeamSize,
               sessionType: data.sessionType,
               startTime: data.startTime,
               endTime: data.endTime,

@@ -5,12 +5,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useCustomerAccountStore } from "@/features/customers/store/customerAccountStore";
 import { useAdvanceGamesStore } from "@/features/advance-games/store/advanceGamesStore";
+import { useOutsidePurchaseStore } from "@/features/outside-purchases/store/outsidePurchaseStore";
 import {
   formatOpenCustomerOption,
   getBillPrimaryLabel,
 } from "@/features/customers/utils/billDisplay";
 import { isWalkInName } from "@/features/sessions/utils/walkInLabel";
 import { useClubSettingsStore } from "@/features/settings/store/clubSettingsStore";
+import { useTableStore } from "@/store/tableStore";
 
 import type {
   Session,
@@ -18,6 +20,7 @@ import type {
 } from "@/types/session";
 import type { Table } from "@/types/table";
 import type { CustomerAccount } from "@/features/customers/types/customerAccount";
+import type { OutsidePurchase } from "@/features/outside-purchases/types/outsidePurchase";
 
 type CustomerEntryMode = "quick" | "existing";
 
@@ -52,6 +55,7 @@ interface Props {
     extraPlayerModes: CustomerEntryMode[];
     teamAOneNameEnough: boolean;
     teamBOneNameEnough: boolean;
+    centuryTeamSize?: 2 | 3 | 4;
     sessionType: SessionType;
     startTime: Date;
     endTime?: Date;
@@ -108,6 +112,86 @@ function dedupeActiveCustomers(
   });
 }
 
+function getOutstandingOutsidePurchases(
+  account: CustomerAccount,
+  outsidePurchases: OutsidePurchase[]
+) {
+  return outsidePurchases.filter(
+    (purchase) =>
+      purchase.status !== "cancelled" &&
+      purchase.status !== "reimbursed" &&
+      purchase.outstandingAmount > 0 &&
+      (purchase.customerAccountId === account.id ||
+        purchase.customerId === account.id)
+  );
+}
+
+function getCurrentBillTotal(
+  account: CustomerAccount,
+  outsidePurchases: OutsidePurchase[]
+) {
+  const seenCafeCharges = new Set<string>();
+  const cafeTotal = account.cafeCharges.reduce((total, charge) => {
+    if (charge.name.startsWith("[Accessory]")) return total;
+
+    const key = [
+      charge.itemId,
+      charge.quantity,
+      charge.price,
+      charge.subtotal,
+      charge.sessionId ?? "",
+      charge.tableId ?? "",
+      charge.orderedAt ?? charge.createdAt,
+    ].join("|");
+
+    if (seenCafeCharges.has(key)) return total;
+    seenCafeCharges.add(key);
+    return total + charge.subtotal;
+  }, 0);
+  const accessoryTotal = [
+    ...(account.accessoryCharges ?? []),
+    ...account.cafeCharges.filter((charge) =>
+      charge.name.startsWith("[Accessory]")
+    ),
+  ].reduce((total, charge) => total + charge.subtotal, 0);
+  const outsidePurchaseTotal =
+    getOutstandingOutsidePurchases(
+      account,
+      outsidePurchases
+    ).reduce(
+      (total, purchase) =>
+        total + purchase.outstandingAmount,
+      0
+    );
+
+  return Math.max(
+    0,
+    account.totalGameAmount +
+      cafeTotal +
+      accessoryTotal -
+      Math.min(
+        account.discount,
+        account.totalGameAmount + cafeTotal
+      ) +
+      outsidePurchaseTotal
+  );
+}
+
+function accountMatchesSession(
+  account: CustomerAccount,
+  session: NonNullable<Table["session"]>
+) {
+  const customerIds = [
+    session.player1CustomerId,
+    session.player2CustomerId,
+    session.player3CustomerId,
+    session.player4CustomerId,
+    ...(session.extraPlayerCustomerIds ?? []),
+  ].filter(Boolean);
+
+  return customerIds.includes(account.id);
+}
+
 function SessionForm({
   tableId,
   tableType,
@@ -157,6 +241,8 @@ function SessionForm({
     useState(false);
   const [teamBOneName, setTeamBOneName] =
     useState(false);
+  const [centuryTeamSize, setCenturyTeamSize] =
+    useState<2 | 3 | 4>(2);
 
   const [sessionType, setSessionType] =
     useState<SessionType>(
@@ -197,6 +283,12 @@ function SessionForm({
   const customersInClub = useAdvanceGamesStore(
     (state) => state.customersInClub ?? {}
   );
+  const outsidePurchases = useOutsidePurchaseStore(
+    (state) => state.purchases
+  );
+  const tables = useTableStore(
+    (state) => state.tables
+  );
   const safeAdvanceTransactions = Array.isArray(advanceTransactions)
     ? advanceTransactions
     : [];
@@ -216,15 +308,44 @@ function SessionForm({
       const hasOpenCharges =
         account.status === "active" &&
         account.paymentStatus === "unpaid" &&
-        account.grandTotal > 0 &&
+        getCurrentBillTotal(
+          account,
+          outsidePurchases
+        ) > 0 &&
         (account.gameCharges.length > 0 ||
           account.cafeCharges.length > 0 ||
-          (account.accessoryCharges ?? []).length > 0);
+          (account.accessoryCharges ?? []).length > 0 ||
+          getOutstandingOutsidePurchases(
+            account,
+            outsidePurchases
+          ).length > 0);
+      const sessionIds = new Set(
+        [
+          ...account.gameCharges,
+          ...account.cafeCharges,
+          ...(account.accessoryCharges ?? []),
+        ]
+          .map((charge) => charge.sessionId)
+          .filter(Boolean)
+      );
+      const hasRunningSession = tables.some(
+        (table) =>
+          table.session &&
+          (table.status === "running" ||
+            table.status === "paused") &&
+          (sessionIds.has(table.session.id) ||
+            accountMatchesSession(
+              account,
+              table.session
+            ))
+      );
       const hasAvailableAdvanceGames =
         getAdvanceBalance(account.id) > 0;
 
-      return hasOpenCharges ||
-        sessionCustomerIds.has(account.id) ||
+      return (hasOpenCharges && !hasRunningSession) ||
+        (sessionCustomerIds.has(account.id) &&
+          account.status === "active" &&
+          account.paymentStatus === "unpaid") ||
         (hasAvailableAdvanceGames && customersInClub[account.id] === true);
     })
   );
@@ -351,7 +472,11 @@ function SessionForm({
                   value={customer.id}
                 >
                   {formatOpenCustomerOption(
-                    customer
+                    customer,
+                    getCurrentBillTotal(
+                      customer,
+                      outsidePurchases
+                    )
                   )} - {getAdvanceBalance(customer.id) > 0 ? `${getAdvanceBalance(customer.id)} advance games` : "No advance games"}
                 </option>
               ))}
@@ -381,7 +506,10 @@ function SessionForm({
                   </p>
                   <p>
                     Current unpaid amount: Rs.{" "}
-                    {selectedCustomer.grandTotal}
+                    {getCurrentBillTotal(
+                      selectedCustomer,
+                      outsidePurchases
+                    )}
                   </p>
                   {getAdvanceBalance(selectedCustomer.id) > 0 && (
                     <p className="font-medium">
@@ -545,11 +673,14 @@ function SessionForm({
         session.teamBOneNameEnough ??
           !session.player4
       );
+      setCenturyTeamSize(session.centuryTeamSize ?? 2);
 
       const currentLine =
         session.tableChargeLines?.at(-1);
       setSessionType(
-        currentLine?.type === "doubleGame"
+        session.sessionType === "century"
+          ? "century"
+          : currentLine?.type === "doubleGame"
           ? "double"
           : currentLine?.type === "singleGame"
             ? "single"
@@ -593,6 +724,7 @@ function SessionForm({
       setExtraPlayerModes([]);
       setTeamAOneName(false);
       setTeamBOneName(false);
+      setCenturyTeamSize(2);
 
       setSessionType(
         tableType === "private-room"
@@ -613,8 +745,9 @@ function SessionForm({
     }
   }, [session, tableType, customerAccounts]);
 
-  const isDouble =
-    sessionType === "double";
+  const isTeamCentury = sessionType === "century";
+  const isDouble = sessionType === "double";
+  const isTeamSession = isDouble || isTeamCentury;
   const isPrivateRoom =
     tableType === "private-room";
   const isBooking =
@@ -629,7 +762,7 @@ function SessionForm({
     !isPrivateRoom ? player2.trim() : "",
   ].filter(Boolean);
   const doubleManualLoserOptions =
-    isDouble
+    isTeamSession
       ? [
           { value: "A", label: "Team A lost" },
           { value: "B", label: "Team B lost" },
@@ -640,7 +773,7 @@ function SessionForm({
       ? `Price: Rs. ${settings.singleGameRate.toLocaleString()} fixed`
       : sessionType === "double"
         ? `Price: Rs. ${settings.doubleGameRate.toLocaleString()} fixed`
-        : sessionType === "time"
+      : sessionType === "time" || sessionType === "century"
           ? `Booking Rate: Rs. ${(settings.tableBookingRatePerMinute * 60).toLocaleString()}/hour or Rs. ${settings.tableBookingRatePerMinute.toLocaleString()}/min`
           : "Booking Rate: Rs. 1500/hour or Rs. 25/min";
 
@@ -648,11 +781,30 @@ function SessionForm({
     index: number,
     value: string
   ) => {
-    setExtraPlayers((current) =>
-      current.map((name, currentIndex) =>
-        currentIndex === index ? value : name
-      )
-    );
+    setExtraPlayers((current) => {
+      const next = [...current];
+      while (next.length <= index) next.push("");
+      next[index] = value;
+      return next;
+    });
+  };
+
+  const updateExtraPlayerCustomerId = (index: number, value: string) => {
+    setExtraPlayerCustomerIds((current) => {
+      const next = [...current];
+      while (next.length <= index) next.push("");
+      next[index] = value;
+      return next;
+    });
+  };
+
+  const updateExtraPlayerMode = (index: number, value: CustomerEntryMode) => {
+    setExtraPlayerModes((current) => {
+      const next = [...current];
+      while (next.length <= index) next.push("quick");
+      next[index] = value;
+      return next;
+    });
   };
 
   const removeExtraPlayer = (index: number) => {
@@ -708,6 +860,20 @@ function SessionForm({
 
         const parsedFinalGames = Number(finalValue);
         if (
+          isTeamCentury &&
+          [
+            player1,
+            player2,
+            player3,
+            player4,
+            ...extraPlayers.slice(0, (centuryTeamSize - 2) * 2),
+          ]
+            .some((name) => !name?.trim())
+        ) {
+          setTimeError(`Please enter all ${centuryTeamSize} players for both teams.`);
+          return;
+        }
+        if (
           showFinalInput &&
           finalEnabled &&
           (!Number.isInteger(parsedFinalGames) || parsedFinalGames < 1)
@@ -723,7 +889,7 @@ function SessionForm({
         let losingTeam: "A" | "B" | undefined;
 
         if (parsedEndTime && manualEndRequiresLoser) {
-          if (isDouble) {
+          if (isTeamSession) {
             if (manualLoser !== "A" && manualLoser !== "B") {
               setTimeError(
                 "Please choose which team lost."
@@ -733,11 +899,21 @@ function SessionForm({
 
             const teamA = [
               player1.trim(),
-              isDouble && !teamAOneName ? player2.trim() : "",
+              isTeamSession && !teamAOneName ? player2.trim() : "",
+              ...(isTeamCentury
+                ? extraPlayers
+                    .slice(0, centuryTeamSize - 2)
+                    .map((name) => name.trim())
+                : []),
             ].filter(Boolean);
             const teamB = [
               player3.trim(),
-              isDouble && !teamBOneName ? player4.trim() : "",
+              isTeamSession && !teamBOneName ? player4.trim() : "",
+              ...(isTeamCentury
+                ? extraPlayers
+                    .slice(centuryTeamSize - 2)
+                    .map((name) => name.trim())
+                : []),
             ].filter(Boolean);
             const losingTeamPlayers =
               manualLoser === "A" ? teamA : teamB;
@@ -777,7 +953,7 @@ function SessionForm({
         }
 
         const normalizedExtraPlayers =
-          isBooking
+          isBooking || isTeamCentury
             ? extraPlayers
                 .map((name, index) => ({
                   name: name.trim(),
@@ -802,28 +978,28 @@ function SessionForm({
             isBooking
               ? ""
               :
-            isDouble && teamAOneName
+            isTeamSession && teamAOneName
               ? ""
               : player2.trim(),
           player2CustomerId:
             isBooking ||
-            (isDouble && teamAOneName)
+            (isTeamSession && teamAOneName)
               ? undefined
               : player2CustomerId || undefined,
           player2Mode,
-          player3: isDouble
+          player3: isTeamSession
             ? player3.trim()
             : "",
-          player3CustomerId: isDouble
+          player3CustomerId: isTeamSession
             ? player3CustomerId || undefined
             : undefined,
           player3Mode,
           player4:
-            isDouble && !teamBOneName
+            isTeamSession && !teamBOneName
               ? player4.trim()
               : "",
           player4CustomerId:
-            isDouble && !teamBOneName
+            isTeamSession && !teamBOneName
               ? player4CustomerId || undefined
               : undefined,
           player4Mode,
@@ -840,9 +1016,11 @@ function SessionForm({
               (entry) => entry.mode
             ),
           teamAOneNameEnough:
-            isDouble && teamAOneName,
+            isTeamSession && teamAOneName,
           teamBOneNameEnough:
-            isDouble && teamBOneName,
+            isTeamSession && teamBOneName,
+          centuryTeamSize:
+            isTeamCentury ? centuryTeamSize : undefined,
           sessionType,
           startTime: parsedStartTime,
           endTime: parsedEndTime,
@@ -885,6 +1063,10 @@ function SessionForm({
                 Double Game
               </option>
 
+              <option value="century">
+                Team Century
+              </option>
+
               <option value="time">
                 Table Booking
               </option>
@@ -901,12 +1083,32 @@ function SessionForm({
         </p>
       </div>
 
-      {isDouble ? (
+      {isTeamSession ? (
         <div className="grid gap-3">
+          {isTeamCentury && (
+            <div className="rounded-lg border p-3">
+              <Label>Players Per Team</Label>
+              <select
+                className="mt-2 w-full rounded-md border p-2"
+                value={centuryTeamSize}
+                onChange={(event) => {
+                  const size = Number(event.target.value) as 2 | 3 | 4;
+                  setCenturyTeamSize(size);
+                  setExtraPlayers([]);
+                  setExtraPlayerCustomerIds([]);
+                  setExtraPlayerModes([]);
+                }}
+              >
+                <option value={2}>2 vs 2 (4 players)</option>
+                <option value={3}>3 vs 3 (6 players)</option>
+                <option value={4}>4 vs 4 (8 players)</option>
+              </select>
+            </div>
+          )}
           <div className="rounded-lg border p-2.5">
             <div className="mb-2 flex items-center justify-between gap-3">
-              <Label>Team A</Label>
-              <label className="flex items-center gap-2 text-sm text-slate-600">
+              <Label>{isTeamCentury ? "Team 1" : "Team A"}</Label>
+              {!isTeamCentury && <label className="flex items-center gap-2 text-sm text-slate-600">
                 <input
                   type="checkbox"
                   className="h-4 w-4"
@@ -923,7 +1125,7 @@ function SessionForm({
                   }}
                 />
                 One name is enough
-              </label>
+              </label>}
             </div>
 
             <div className="grid gap-2">
@@ -952,13 +1154,27 @@ function SessionForm({
                   false
                 )
               )}
+              {isTeamCentury && Array.from(
+                { length: centuryTeamSize - 2 },
+                (_, extraIndex) => renderCustomerEntry(
+                  `Team 1 Player ${extraIndex + 3}`,
+                  "Type name or select an existing customer",
+                  extraPlayers[extraIndex] ?? "",
+                  (value) => updateExtraPlayer(extraIndex, value),
+                  extraPlayerCustomerIds[extraIndex] ?? "",
+                  (value) => updateExtraPlayerCustomerId(extraIndex, value),
+                  extraPlayerModes[extraIndex] ?? "quick",
+                  (value) => updateExtraPlayerMode(extraIndex, value),
+                  false
+                )
+              )}
             </div>
           </div>
 
           <div className="rounded-lg border p-2.5">
             <div className="mb-2 flex items-center justify-between gap-3">
-              <Label>Team B</Label>
-              <label className="flex items-center gap-2 text-sm text-slate-600">
+              <Label>{isTeamCentury ? "Team 2" : "Team B"}</Label>
+              {!isTeamCentury && <label className="flex items-center gap-2 text-sm text-slate-600">
                 <input
                   type="checkbox"
                   className="h-4 w-4"
@@ -975,7 +1191,7 @@ function SessionForm({
                   }}
                 />
                 One name is enough
-              </label>
+              </label>}
             </div>
 
             <div className="grid gap-2">
@@ -1004,13 +1220,31 @@ function SessionForm({
                   false
                 )
               )}
+              {isTeamCentury && Array.from(
+                { length: centuryTeamSize - 2 },
+                (_, extraIndex) => {
+                  const index = centuryTeamSize - 2 + extraIndex;
+                  return renderCustomerEntry(
+                    `Team 2 Player ${extraIndex + 3}`,
+                    "Type name or select an existing customer",
+                    extraPlayers[index] ?? "",
+                    (value) => updateExtraPlayer(index, value),
+                    extraPlayerCustomerIds[index] ?? "",
+                    (value) => updateExtraPlayerCustomerId(index, value),
+                    extraPlayerModes[index] ?? "quick",
+                    (value) => updateExtraPlayerMode(index, value),
+                    false
+                  );
+                }
+              )}
             </div>
           </div>
+
         </div>
       ) : isBooking ? (
         <div className="space-y-3 rounded-lg border p-3">
           {renderCustomerEntry(
-            "Main Customer",
+            "Player 1",
             "Type name or leave blank for walk-in",
             player1,
             setPlayer1,
@@ -1027,7 +1261,7 @@ function SessionForm({
             >
               <div className="flex items-center justify-between gap-3">
                 <Label>
-                  Extra Player {index + 1}
+                  Player {index + 2}
                 </Label>
                 <Button
                   type="button"
@@ -1231,7 +1465,7 @@ function SessionForm({
                 </p>
               </div>
 
-              {manualEndRequiresLoser && !isDouble && (
+              {manualEndRequiresLoser && !isTeamSession && (
                 <div>
                   <Label>Who lost?</Label>
                   <select
@@ -1260,7 +1494,7 @@ function SessionForm({
                 </div>
               )}
 
-              {manualEndRequiresLoser && isDouble && (
+              {manualEndRequiresLoser && isTeamSession && (
                 <div>
                   <Label>Who lost?</Label>
                   <select

@@ -213,7 +213,10 @@ export function getBillSearchText(account: CustomerAccount) {
     .toLowerCase();
 }
 
-export function formatOpenCustomerOption(account: CustomerAccount) {
+export function formatOpenCustomerOption(
+  account: CustomerAccount,
+  unpaidAmount = account.grandTotal
+) {
   const customerName = isWalkInName(account.customerName)
     ? "Walk-in Customer"
     : account.customerName;
@@ -222,7 +225,7 @@ export function formatOpenCustomerOption(account: CustomerAccount) {
     getBillPrimaryLabel(account),
     customerName,
     account.customerNote?.trim(),
-    `Rs. ${account.grandTotal} unpaid`,
+    `Rs. ${unpaidAmount} unpaid`,
   ]
     .filter(Boolean)
     .filter(

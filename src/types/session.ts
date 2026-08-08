@@ -1,6 +1,7 @@
 export type SessionType =
   | "single"
   | "double"
+  | "century"
   | "time"
   | "private";
 
@@ -124,6 +125,9 @@ export interface Session {
   teamABillOwnerName?: string;
   teamBBillOwnerCustomerId?: string;
   teamBBillOwnerName?: string;
+
+  cafeBillingMode?: "losing-team" | "individual";
+  centuryTeamSize?: 2 | 3 | 4;
 
   settlementProcessedAt?: string;
   settlementId?: string;

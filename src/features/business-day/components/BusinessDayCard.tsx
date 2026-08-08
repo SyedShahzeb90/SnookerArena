@@ -188,6 +188,8 @@ function BusinessDayCard() {
     useState("");
   const [openingCash, setOpeningCash] =
     useState("");
+  const [usesPresetOpeningCash, setUsesPresetOpeningCash] =
+    useState(false);
   const [openingNotes, setOpeningNotes] =
     useState("");
   const [actualCash, setActualCash] =
@@ -235,9 +237,17 @@ function BusinessDayCard() {
     [activeDay, sales, summary?.cafeSales]
   );
   const openStart = (prefill?: number) => {
+    const presetOpeningCash =
+      prefill ?? lastClosedDay?.cashLeftForStaff;
+
     setOperatorId(activeOperators[0]?.id ?? "");
+    setUsesPresetOpeningCash(
+      presetOpeningCash !== undefined
+    );
     setOpeningCash(
-      prefill !== undefined ? String(prefill) : ""
+      presetOpeningCash !== undefined
+        ? String(presetOpeningCash)
+        : ""
     );
     setOpeningNotes("");
     setError("");
@@ -669,22 +679,24 @@ function BusinessDayCard() {
                 </p>
               )}
             </div>
-            <div>
-              <Label htmlFor="start-day-opening-cash">Opening Cash</Label>
-              <Input
-                id="start-day-opening-cash"
-                name="start-day-opening-cash"
-                type="number"
-                min="0"
-                autoComplete="off"
-                value={openingCash}
-                onChange={(event) =>
-                  setOpeningCash(
-                    event.target.value
-                  )
-                }
-              />
-            </div>
+            {!usesPresetOpeningCash && (
+              <div>
+                <Label htmlFor="start-day-opening-cash">Opening Cash</Label>
+                <Input
+                  id="start-day-opening-cash"
+                  name="start-day-opening-cash"
+                  type="number"
+                  min="0"
+                  autoComplete="off"
+                  value={openingCash}
+                  onChange={(event) =>
+                    setOpeningCash(
+                      event.target.value
+                    )
+                  }
+                />
+              </div>
+            )}
             <div>
               <Label htmlFor="start-day-opening-notes">Opening Notes</Label>
               <Textarea
@@ -971,6 +983,12 @@ export function CashPositionSummaryCard() {
             <span className="text-slate-500">Outside Cash Paid</span>
             <strong className="whitespace-nowrap tabular-nums text-red-700">
               -{money(summary?.outsidePurchasesPaidFromDrawer ?? 0)}
+            </strong>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-red-700">Expenses</span>
+            <strong className="whitespace-nowrap tabular-nums text-red-700">
+              -{money(summary?.cashExpenses ?? 0)}
             </strong>
           </div>
         </div>

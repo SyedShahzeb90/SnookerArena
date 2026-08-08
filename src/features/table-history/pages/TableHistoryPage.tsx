@@ -148,6 +148,14 @@ function getRecordChargeLines(
   );
 }
 
+function getChargeLineActivityCount(line: TableChargeLine) {
+  if (line.type === "singleGame" || line.type === "doubleGame") {
+    return Math.max(1, line.finalGames ?? 1);
+  }
+
+  return 1;
+}
+
 function getDisplayRows(
   record: TableHistoryRecord
 ): HistoryDisplayRow[] {
@@ -155,8 +163,16 @@ function getDisplayRows(
   const labelCounts = new Map<string, number>();
 
   lines.forEach((line) => {
-    const label = getChargeLineTypeLabel(line, record);
-    labelCounts.set(label, (labelCounts.get(label) ?? 0) + 1);
+    const label =
+      line.type === "singleGame"
+        ? "Single Game"
+        : line.type === "doubleGame"
+          ? "Double Game"
+          : getChargeLineTypeLabel(line, record);
+    labelCounts.set(
+      label,
+      (labelCounts.get(label) ?? 0) + getChargeLineActivityCount(line)
+    );
   });
 
   const typeLabel = lines.length
@@ -189,10 +205,16 @@ function getRecordActivityCounts(
     return {
       singleGames: lines.filter(
         (line) => line.type === "singleGame"
-      ).length,
+      ).reduce(
+        (total, line) => total + getChargeLineActivityCount(line),
+        0
+      ),
       doubleGames: lines.filter(
         (line) => line.type === "doubleGame"
-      ).length,
+      ).reduce(
+        (total, line) => total + getChargeLineActivityCount(line),
+        0
+      ),
       bookings: lines.filter(
         (line) => line.type === "tableBooking"
       ).length,
@@ -336,16 +358,23 @@ function getDaySheetName(record: TableHistoryRecord) {
 }
 
 function getDaySheetFrameLabel(record: TableHistoryRecord) {
-  if (record.sessionType === "double") return "Double";
-  if (
-    record.sessionType === "time" ||
-    record.sessionType === "private" ||
-    record.tableType === "private-room"
-  ) {
-    return "Booking";
-  }
+  const counts = getRecordActivityCounts(record);
+  const labels = [
+    counts.singleGames > 0
+      ? `Single${counts.singleGames > 1 ? ` x${counts.singleGames}` : ""}`
+      : "",
+    counts.doubleGames > 0
+      ? `Double${counts.doubleGames > 1 ? ` x${counts.doubleGames}` : ""}`
+      : "",
+    counts.bookings > 0 ? "Booking" : "",
+  ].filter(Boolean);
 
-  return "Single";
+  return labels.join(" + ") || "Session";
+}
+
+function getRecordActivityTotal(record: TableHistoryRecord) {
+  const counts = getRecordActivityCounts(record);
+  return counts.singleGames + counts.doubleGames + counts.bookings;
 }
 
 function getRecordStatusClass(status: string) {
@@ -632,24 +661,9 @@ function TableHistoryPage() {
         (totals, record) => {
           const chargeLines =
             getRecordChargeLines(record);
-          const singleGames =
-            chargeLines.length > 0
-              ? chargeLines.filter(
-                  (line) =>
-                    line.type === "singleGame"
-                ).length
-              : record.sessionType === "single"
-                ? 1
-                : 0;
-          const doubleGames =
-            chargeLines.length > 0
-              ? chargeLines.filter(
-                  (line) =>
-                    line.type === "doubleGame"
-                ).length
-              : record.sessionType === "double"
-                ? 1
-                : 0;
+          const activityCounts = getRecordActivityCounts(record);
+          const singleGames = activityCounts.singleGames;
+          const doubleGames = activityCounts.doubleGames;
           const bookingRows =
             chargeLines.length > 0
               ? chargeLines.filter(
@@ -806,13 +820,26 @@ function TableHistoryPage() {
   const daySheetSummary = useMemo(() => {
     const mostUsedTable = [...daySheetTables].sort(
       (a, b) =>
-        b.validSessions.length - a.validSessions.length ||
+        b.validSessions.reduce(
+          (total, record) => total + getRecordActivityTotal(record),
+          0
+        ) -
+          a.validSessions.reduce(
+            (total, record) => total + getRecordActivityTotal(record),
+            0
+          ) ||
         b.revenue - a.revenue
     )[0];
 
     return {
       totalGames: daySheetTables.reduce(
-        (total, table) => total + table.validSessions.length,
+        (total, table) =>
+          total +
+          table.validSessions.reduce(
+            (tableTotal, record) =>
+              tableTotal + getRecordActivityTotal(record),
+            0
+          ),
         0
       ),
       totalRevenue: daySheetTables.reduce(
@@ -856,25 +883,13 @@ function TableHistoryPage() {
         bookings: 0,
         amount: 0,
       };
-      const lines = getRecordChargeLines(record);
+      const activityCounts = getRecordActivityCounts(record);
 
       current.sessions += 1;
       current.amount += record.tableAmount;
-      current.singleGames += lines.length
-        ? lines.filter((line) => line.type === "singleGame").length
-        : record.sessionType === "single"
-          ? 1
-          : 0;
-      current.doubleGames += lines.length
-        ? lines.filter((line) => line.type === "doubleGame").length
-        : record.sessionType === "double"
-          ? 1
-          : 0;
-      current.bookings += lines.length
-        ? lines.filter((line) => line.type === "tableBooking").length
-        : record.sessionType === "time" || record.sessionType === "private"
-          ? 1
-          : 0;
+      current.singleGames += activityCounts.singleGames;
+      current.doubleGames += activityCounts.doubleGames;
+      current.bookings += activityCounts.bookings;
       earnings.set(record.tableId, current);
     });
 
@@ -1277,7 +1292,11 @@ function TableHistoryPage() {
                           {table.tableName}
                         </h2>
                         <p className="mt-1 text-2xl font-black leading-7 tabular-nums text-slate-950">
-                          {table.validSessions.length} Games
+                          {table.validSessions.reduce(
+                            (total, record) =>
+                              total + getRecordActivityTotal(record),
+                            0
+                          )} Games
                         </p>
                         <p className="mt-0.5 text-base font-extrabold tabular-nums text-slate-900">
                           {formatCurrency(table.revenue)}
@@ -1811,7 +1830,21 @@ function TableHistoryPage() {
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1180px] text-left text-sm">
+            <table className="w-full min-w-[1240px] table-fixed text-left text-sm">
+              <colgroup>
+                <col className="w-[110px]" />
+                <col className="w-[90px]" />
+                <col className="w-[90px]" />
+                <col className="w-[85px]" />
+                <col className="w-[80px]" />
+                <col className="w-[100px]" />
+                <col className="w-[150px]" />
+                <col className="w-[190px]" />
+                <col className="w-[100px]" />
+                <col className="w-[140px]" />
+                <col className="w-[80px]" />
+                <col className="w-[85px]" />
+              </colgroup>
               <thead className="sticky top-0 z-10 bg-slate-50 text-xs uppercase text-slate-500">
                 <tr>
                   <th className="px-4 py-3">Date</th>
@@ -1852,14 +1885,20 @@ function TableHistoryPage() {
                     <td className="px-4 py-3 font-medium">
                       {row.record.tableName}
                     </td>
-                    <td className="px-4 py-3">
-                      {getRecordOperator(row.record)}
+                    <td className="overflow-hidden px-4 py-3">
+                      <span className="block truncate" title={getRecordOperator(row.record)}>
+                        {getRecordOperator(row.record)}
+                      </span>
                     </td>
-                    <td className="px-4 py-3">
-                      {getRecordCustomer(row.record)}
+                    <td className="overflow-hidden px-4 py-3">
+                      <span className="block truncate" title={getRecordCustomer(row.record)}>
+                        {getRecordCustomer(row.record)}
+                      </span>
                     </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      {row.typeLabel}
+                    <td className="overflow-hidden px-4 py-3">
+                      <span className="block truncate whitespace-nowrap" title={row.typeLabel}>
+                        {row.typeLabel}
+                      </span>
                     </td>
                     <td className="px-4 py-3 text-right font-bold text-emerald-700">
                       {formatCurrency(row.tableAmount)}
@@ -1877,8 +1916,10 @@ function TableHistoryPage() {
                     <td className="px-4 py-3 text-right">
                       <Button
                         variant="outline"
-                        size="sm"
-                        className="gap-2"
+                        size="icon"
+                        className="h-8 w-8"
+                        title="View details"
+                        aria-label="View details"
                         onClick={() =>
                           setSelectedRecord(
                             row.record
@@ -1886,7 +1927,6 @@ function TableHistoryPage() {
                         }
                       >
                         <Eye className="h-4 w-4" />
-                        View Details
                       </Button>
                     </td>
                   </tr>

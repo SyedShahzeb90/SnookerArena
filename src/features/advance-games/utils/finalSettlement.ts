@@ -34,6 +34,10 @@ function customerForName(session: Session, name: string) {
     [session.player2, session.player2CustomerId],
     [session.player3, session.player3CustomerId],
     [session.player4, session.player4CustomerId],
+    ...(session.extraPlayers ?? []).map((player, index) => [
+      player,
+      session.extraPlayerCustomerIds?.[index],
+    ]),
   ].find(([candidate]) => normalizePlayerName(candidate) === normalized);
 }
 
@@ -56,14 +60,27 @@ function owner(
 }
 
 function teamEntries(session: Session, team: "A" | "B") {
+  const extraPerTeam = (session.centuryTeamSize ?? 2) - 2;
   const entries = team === "A"
-    ? [
+      ? [
         { name: session.player1, customerId: session.player1CustomerId },
         { name: session.player2, customerId: session.player2CustomerId },
+        ...(session.sessionType === "century"
+          ? (session.extraPlayers ?? []).slice(0, extraPerTeam).map((name, index) => ({
+              name,
+              customerId: session.extraPlayerCustomerIds?.[index],
+            }))
+          : []),
       ]
     : [
         { name: session.player3, customerId: session.player3CustomerId },
         { name: session.player4, customerId: session.player4CustomerId },
+        ...(session.sessionType === "century"
+          ? (session.extraPlayers ?? []).slice(extraPerTeam).map((name, index) => ({
+              name,
+              customerId: session.extraPlayerCustomerIds?.[extraPerTeam + index],
+            }))
+          : []),
       ];
 
   return entries.filter(

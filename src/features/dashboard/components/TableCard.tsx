@@ -40,7 +40,6 @@ import { getBillPrimaryLabel } from "@/features/customers/utils/billDisplay";
 import {
   getSessionParticipantKey,
   getSessionPlayerEntries,
-  getSessionPlayers,
 } from "@/features/sessions/utils/sessionPlayers";
 import { getDoubleGameTeams } from "@/features/sessions/utils/doubleGameBilling";
 import { isWalkInName } from "@/features/sessions/utils/walkInLabel";
@@ -211,10 +210,7 @@ const TableCard = forwardRef<TableCardHandle, Props>(function TableCard({
     useState("");
   const [payerName, setPayerName] =
     useState("");
-  const [
-    payerCustomerId,
-    setPayerCustomerId,
-  ] = useState("");
+  const [, setPayerCustomerId] = useState("");
   const [payerParticipantSlot, setPayerParticipantSlot] =
     useState("");
   const [
@@ -322,9 +318,6 @@ const TableCard = forwardRef<TableCardHandle, Props>(function TableCard({
         : usesFrameTimeWarning && frameElapsedMinutes >= frameWarningMinutes
           ? "text-amber-700"
           : "text-emerald-700";
-  const sessionPlayers = table.session
-    ? getSessionPlayers(table.session)
-    : [];
   const sessionPlayerOptions = table.session
     ? getSessionPlayerEntries(table.session).map((player) => ({
         ...player,

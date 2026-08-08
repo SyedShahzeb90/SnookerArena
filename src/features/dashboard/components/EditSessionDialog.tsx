@@ -108,8 +108,13 @@ function EditSessionDialog({
       return;
     }
 
-    const nextGameChargeLines =
-      gameChargeLines.slice(0, -1);
+    const lastGameLine = gameChargeLines.at(-1);
+    const undoIndex = lastGameLine && !lastGameLine.endedAt
+      ? gameChargeLines.length - 2
+      : gameChargeLines.length - 1;
+    const nextGameChargeLines = gameChargeLines.filter(
+      (_, index) => index !== undoIndex
+    );
 
     setUndoBusy(true);
     try {

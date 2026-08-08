@@ -2,6 +2,7 @@ import type {
   Session,
   TableChargeLine,
 } from "@/types/session";
+import { getSessionPlayerEntries } from "./sessionPlayers";
 
 export interface PayerBreakdownItem {
   playerName: string;
@@ -56,7 +57,10 @@ export function calculateDoubleGamePayerBreakdown({
   session: Session;
   tableAmount: number;
 }): PayerBreakdownItem[] {
-  if (session.sessionType !== "double") {
+  if (
+    session.sessionType !== "double" &&
+    session.sessionType !== "century"
+  ) {
     const payerName =
       session.payerName ??
       session.loserName ??
@@ -124,6 +128,34 @@ export function calculateTableChargeLinePayerBreakdown({
   session: Session;
   line: TableChargeLine;
 }): Array<PayerBreakdownItem & { line: TableChargeLine }> {
+  if (session.sessionType === "century") {
+    return calculateDoubleGamePayerBreakdown({
+      session,
+      tableAmount: line.amount,
+    }).map((payer) => ({
+      ...payer,
+      line,
+      note: payer.note ?? line.label,
+    }));
+  }
+
+  if (line.type === "tableBooking") {
+    const players = getSessionPlayerEntries(session)
+      .map((player) => player.name.trim())
+      .filter(Boolean);
+
+    if (players.length > 1) {
+      const share = line.amount / players.length;
+
+      return players.map((playerName) => ({
+        line,
+        playerName,
+        tableAmountShare: share,
+        note: line.label,
+      }));
+    }
+  }
+
   if (line.type !== "doubleGame") {
     return [
       {

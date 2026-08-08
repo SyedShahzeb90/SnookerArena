@@ -187,6 +187,11 @@ function TableInfo({
   const isBooking =
     session.sessionType === "time" ||
     session.sessionType === "private";
+  const usesTableAttachedCafe =
+    isBooking || session.sessionType === "century";
+  const tableAttachedCafeName = tableId
+    ? `Table ${tableId} Booking`
+    : "Table Booking";
   const bookingLabel =
     isBooking && sessionPlayers.length > 1
       ? `${sessionPlayers[0]} + ${
@@ -259,7 +264,28 @@ function TableInfo({
         normalizePlayerName(name)
     );
   const openBillTotal = activeSessionAccounts.reduce(
-    (total, account) => total + account.grandTotal,
+    (total, account) => {
+      const previousGameTotal = account.gameCharges
+        .filter((charge) => charge.sessionId !== session.id)
+        .reduce((sum, charge) => sum + charge.amount, 0);
+      const previousCafeTotal = account.cafeCharges
+        .filter((charge) => charge.sessionId !== session.id)
+        .reduce((sum, charge) => sum + charge.subtotal, 0);
+      const previousAccessoriesTotal = (account.accessoryCharges ?? [])
+        .filter((charge) => charge.sessionId !== session.id)
+        .reduce((sum, charge) => sum + charge.subtotal, 0);
+
+      return (
+        total +
+        Math.max(
+          0,
+          previousGameTotal +
+            previousCafeTotal +
+            previousAccessoriesTotal -
+            account.discount
+        )
+      );
+    },
     0
   );
   const isAccessoryOrder = (item: {
@@ -331,19 +357,6 @@ function TableInfo({
           ),
       0
     );
-  const currentSessionBilledCafeTotal =
-    activeSessionCafeCharges
-      .filter((charge) => charge.sessionId === session.id)
-      .reduce((sum, charge) => sum + charge.subtotal, 0);
-  const currentSessionBilledAccessoriesTotal =
-    activeSessionAccounts.reduce(
-      (total, account) =>
-        total +
-        (account.accessoryCharges ?? [])
-          .filter((charge) => charge.sessionId === session.id)
-          .reduce((sum, charge) => sum + charge.subtotal, 0),
-      0
-    );
   const sessionAccessoriesTotal =
     session.cafeOrders
     .filter(
@@ -397,9 +410,11 @@ function TableInfo({
       playerName:
         item.playerName ??
         item.customerName ??
-        (sessionPlayers.length === 1
-          ? sessionPlayers[0]
-          : "Shared / Unassigned"),
+        (usesTableAttachedCafe
+          ? tableAttachedCafeName
+          : sessionPlayers.length === 1
+            ? sessionPlayers[0]
+            : "Shared / Unassigned"),
     }));
   const billedCafeItems = activeSessionAccounts.flatMap(
     (account) =>
@@ -727,6 +742,7 @@ function TableInfo({
     }
   );
   const totalGames = gameChargeLines.length;
+
   const tableChargeTotal =
     tableChargeLines.length > 0
       ? tableChargeLines.reduce(
@@ -772,9 +788,7 @@ function TableInfo({
     sessionAccessoriesTotal,
     separatePlayerBills: hasSeparatePlayerBills,
     openBillTotal,
-    currentSessionBilledCafeTotal,
-    currentSessionBilledAccessoriesTotal,
-    openBillIncludesBilledTotals: true,
+    openBillIncludesBilledTotals: false,
   }).currentBill;
   const displayedTableTotal = hasSeparatePlayerBills
     ? tableBill
@@ -1298,8 +1312,7 @@ function TableInfo({
                     Cafe Items
                   </DialogTitle>
                   <DialogDescription>
-                    Items currently attached to each
-                    player&apos;s bill.
+                    Items currently attached to this table.
                   </DialogDescription>
                 </DialogHeader>
 
@@ -1312,7 +1325,7 @@ function TableInfo({
                       <div className="flex items-center justify-between gap-3 border-b bg-slate-50 px-3 py-2.5 dark:bg-slate-900">
                         <div className="min-w-0">
                           <p className="text-[11px] font-medium uppercase text-slate-500">
-                            Player / Customer
+                            Attached To
                           </p>
                           <p
                             className="truncate font-bold text-slate-950 dark:text-white"

@@ -19,6 +19,10 @@ import { calculateGamePrice } from "@/features/pricing/utils/calculateGamePrice"
 import { useBusinessDayStore } from "@/features/business-day/store/businessDayStore";
 import { getRemainingPendingBillTotal } from "@/features/business-day/utils/businessDaySummary";
 import {
+  getBusinessDayTransactionWindow,
+  isInsideBusinessDayWindow,
+} from "@/features/business-day/utils/businessDayWindow";
+import {
   calculateDoubleGamePayerBreakdown,
   calculateTableChargeLinePayerBreakdown,
 } from "@/features/sessions/utils/doubleGameBilling";
@@ -45,7 +49,11 @@ import {
 import { formatAppDate, formatAppDateTime, formatAppTime, useAppDateTimeFormats } from "@/lib/dateTime";
 import CustomerBillsPage from "@/features/customers/pages/CustomerBillsPage";
 import { useAdminModeStore } from "@/features/admin-mode/adminModeStore";
-import { useTableStore } from "@/store/tableStore";
+import {
+  addSessionGameChargesToCustomers,
+  useTableStore,
+} from "@/store/tableStore";
+import { useTableHistoryStore } from "@/features/table-history/store/tableHistoryStore";
 import { useDeferredPayment } from "../DeferredPaymentProvider";
 import {
   DEFAULT_PAYMENT_METHOD_LABELS,
@@ -378,32 +386,35 @@ function formatDateTimeLines(value?: string | Date) {
   };
 }
 
-function getPendingAge(value?: string | Date) {
-  const date = getUsableTime(value);
-
-  if (!date) return "";
-
-  const diffMinutes = Math.max(
-    0,
-    Math.floor((Date.now() - date.getTime()) / 60000),
-  );
-
-  if (diffMinutes < 60) {
-    return `${Math.max(1, diffMinutes)} min`;
-  }
-
-  const diffHours = Math.floor(diffMinutes / 60);
-  if (diffHours < 24) return `${diffHours} hrs`;
-  if (diffHours < 48) return "Yesterday";
-
-  return `${Math.floor(diffHours / 24)} days`;
-}
-
 function isValidOpenBill(bill: PendingBill) {
   return (
     bill.status !== "cancelled" &&
     getRemainingPendingBillTotal(bill) > 0
   );
+}
+function getPendingTableAmount(bill: PendingBill) {
+  if (bill.session.settledTableAmount !== undefined) {
+    return bill.session.settledTableAmount;
+  }
+
+  const lineTotal =
+    bill.session.tableChargeLines?.reduce(
+      (total, line) => total + line.amount,
+      0
+    );
+
+  if (lineTotal !== undefined && lineTotal > 0) {
+    return lineTotal;
+  }
+
+  if (!bill.session.endTime) return 0;
+
+  return calculateGamePrice({
+    sessionType: bill.session.sessionType,
+    tableType: bill.tableType,
+    startTime: new Date(bill.session.startTime),
+    endTime: new Date(bill.session.endTime),
+  }).gameAmount;
 }
 type CheckoutRow =
   | {
@@ -463,23 +474,56 @@ function getAccountAccessoryAmount(account: CustomerAccount) {
     ) ?? 0
   );
 }
+function getUniqueAccountCafeCharges(account: CustomerAccount) {
+  const seen = new Set<string>();
+
+  return account.cafeCharges.filter((charge) => {
+    if (charge.name.startsWith("[Accessory]")) {
+      return false;
+    }
+
+    const key = [
+      charge.itemId,
+      charge.quantity,
+      charge.price,
+      charge.subtotal,
+      charge.sessionId ?? "",
+      charge.tableId ?? "",
+      charge.orderedAt ?? charge.createdAt,
+    ].join("|");
+
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
 function getAccountCafeAmount(account: CustomerAccount) {
-  return account.cafeCharges
-    .filter((charge) => !charge.name.startsWith("[Accessory]"))
+  return getUniqueAccountCafeCharges(account)
     .reduce((total, charge) => total + charge.subtotal, 0);
 }
+function getAccountTableAmount(account: CustomerAccount) {
+  const chargeTotal = account.gameCharges.reduce(
+    (total, charge) => total + charge.amount,
+    0
+  );
+
+  return account.totalGameAmount > 0
+    ? account.totalGameAmount
+    : chargeTotal;
+}
 function getAccountPaymentTotals(account: CustomerAccount) {
+  const tableTotal = getAccountTableAmount(account);
   const cafeTotal = getAccountCafeAmount(account);
   const accessoryTotal = getAccountAccessoryAmount(account);
   const grandTotal = Math.max(
     0,
-    account.totalGameAmount +
+    tableTotal +
       cafeTotal +
       accessoryTotal -
-      Math.min(account.discount, account.totalGameAmount + cafeTotal),
+      Math.min(account.discount, tableTotal + cafeTotal),
   );
 
-  return { cafeTotal, accessoryTotal, grandTotal };
+  return { tableTotal, cafeTotal, accessoryTotal, grandTotal };
 }
 function getAccountCafeAmountForSession(
   account: CustomerAccount | undefined,
@@ -494,13 +538,9 @@ function getAccountCafeAmountForSession(
     ? new Date(bill.session.endTime).getTime()
     : Date.now();
 
-  return account.cafeCharges
+  return getUniqueAccountCafeCharges(account)
     .filter(
       (charge) => {
-        if (charge.name.startsWith("[Accessory]")) {
-          return false;
-        }
-
         if (
           charge.sessionId &&
           (charge.sessionId === bill.session.id ||
@@ -550,19 +590,6 @@ function accountHasSessionActivity(
     )
   );
 }
-function getAccountTableIds(account: CustomerAccount) {
-  return new Set(
-    [
-      ...account.gameCharges.map((charge) => charge.tableId),
-      ...account.cafeCharges.map((charge) => charge.tableId),
-      ...(account.accessoryCharges ?? []).map(
-        (charge) => charge.tableId
-      ),
-    ].filter((tableId): tableId is number =>
-      typeof tableId === "number"
-    )
-  );
-}
 function getAccountActivityTimes(account: CustomerAccount) {
   return [
     account.openedAt,
@@ -584,52 +611,6 @@ function getAccountActivityTimes(account: CustomerAccount) {
     .map((value) => (value ? new Date(value).getTime() : NaN))
     .filter((value) => Number.isFinite(value));
 }
-function accountMirrorsLegacyPendingBill(
-  account: CustomerAccount,
-  bill: PendingBill
-) {
-  if (accountHasSessionActivity(account, bill.session.id)) {
-    return true;
-  }
-
-  const billStaffNumber = bill.staffBillNumber?.trim();
-  if (
-    billStaffNumber &&
-    account.staffBillNumber === billStaffNumber
-  ) {
-    return true;
-  }
-
-  const tableMatches = getAccountTableIds(account).has(bill.tableId);
-  if (!tableMatches) {
-    return false;
-  }
-
-  const accountName = normalizePlayerName(account.customerName);
-  const sessionPlayers = getSessionPlayers(bill.session).map((player) =>
-    normalizePlayerName(player)
-  );
-  const nameMatches =
-    sessionPlayers.includes(accountName) ||
-    (isWalkInName(account.customerName) &&
-      sessionPlayers.some((name) => name === "walk-in customer"));
-
-  if (!nameMatches) {
-    return false;
-  }
-
-  const sessionStart = new Date(bill.session.startTime).getTime();
-  const sessionEnd = bill.session.endTime
-    ? new Date(bill.session.endTime).getTime()
-    : sessionStart;
-  const toleranceMs = 5 * 60 * 1000;
-
-  return getAccountActivityTimes(account).some(
-    (time) =>
-      time >= sessionStart - toleranceMs &&
-      time <= sessionEnd + toleranceMs
-  );
-}
 function findPendingPlayerAccount({
   accounts,
   sessionId,
@@ -645,7 +626,9 @@ function findPendingPlayerAccount({
 
   if (customerId) {
     const account = accounts.find(
-      (candidate) => candidate.id === customerId
+      (candidate) =>
+        candidate.id === customerId &&
+        accountHasSessionActivity(candidate, sessionId)
     );
 
     if (account) return account;
@@ -696,12 +679,26 @@ function getPendingPayerBreakdown(
   const lines = bill.session.tableChargeLines ?? [];
 
   if (lines.length > 0) {
-    return lines.flatMap((line) =>
+    const lineBreakdown = lines.flatMap((line) =>
       calculateTableChargeLinePayerBreakdown({
         session: bill.session,
         line,
       })
     );
+    const lineBreakdownTotal = lineBreakdown.reduce(
+      (total, payer) => total + payer.tableAmountShare,
+      0
+    );
+
+    if (lineBreakdownTotal > 0 && lineBreakdownTotal !== tableAmount) {
+      const scale = tableAmount / lineBreakdownTotal;
+      return lineBreakdown.map((payer) => ({
+        ...payer,
+        tableAmountShare: payer.tableAmountShare * scale,
+      }));
+    }
+
+    return lineBreakdown;
   }
 
   const players = getSessionPlayers(bill.session);
@@ -713,56 +710,6 @@ function getPendingPayerBreakdown(
   return calculateDoubleGamePayerBreakdown({
     session: { ...bill.session, payerName },
     tableAmount,
-  });
-}
-function pendingBillHasCafeOnlyPlayer(
-  bill: PendingBill
-) {
-  if (!bill.session.endTime) return false;
-
-  const cafePlayers = Array.from(
-    new Set(
-      bill.session.cafeOrders
-        .filter(
-          (item) =>
-            !item.name.startsWith("[Accessory]") &&
-            item.subtotal > 0
-        )
-        .map(
-          (item) =>
-            item.playerName ?? item.customerName ?? ""
-        )
-        .map((name) => name.trim())
-        .filter(Boolean)
-    )
-  );
-
-  if (cafePlayers.length === 0) {
-    return false;
-  }
-
-  const pricing = calculateGamePrice({
-    sessionType: bill.session.sessionType,
-    tableType: bill.tableType,
-    startTime: new Date(bill.session.startTime),
-    endTime: new Date(bill.session.endTime),
-  });
-  const payerBreakdown = getPendingPayerBreakdown(
-    bill,
-    pricing.gameAmount
-  );
-
-  return cafePlayers.some((playerName) => {
-    const tableAmount = payerBreakdown.reduce(
-      (total, payer) =>
-        normalizePlayerName(payer.playerName) ===
-        normalizePlayerName(playerName)
-          ? total + payer.tableAmountShare
-          : total,
-      0
-    );
-
-    return tableAmount <= 0;
   });
 }
 function getDateRange(
@@ -853,15 +800,9 @@ function getPendingPlayerBillRows(
   });
   const paidPlayerNames = bill.paidPlayerNames ?? [];
   if (!bill.session.endTime) return [];
-  const pricing = calculateGamePrice({
-    sessionType: bill.session.sessionType,
-    tableType: bill.tableType,
-    startTime: new Date(bill.session.startTime),
-    endTime: new Date(bill.session.endTime),
-  });
   const payerBreakdown = getPendingPayerBreakdown(
     bill,
-    pricing.gameAmount
+    getPendingTableAmount(bill)
   ) as Array<{
     line?: {
       type?: string;
@@ -870,7 +811,7 @@ function getPendingPlayerBillRows(
     playerName: string;
     tableAmountShare: number;
   }>;
-  return uniquePlayers
+  const playerRows = uniquePlayers
     .filter(
       ({ playerName }) =>
         !hasPlayerName(paidPlayerNames, playerName)
@@ -897,9 +838,7 @@ function getPendingPlayerBillRows(
       const settledAccountAmount = account?.gameCharges
         .filter((charge) => charge.sessionId === bill.session.id)
         .reduce((total, charge) => total + charge.amount, 0);
-      const snookerAmount = settledAccountAmount !== undefined
-        ? Math.max(0, settledAccountAmount - (account?.advanceReduction ?? 0))
-        : payerBreakdown.reduce(
+      const payerTableAmount = payerBreakdown.reduce(
         (total, payer) => {
           const payerCustomerId =
             payer.line?.type === "doubleGame"
@@ -920,6 +859,22 @@ function getPendingPlayerBillRows(
         },
         0
       );
+      const accountTableAmount = account
+        ? Math.max(
+            getAccountTableAmount(account),
+            settledAccountAmount ?? 0
+          )
+        : 0;
+      const snookerAmount = payerTableAmount > 0
+        ? payerTableAmount
+        : accountTableAmount > 0
+          ? accountTableAmount
+        : payerBreakdown.length === 0 && settledAccountAmount !== undefined
+          ? Math.max(
+              0,
+              accountTableAmount - (account?.advanceReduction ?? 0)
+            )
+          : 0;
       const total = snookerAmount + cafeAmount;
       return {
         type: "pending" as const,
@@ -932,6 +887,90 @@ function getPendingPlayerBillRows(
       };
     })
     .filter((row) => row.total > 0);
+
+  if (playerRows.length === 1) {
+    const tableAmount = getPendingTableAmount(bill);
+    const cafeItemsTotal = bill.session.cafeOrders.reduce(
+      (total, item) => total + item.subtotal,
+      0
+    );
+    const cafeAmount = cafeItemsTotal > 0
+      ? cafeItemsTotal
+      : bill.session.cafeAmount;
+
+    return [
+      {
+        ...playerRows[0],
+        snookerAmount: tableAmount,
+        cafeAmount,
+        total: tableAmount + cafeAmount,
+      },
+    ];
+  }
+
+  const sessionCafeTotal = bill.session.cafeOrders
+    .filter((item) => !item.name.startsWith("[Accessory]"))
+    .reduce((total, item) => total + item.subtotal, 0);
+  const displayedCafeTotal = playerRows.reduce(
+    (total, row) => total + row.cafeAmount,
+    0
+  );
+  const remainingTableCafe = Math.max(
+    0,
+    sessionCafeTotal - displayedCafeTotal
+  );
+
+  if (remainingTableCafe <= 0 || playerRows.length === 0) {
+    return playerRows;
+  }
+
+  const cafeShare = remainingTableCafe / playerRows.length;
+  return playerRows.map((row) => ({
+    ...row,
+    cafeAmount: row.cafeAmount + cafeShare,
+    total: row.total + cafeShare,
+  }));
+}
+
+function getPendingBillRows(
+  bill: PendingBill,
+  customerAccounts?: CustomerAccount[]
+): Array<Extract<CheckoutRow, { type: "pending" }>> {
+  if ((bill.paidPlayerNames?.length ?? 0) > 0) {
+    return getPendingPlayerBillRows(bill, customerAccounts);
+  }
+
+  if (!bill.session.endTime) return [];
+
+  const playerName =
+    bill.session.payerName ??
+    bill.session.loserName ??
+    bill.session.player1 ??
+    "Walk-in Customer";
+  const tableAmount = getPendingTableAmount(bill);
+  const cafeItemsTotal = bill.session.cafeOrders
+    .filter((item) => !item.name.startsWith("[Accessory]"))
+    .reduce((total, item) => total + item.subtotal, 0);
+  const cafeAmount = cafeItemsTotal > 0
+    ? cafeItemsTotal
+    : bill.session.cafeAmount;
+  const linkedAccount = getAccountsForPendingBill(
+    bill,
+    customerAccounts
+  )[0];
+
+  return [
+    {
+      type: "pending",
+      bill,
+      playerName,
+      customerId:
+        bill.session.payerCustomerId ?? linkedAccount?.id,
+      snookerAmount: tableAmount,
+      cafeAmount,
+      total: tableAmount + cafeAmount,
+    },
+  ];
 }
 function getRowTime(row: CheckoutRow) {
   if (row.type === "pending") {
@@ -1094,7 +1133,7 @@ function getCheckoutRowTableAmount(row: CheckoutRow) {
     return row.snookerAmount;
   }
   if (row.type === "account") {
-    return row.account.totalGameAmount;
+    return getAccountTableAmount(row.account);
   }
   return row.sale.tableAmount;
 }
@@ -1169,43 +1208,63 @@ function combinePendingRows(rows: CheckoutRow[]) {
     string,
     Extract<CheckoutRow, { type: "pending" }>
   >();
+  const pendingBillIds = new Map<string, Set<string>>();
   const combinedRows: CheckoutRow[] = [];
   rows.forEach((row) => {
     if (row.type === "paid" || row.type === "account") {
       combinedRows.push(row);
       return;
     }
-    const key = row.customerId
-      ? `customer-${row.customerId}`
-      : `${row.bill.id}-${normalizePlayerName(row.playerName)}`;
+    const key = row.bill.staffBillNumber
+      ? `staff-${normalizePlayerName(row.bill.staffBillNumber)}`
+      : row.customerId
+        ? `customer-${row.customerId}`
+      : `bill-${row.bill.id}-${normalizePlayerName(row.playerName)}`;
     const existing = pendingRows.get(key);
     if (!existing) {
-      pendingRows.set(key, row);
-      combinedRows.push(row);
+      const pendingRow = { ...row };
+      pendingRows.set(key, pendingRow);
+      pendingBillIds.set(key, new Set([row.bill.id]));
+      combinedRows.push(pendingRow);
       return;
     }
-    existing.snookerAmount += row.snookerAmount;
-    existing.cafeAmount += row.cafeAmount;
-    existing.total += row.total;
+    const billIds = pendingBillIds.get(key) ?? new Set<string>();
+    const isSamePendingBill = billIds.has(row.bill.id);
+    const snookerAmount = isSamePendingBill
+      ? Math.max(existing.snookerAmount, row.snookerAmount)
+      : existing.snookerAmount + row.snookerAmount;
+    const cafeAmount = isSamePendingBill
+      ? Math.max(existing.cafeAmount, row.cafeAmount)
+      : existing.cafeAmount + row.cafeAmount;
+    const combinedRow = {
+      ...existing,
+      snookerAmount,
+      cafeAmount,
+      total: snookerAmount + cafeAmount,
+    };
+    pendingRows.set(key, combinedRow);
+    billIds.add(row.bill.id);
+    pendingBillIds.set(key, billIds);
+    const existingIndex = combinedRows.indexOf(existing);
+    if (existingIndex >= 0) {
+      combinedRows[existingIndex] = combinedRow;
+    }
   });
   return combinedRows;
 }
 function dedupeCheckoutRows(rows: CheckoutRow[]) {
   const seen = new Set<string>();
   return rows.filter((row) => {
-    const account = row.type === "account" ? row.account : undefined;
     const key =
       row.type === "account"
         ? `account-${row.account.id}`
         : row.type === "pending"
-          ? `pending-${row.customerId ?? row.bill.staffBillNumber ?? row.bill.id}`
+          ? `pending-${row.bill.id}-${normalizePlayerName(row.playerName)}`
           : `paid-${row.sale.id}`;
-    const billLabel = getCheckoutRowBillLabel(row, account);
-    const stableKey = row.type === "paid" ? key : `open-${billLabel}`;
-    if (seen.has(stableKey)) {
+    if (seen.has(key)) {
       return false;
     }
-    seen.add(stableKey);
+    seen.add(key);
     return true;
   });
 }
@@ -1316,6 +1375,84 @@ function CheckoutPage() {
   );
   useEffect(() => {
     pendingBills.forEach((bill) => {
+      if (bill.session.sessionType !== "century" || !bill.session.endTime) {
+        return;
+      }
+
+      const startedAt = new Date(bill.session.startTime);
+      const endedAt = new Date(bill.session.endTime);
+      const durationMinutes = Math.max(
+        1,
+        Math.ceil((endedAt.getTime() - startedAt.getTime()) / 60000),
+      );
+      const unitRate = clubSettings.tableBookingRatePerMinute;
+      const correctAmount = durationMinutes * unitRate;
+      const lines = bill.session.tableChargeLines ?? [];
+      const storedAmount = lines.reduce((total, line) => total + line.amount, 0);
+      const needsRepair =
+        lines.length !== 1 ||
+        lines[0]?.type !== "tableBooking" ||
+        storedAmount !== correctAmount ||
+        bill.session.settledTableAmount !== correctAmount;
+
+      if (!needsRepair) return;
+
+      const repairedLine = {
+        ...(lines[0] ?? {}),
+        id: lines[0]?.id ?? `TCL-${bill.session.id}-century`,
+        sessionId: bill.session.id,
+        type: "tableBooking" as const,
+        label: "Team Century",
+        startedAt: startedAt.toISOString(),
+        endedAt: endedAt.toISOString(),
+        durationMinutes,
+        unitRate,
+        amount: correctAmount,
+        winningTeam: bill.session.winningTeam,
+        losingTeam: bill.session.losingTeam,
+      };
+      const repairedSession = {
+        ...bill.session,
+        tableChargeLines: [repairedLine],
+        settledTableAmount: correctAmount,
+        originalTableAmount: correctAmount,
+      };
+      const table = tables.find((item) => item.id === bill.tableId);
+
+      useCheckoutStore.setState((state) => ({
+        pendingBills: state.pendingBills.map((pendingBill) =>
+          pendingBill.id === bill.id
+            ? { ...pendingBill, session: repairedSession }
+            : pendingBill,
+        ),
+      }));
+
+      if (table) {
+        const customerStore = useCustomerAccountStore.getState();
+        customerStore.removeSessionCharges(bill.session.id);
+        addSessionGameChargesToCustomers(table, repairedSession);
+      }
+
+      const historyStore = useTableHistoryStore.getState();
+      const historyRecord = historyStore.records.find(
+        (record) => record.sessionId === bill.session.id,
+      );
+      if (historyRecord) {
+        historyStore.updateTableHistoryRecord(historyRecord.id, {
+          sessionType: "century",
+          tableAmount: correctAmount,
+          grandTotal: Math.max(
+            0,
+            correctAmount + historyRecord.cafeAmount - historyRecord.discount,
+          ),
+          originalTableAmount: correctAmount,
+          tableChargeLines: [repairedLine],
+        });
+      }
+    });
+  }, [clubSettings.tableBookingRatePerMinute, pendingBills, tables]);
+  useEffect(() => {
+    pendingBills.forEach((bill) => {
       const alreadyPaid = sales.some(
         (sale) =>
           sale.sessionId === bill.session.id || sale.sessionId === bill.id,
@@ -1327,44 +1464,54 @@ function CheckoutPage() {
   }, [pendingBills, removePendingBill, sales]);
   useEffect(() => {
     pendingBills.forEach((bill) => {
-      const tableBillCafeItems = bill.session.cafeOrders.filter(
-        (item) => item.tableBill,
-      );
-      if (!tableBillCafeItems.length) return;
+      const sourceOrderId = `TABLE-BILL-CAFE-${bill.session.id}`;
+      let changed = false;
+      const identities = getSessionPlayerBillingIdentities(bill.session);
+      const cafeOrders = bill.session.cafeOrders.map((item) => {
+        const originalOwners = customerAccounts.filter((account) =>
+          account.cafeCharges.some((charge) =>
+            charge.sourceOrderId !== sourceOrderId &&
+            charge.itemId === item.menuItemId &&
+            charge.quantity === item.quantity &&
+            charge.subtotal === item.subtotal &&
+            (charge.orderedAt ?? charge.createdAt) ===
+              (item.orderedAt ?? new Date(item.timeAdded).toISOString())
+          )
+        );
 
-      const payerName =
-        bill.session.payerName ??
-        bill.session.loserName ??
-        tableBillCafeItems[0]?.playerName ??
-        tableBillCafeItems[0]?.customerName;
-      if (!payerName) return;
-
-      const payerCustomerId =
-        bill.session.payerCustomerId ??
-        tableBillCafeItems.find((item) => item.playerId)?.playerId;
-
-      replaceCafeChargesForOrder({
-        customerId: payerCustomerId,
-        customerName: payerName,
-        sourceOrderId: `TABLE-BILL-CAFE-${bill.session.id}`,
-        charges: tableBillCafeItems.map((item) => ({
-          itemId: item.menuItemId,
-          name: item.name,
-          quantity: item.quantity,
-          price: item.price,
-          subtotal: item.subtotal,
-          tableId: bill.tableId,
-          tableName: bill.tableName,
-          sessionId: bill.session.id,
-          orderedAt:
-            item.orderedAt ??
-            new Date(
-              bill.session.endTime ?? bill.createdAt,
-            ).toISOString(),
-        })),
+        if (originalOwners.length !== 1) return item;
+        const owner = originalOwners[0];
+        if (item.playerId === owner.id) return item;
+        const identity = identities.find(
+          (candidate) => candidate.customerId === owner.id
+        );
+        changed = true;
+        return {
+          ...item,
+          customerName: owner.customerName,
+          playerName: identity?.playerName ?? owner.customerName,
+          playerId: owner.id,
+          participantKey: identity?.participantKey,
+        };
       });
+
+      if (changed) {
+        useCheckoutStore.setState((state) => ({
+          pendingBills: state.pendingBills.map((pendingBill) =>
+            pendingBill.id === bill.id
+              ? {
+                  ...pendingBill,
+                  session: {
+                    ...pendingBill.session,
+                    cafeOrders,
+                  },
+                }
+              : pendingBill
+          ),
+        }));
+      }
     });
-  }, [pendingBills, replaceCafeChargesForOrder]);
+  }, [customerAccounts, pendingBills, replaceCafeChargesForOrder]);
   const unpaidBills = useMemo(
     () =>
       pendingBills.filter(
@@ -1395,39 +1542,10 @@ function CheckoutPage() {
     [customerAccounts],
   );
   const displayPendingBills = useMemo(
-    () =>
-      activePendingBills.filter((bill) => {
-        if (pendingBillHasCafeOnlyPlayer(bill)) {
-          return true;
-        }
-
-        const billStaffNumber = bill.staffBillNumber;
-        return !openCustomerAccountBills.some((account) => {
-          return (
-            (billStaffNumber &&
-              account.staffBillNumber === billStaffNumber) ||
-            accountMirrorsLegacyPendingBill(account, bill)
-          );
-        });
-      }),
-    [activePendingBills, openCustomerAccountBills],
+    () => activePendingBills,
+    [activePendingBills],
   );
-  const activeCustomerAccounts = useMemo(() => {
-    const pendingCustomerIds = new Set(
-      displayPendingBills
-        .flatMap((bill) =>
-          getPendingPlayerBillRows(
-            bill,
-            openCustomerAccountBills
-          )
-        )
-        .map((row) => row.customerId)
-        .filter((id): id is string => Boolean(id))
-    );
-    return openCustomerAccountBills.filter(
-      (account) => !pendingCustomerIds.has(account.id),
-    );
-  }, [displayPendingBills, openCustomerAccountBills]);
+  const activeCustomerAccounts = openCustomerAccountBills;
   const currentlyPlayingBills = useMemo<CurrentlyPlayingBills>(() => {
     const customerIds = new Set<string>();
     const sessionIds = new Set<string>();
@@ -1457,8 +1575,15 @@ function CheckoutPage() {
   const collectiblePendingRows = useMemo(
     () =>
       displayPendingBills
+        .filter(
+          (bill) =>
+            getAccountsForPendingBill(
+              bill,
+              openCustomerAccountBills
+            ).length === 0
+        )
         .flatMap((bill) =>
-          getPendingPlayerBillRows(
+          getPendingBillRows(
             bill,
             openCustomerAccountBills
           )
@@ -1485,14 +1610,22 @@ function CheckoutPage() {
     () => sales.filter(isCheckoutPaidSale),
     [sales],
   );
-  const todaySales = useMemo(() => {
-    const today = new Date();
+  const currentBusinessDaySales = useMemo(() => {
+    if (!activeBusinessDay) return [];
+
+    const dayWindow =
+      getBusinessDayTransactionWindow(activeBusinessDay);
+
     return checkoutSales.filter((sale) => {
-      const paidAt = getUsableTime(getSalePaymentTime(sale));
-      return paidAt?.toDateString() === today.toDateString();
+      const paidAt = getSalePaymentTime(sale);
+
+      return isInsideBusinessDayWindow(
+        paidAt,
+        dayWindow
+      );
     });
-  }, [checkoutSales]);
-  const totalReceivedToday = todaySales.reduce(
+  }, [activeBusinessDay, checkoutSales]);
+  const totalReceivedToday = currentBusinessDaySales.reduce(
     (total, sale) => total + sale.grandTotal,
     0,
   );
@@ -1534,7 +1667,7 @@ function CheckoutPage() {
           ? checkoutSales.map((sale) => ({ type: "paid", sale }))
           : statusFilter === "cancelled"
             ? cancelledBills.flatMap((bill) =>
-                getPendingPlayerBillRows(
+                getPendingBillRows(
                   bill,
                   openCustomerAccountBills
                 )
@@ -1546,7 +1679,7 @@ function CheckoutPage() {
                   account,
                 })),
                 ...cancelledBills.flatMap((bill) =>
-                  getPendingPlayerBillRows(
+                  getPendingBillRows(
                     bill,
                     openCustomerAccountBills
                   ),
@@ -2033,9 +2166,9 @@ function CheckoutPage() {
       durationMinutes: 0,
       createdAt: now,
       paidAt: now,
-      tableAmount: account.totalGameAmount,
+      tableAmount: totals.tableTotal,
       cafeAmount: totals.cafeTotal,
-      subtotal: account.totalGameAmount + totals.cafeTotal + totals.accessoryTotal,
+      subtotal: totals.tableTotal + totals.cafeTotal + totals.accessoryTotal,
       discount: account.discount,
       grandTotal: totals.grandTotal,
       originalTableAmount,
@@ -2049,8 +2182,8 @@ function CheckoutPage() {
       playerBreakdown: [
         {
           playerName: account.customerName,
-          tableAmountShare: account.totalGameAmount,
-          cafeAmount: account.totalCafeAmount + totals.accessoryTotal,
+          tableAmountShare: totals.tableTotal,
+          cafeAmount: totals.cafeTotal + totals.accessoryTotal,
           totalAmount: totals.grandTotal,
           cafeItems: orderedItems,
         },
@@ -2436,7 +2569,7 @@ function CheckoutPage() {
             <p className="text-xs font-medium text-slate-500"> Paid Bills Today </p>{" "}
             <p className="mt-1 text-xl font-bold text-slate-950">
               {" "}
-              {todaySales.length.toLocaleString()}{" "}
+              {currentBusinessDaySales.length.toLocaleString()}{" "}
             </p>{" "}
             <p className="text-xs text-slate-500">Completed today</p>
           </Card>{" "}
@@ -2662,10 +2795,10 @@ function CheckoutPage() {
           <div className="max-h-[calc(100vh-22rem)] min-h-[220px] w-full overflow-x-auto overflow-y-auto overscroll-x-contain pb-2">
             {" "}
             <table
-              className={`table-fixed text-left text-sm ${
-                statusFilter === "paid" || statusFilter === "cancelled"
-                  ? "w-full min-w-[1080px]"
-                  : "w-[1480px]"
+              className={`w-full table-fixed text-left text-sm ${
+                statusFilter === "paid"
+                  ? "min-w-[1360px]"
+                  : "min-w-[1280px]"
               }`}
             >
               <colgroup>
@@ -2684,12 +2817,11 @@ function CheckoutPage() {
                 <col className="w-[95px]" />
                 <col className="w-[105px]" />
                 <col className="w-[125px]" />
-                {statusFilter !== "paid" && <col className="w-[115px]" />}
                 <col
                   className={
-                    statusFilter === "paid" || statusFilter === "cancelled"
-                      ? "w-[215px]"
-                      : "w-[230px]"
+                    statusFilter === "paid"
+                      ? "w-[340px]"
+                      : "w-[280px]"
                   }
                 />
               </colgroup>
@@ -2715,11 +2847,24 @@ function CheckoutPage() {
                   <th className="whitespace-nowrap px-3 py-2.5 text-right">Table Charges</th>
                   <th className="whitespace-nowrap px-3 py-2.5 text-right">Cafe</th>
                   <th className="whitespace-nowrap px-3 py-2.5 text-right">Accessories</th>
-                  <th className="whitespace-nowrap px-3 py-2.5 text-right">Total</th>
-                  {statusFilter !== "paid" && (
-                    <th className="whitespace-nowrap px-3 py-2.5 text-center">Status</th>
-                  )}
-                  <th className="sticky right-0 z-20 whitespace-nowrap bg-slate-50 px-2 py-2.5 text-center dark:bg-slate-900">Action</th>
+                  <th
+                    className={`whitespace-nowrap bg-slate-50 px-3 py-2.5 text-right dark:bg-slate-900 ${
+                      statusFilter === "paid"
+                        ? ""
+                        : "sticky right-[280px] z-20"
+                    }`}
+                  >
+                    Total
+                  </th>
+                  <th
+                    className={`whitespace-nowrap bg-slate-50 px-2 py-2.5 text-center dark:bg-slate-900 ${
+                      statusFilter === "paid"
+                        ? ""
+                        : "sticky right-0 z-20"
+                    }`}
+                  >
+                    Action
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -2733,18 +2878,6 @@ function CheckoutPage() {
                   const startedAt = formatDateTimeLines(getRowStartTime(row));
                   const endedAt = formatDateTimeLines(getRowTime(row));
                   const paidAt = formatDateTimeLines(getRowPaidTime(row));
-                  const statusLabel =
-                    row.type === "pending"
-                      ? row.bill.status === "cancelled"
-                        ? "Cancelled"
-                        : "Awaiting Payment"
-                      : row.type === "account"
-                        ? "Awaiting Payment"
-                        : "Paid";
-                  const pendingAge =
-                    row.type === "pending" || row.type === "account"
-                      ? getPendingAge(getRowTime(row))
-                      : "";
                   const rowIsSelected =
                     (row.type === "pending" && selectedBill?.id === row.bill.id) ||
                     contextRowKey === (row.type === "pending" ? `${row.bill.id}-${row.playerName}` : row.type === "account" ? `account-${row.account.id}` : row.sale.id);
@@ -2859,46 +2992,36 @@ function CheckoutPage() {
                           getCheckoutRowAccessoryAmount(row),
                         )}
                       </td>
-                      <td className="h-[64px] whitespace-nowrap px-3 py-2 text-right align-middle font-bold tabular-nums text-slate-950">
+                      <td
+                        className={`h-[64px] whitespace-nowrap px-3 py-2 text-right align-middle font-bold tabular-nums text-slate-950 ${
+                          statusFilter === "paid"
+                            ? ""
+                            : "sticky right-[280px] z-10"
+                        } ${
+                          rowIsSelected
+                            ? "bg-amber-50 dark:bg-amber-950"
+                            : "bg-white group-hover:bg-slate-50 dark:bg-slate-950 dark:group-hover:bg-slate-800"
+                        }`}
+                      >
                         {formatCurrency(getCheckoutRowTotal(row))}
                       </td>
-                      {statusFilter !== "paid" && (
-                      <td className="h-[64px] px-3 py-2 text-center align-middle">
-                        <div className="flex h-full flex-col items-center justify-center">
-                        <span
-                          className={
-                            row.type === "pending" &&
-                            row.bill.status === "cancelled"
-                              ? "whitespace-nowrap rounded-full bg-red-50 px-2.5 py-0.5 text-xs font-semibold text-red-700 ring-1 ring-red-200"
-                              : row.type === "pending" ||
-                                  row.type === "account"
-                                ? "whitespace-nowrap rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-700 ring-1 ring-amber-200"
-                                : "whitespace-nowrap rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200"
-                          }
-                        >
-                          {statusLabel}
-                        </span>
-                        {pendingAge && (
-                          <p className="mt-0.5 text-xs leading-tight text-slate-500">
-                            {pendingAge}
-                          </p>
-                        )}
-                        </div>
-                      </td>
-                      )}
                       <td
-                        className={`sticky right-0 z-10 h-[64px] px-2 py-2 text-center align-middle ${
+                        className={`h-[64px] px-2 py-2 text-center align-middle ${
+                          statusFilter === "paid"
+                            ? ""
+                            : "sticky right-0 z-10"
+                        } ${
                           rowIsSelected
                             ? "bg-amber-50 dark:bg-amber-950"
                             : "bg-white group-hover:bg-slate-50 dark:bg-slate-950 dark:group-hover:bg-slate-800"
                         }`}
                       >
                         {row.type === "paid" ? (
-                          <div className="flex items-center justify-center gap-1.5">
+                          <div className="flex items-center justify-center gap-2">
                             <Button
                               type="button"
                               size="sm"
-                              className="h-8 w-[100px] whitespace-nowrap px-2"
+                              className="h-8 w-[108px] shrink-0 whitespace-nowrap px-2"
                               onClick={(event) => {
                                 event.stopPropagation();
                                 setSelectedSaleReceipt(row.sale);
@@ -2910,7 +3033,7 @@ function CheckoutPage() {
                               type="button"
                               variant="outline"
                               size="sm"
-                              className="h-8 w-[78px] whitespace-nowrap px-2"
+                              className="h-8 w-[88px] shrink-0 whitespace-nowrap px-2"
                               onClick={(event) => {
                                 event.stopPropagation();
                                 openEditSalePayment(row.sale);
@@ -2923,7 +3046,7 @@ function CheckoutPage() {
                                 type="button"
                                 variant="outline"
                                 size="sm"
-                                className="h-8 w-[72px] gap-1 whitespace-nowrap border-red-200 px-2 text-red-700 hover:bg-red-50"
+                                className="h-8 w-[88px] shrink-0 gap-1 whitespace-nowrap border-red-200 px-2 text-red-700 hover:bg-red-50"
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   handleDeletePaidSale(row.sale);

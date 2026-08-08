@@ -158,6 +158,27 @@ export const useCheckoutStore =
         }) => {
           let createdBill: PendingBill | undefined;
 
+          const liveCafeOrders = useCafeStore
+            .getState()
+            .getTableOrderItems(table.id, session.id);
+          const cafeOrders =
+            liveCafeOrders.length > 0
+              ? liveCafeOrders
+              : session.cafeOrders;
+          const finalizedSession: Session = {
+            ...session,
+            cafeOrders,
+            cafeAmount: cafeOrders
+              .filter(
+                (item) =>
+                  !item.name.startsWith("[Accessory]")
+              )
+              .reduce(
+                (total, item) => total + item.subtotal,
+                0
+              ),
+          };
+
           set((state) => {
             const existingBill =
               state.pendingBills.find(
@@ -210,11 +231,11 @@ export const useCheckoutStore =
                   ] ?? 0) + 1
                 : undefined;
             const bill: PendingBill = {
-              id: `BILL-${session.id}`,
+              id: `BILL-${finalizedSession.id}`,
               tableId: table.id,
               tableName: table.name,
               tableType: table.type,
-              session,
+              session: finalizedSession,
               createdAt:
                 new Date().toISOString(),
               status: "pending",

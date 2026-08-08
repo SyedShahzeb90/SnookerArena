@@ -115,16 +115,6 @@ function normalizeWalkInPlayerName(
     : name.trim();
 }
 
-function isTableBookingCafeItem(
-  item: CafeOrderItem,
-  session: Session
-) {
-  return (
-    item.participantKey ===
-    getSessionParticipantKey(session.id, "table-booking")
-  );
-}
-
 function getSessionCustomerIdForPlayer(
   session: Session,
   playerName?: string
@@ -141,6 +131,33 @@ function getSessionCustomerIdForPlayer(
   return match?.customerId;
 }
 
+function isTableAttachedCafeItem(
+  item: CafeOrderItem,
+  session: Session,
+  table: Table
+) {
+  const tableBookingKey = getSessionParticipantKey(
+    session.id,
+    "table-booking"
+  );
+  const attachedNames = [
+    `${table.name} Booking`,
+    `Table ${table.id} Booking`,
+    "Table Booking",
+  ].map(normalizePlayerName);
+  const itemNames = [
+    item.playerName,
+    item.customerName,
+  ]
+    .filter(Boolean)
+    .map((name) => normalizePlayerName(name!));
+
+  return (
+    item.participantKey === tableBookingKey ||
+    itemNames.some((name) => attachedNames.includes(name))
+  );
+}
+
 function addTableBillCafeChargesToCustomer(
   table: Table,
   session: Session
@@ -151,6 +168,81 @@ function addTableBillCafeChargesToCustomer(
 
   if (tableBillItems.length === 0) return;
 
+  const ownedTableBillItems = tableBillItems.filter(
+    (item) => item.playerName || item.customerName || item.playerId
+  );
+  if (
+    session.sessionType === "century" &&
+    ownedTableBillItems.length > 0
+  ) {
+    const customerStore =
+      useCustomerAccountStore.getState();
+    const ownerGroups = new Map<string, CafeOrderItem[]>();
+
+    ownedTableBillItems.forEach((item) => {
+      const ownerName =
+        item.playerName ?? item.customerName;
+      const ownerKey =
+        item.playerId ??
+        (ownerName
+          ? `name:${normalizePlayerName(ownerName)}`
+          : undefined);
+
+      if (!ownerKey || !ownerName) return;
+
+      ownerGroups.set(ownerKey, [
+        ...(ownerGroups.get(ownerKey) ?? []),
+        item,
+      ]);
+    });
+
+    ownerGroups.forEach((items, ownerKey) => {
+      const ownerName =
+        items[0]?.playerName ?? items[0]?.customerName;
+      if (!ownerName) return;
+
+      const existingSessionBill =
+        customerStore.accounts.find(
+          (account) =>
+            account.status === "active" &&
+            account.paymentStatus === "unpaid" &&
+            account.gameCharges.some(
+              (charge) =>
+                charge.sessionId === session.id &&
+                normalizePlayerName(
+                  charge.payerName
+                ) === normalizePlayerName(ownerName)
+            )
+        );
+      const customerId =
+        existingSessionBill?.id ??
+        items[0]?.playerId ??
+        getSessionCustomerIdForPlayer(session, ownerName) ??
+        customerStore.getOrCreateActiveCustomerByIdOrName({
+              customerName: ownerName,
+            }).id;
+
+      customerStore.replaceCafeChargesForOrder({
+        customerId,
+        customerName: ownerName,
+        sourceOrderId: `TABLE-BILL-CAFE-${session.id}-${ownerKey}`,
+        charges: items.map((item) => ({
+          itemId: item.menuItemId,
+          name: item.name,
+          quantity: item.quantity,
+          price: item.price,
+          subtotal: item.subtotal,
+          tableId: table.id,
+          tableName: table.name,
+          sessionId: session.id,
+          orderedAt:
+            item.orderedAt ?? new Date().toISOString(),
+        })),
+      });
+    });
+    return;
+  }
+
   const payerName =
     session.payerName ??
     session.loserName ??
@@ -160,14 +252,25 @@ function addTableBillCafeChargesToCustomer(
 
   const customerStore =
     useCustomerAccountStore.getState();
+  const existingSessionBill =
+    customerStore.accounts.find(
+      (account) =>
+        account.status === "active" &&
+        account.paymentStatus === "unpaid" &&
+        account.gameCharges.some(
+          (charge) =>
+            charge.sessionId === session.id &&
+            normalizePlayerName(charge.payerName) ===
+              normalizePlayerName(payerName)
+        )
+    );
   const customerId =
+    existingSessionBill?.id ??
     session.payerCustomerId ??
     getSessionCustomerIdForPlayer(session, payerName) ??
-    (!isWalkInName(payerName)
-      ? undefined
-      : customerStore.getOrCreateActiveCustomerByIdOrName({
-          customerName: payerName,
-        }).id);
+    customerStore.getOrCreateActiveCustomerByIdOrName({
+      customerName: payerName,
+    }).id;
 
   customerStore.replaceCafeChargesForOrder({
     customerId,
@@ -305,7 +408,8 @@ function sessionTypeToChargeLineType(
   if (sessionType === "double") return "doubleGame";
   if (
     sessionType === "time" ||
-    sessionType === "private"
+    sessionType === "private" ||
+    sessionType === "century"
   ) {
     return "tableBooking";
   }
@@ -649,7 +753,7 @@ function createTableHistoryRecord(
     });
 }
 
-function addSessionGameChargesToCustomers(
+export function addSessionGameChargesToCustomers(
   table: Table,
   session: Session
 ) {
@@ -880,8 +984,7 @@ function addSessionGameChargesToCustomers(
           (isWalkInName(payer.playerName)
             ? getCustomerIdForPayer(payer.playerName)
             : payer.line?.payerCustomerId ??
-              getCustomerIdForPayer(payer.playerName)) ??
-          session.payerCustomerId,
+              getCustomerIdForPayer(payer.playerName)),
         sessionId: session.id,
         tableId: table.id,
         tableName: table.name,
@@ -890,9 +993,11 @@ function addSessionGameChargesToCustomers(
           ? payer.line.type === "doubleGame"
             ? "double"
             : payer.line.type === "tableBooking"
-              ? table.type === "private-room"
-                ? "private"
-                : "time"
+              ? session.sessionType === "century"
+                ? "century"
+                : table.type === "private-room"
+                  ? "private"
+                  : "time"
               : "single"
           : session.sessionType,
         startedAt:
@@ -948,6 +1053,7 @@ interface StartSessionData {
   teamABillOwnerName?: string;
   teamBBillOwnerCustomerId?: string;
   teamBBillOwnerName?: string;
+  centuryTeamSize?: 2 | 3 | 4;
   startTime: Date;
   endTime?: Date;
   winnerName?: string;
@@ -1173,10 +1279,16 @@ export const useTableStore =
             teamAPlayers: [
               player1,
               data.player2,
+              ...(data.sessionType === "century"
+                ? (data.extraPlayers ?? []).slice(0, (data.centuryTeamSize ?? 2) - 2)
+                : []),
             ].filter(Boolean) as string[],
             teamBPlayers: [
               data.player3,
               data.player4,
+              ...(data.sessionType === "century"
+                ? (data.extraPlayers ?? []).slice((data.centuryTeamSize ?? 2) - 2)
+                : []),
             ].filter(Boolean) as string[],
             teamAOneNameEnough:
               data.teamAOneNameEnough,
@@ -1186,6 +1298,7 @@ export const useTableStore =
             teamABillOwnerName: data.teamABillOwnerName,
             teamBBillOwnerCustomerId: data.teamBBillOwnerCustomerId,
             teamBBillOwnerName: data.teamBBillOwnerName,
+            centuryTeamSize: data.centuryTeamSize,
             startTime: data.startTime,
             endTime: data.endTime,
             winnerName: data.winnerName,
@@ -1457,10 +1570,8 @@ export const useTableStore =
                 index === lines.length - 1;
 
               if (
-                line.loserName ||
-                (line.type === "tableBooking" &&
-                  (!isLastLine ||
-                    (!loserName && !payerName)))
+                !isLastLine ||
+                (!loserName && !payerName)
               ) {
                 return line;
               }
@@ -1500,16 +1611,80 @@ export const useTableStore =
             payerCustomerId ?? loserCustomerId;
           const tableBookingCafeParticipantKey =
             loserParticipantKey;
+          const losingCenturyPlayers =
+            table.session.sessionType === "century" && losingTeam
+              ? getTeamPlayers(table.session, losingTeam)
+              : [];
+          const liveCafeOrders = useCafeStore
+            .getState()
+            .getTableOrderItems(table.id, table.session.id);
+          const sourceCafeOrders =
+            liveCafeOrders.length > 0
+              ? liveCafeOrders
+              : table.session.cafeOrders;
           const cafeOrders =
+            table.session.sessionType === "century" &&
+            losingCenturyPlayers.length > 0
+              ? sourceCafeOrders.flatMap((item, itemIndex) => {
+                  const isTableAttached = isTableAttachedCafeItem(
+                    item,
+                    table.session!,
+                    table
+                  );
+                  if (
+                    item.name.startsWith("[Accessory]") ||
+                    (!isTableAttached &&
+                      (item.playerId ||
+                        item.participantKey ||
+                        item.playerName ||
+                        item.customerName))
+                  ) {
+                    return [item];
+                  }
+
+                  return losingCenturyPlayers.map((playerName, index) => {
+                    const playerEntry = getSessionPlayerEntries(
+                      table.session!
+                    ).find(
+                      (entry) =>
+                        normalizePlayerName(entry.name) ===
+                        normalizePlayerName(playerName)
+                    );
+                    const share = item.subtotal / losingCenturyPlayers.length;
+
+                    return {
+                      ...item,
+                      lineId: `${item.lineId ?? item.menuItemId}-${itemIndex}-CENTURY-${index}`,
+                      tableBill: true,
+                      price: share,
+                      quantity: 1,
+                      subtotal: share,
+                      customerName: playerName,
+                      playerName,
+                      playerId: playerEntry?.customerId,
+                      participantKey: playerEntry
+                        ? getSessionParticipantKey(
+                            table.session!.id,
+                            playerEntry.slot
+                          )
+                        : undefined,
+                    };
+                  });
+                })
+              :
             table.id >= 1 &&
             table.id <= 7 &&
-            tableBookingCafePayerName
-              ? table.session.cafeOrders.map((item) =>
-                  isTableBookingCafeItem(
-                    item,
-                    table.session!
-                  )
-                    ? {
+              tableBookingCafePayerName &&
+              table.session.sessionType !== "century"
+              ? sourceCafeOrders.map((item) =>
+                  item.name.startsWith("[Accessory]") ||
+                  (!isTableAttachedCafeItem(item, table.session!, table) &&
+                    (item.playerId ||
+                      item.participantKey ||
+                      item.playerName ||
+                      item.customerName))
+                    ? item
+                    : {
                         ...item,
                         tableBill: true,
                         customerName:
@@ -1521,15 +1696,17 @@ export const useTableStore =
                         participantKey:
                           tableBookingCafeParticipantKey,
                       }
-                    : item
                 )
-              : table.session.cafeOrders;
+              : sourceCafeOrders;
           const endedSession: Session = {
             ...table.session,
             pausedAt: undefined,
             totalPausedMilliseconds,
             endTime,
             cafeOrders,
+            cafeAmount: cafeOrders
+              .filter((item) => !item.name.startsWith("[Accessory]"))
+              .reduce((total, item) => total + item.subtotal, 0),
             tableChargeLines: settlement
               ? settlement.lines.map((line) => ({ ...line, settlementProcessedAt: settledAt }))
               : tableChargeLines,

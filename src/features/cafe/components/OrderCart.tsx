@@ -10,7 +10,6 @@ interface Props {
   customerName: string;
   customerMeta?: string;
   items: OrderItem[];
-  savedItems?: OrderItem[];
   onIncrease: (menuItemId: string) => void;
   onDecrease: (menuItemId: string) => void;
   onRemove?: (menuItemId: string) => void;
@@ -25,7 +24,6 @@ function OrderCart({
   customerName,
   customerMeta,
   items,
-  savedItems = [],
   onIncrease,
   onDecrease,
   onRemove,
@@ -73,36 +71,21 @@ function OrderCart({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {items.length === 0 && savedItems.length === 0 && (
+        {items.length === 0 && (
           <div className="flex min-h-32 items-center justify-center px-4 text-center">
             <div>
-              <p className="font-semibold">Select a customer</p>
-              <p className="mt-1 text-sm text-slate-500">to begin ordering.</p>
+              <p className="font-semibold">
+                {customerName === "Cart"
+                  ? "No items in cart"
+                  : "Select a customer"}
+              </p>
+              <p className="mt-1 text-sm text-slate-500">
+                {customerName === "Cart"
+                  ? "Add items to this order."
+                  : "to begin ordering."}
+              </p>
             </div>
           </div>
-        )}
-
-        {savedItems.length > 0 && (
-          <div className="border-b px-4 py-2">
-            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Saved items
-            </p>
-            {savedItems.map((item) => (
-              <div
-                key={`${item.menuItemId}-${item.orderedAt ?? item.name}`}
-                className="flex items-center justify-between gap-3 py-1.5 text-sm"
-              >
-                <span className="min-w-0 truncate font-medium">{item.name} x{item.quantity}</span>
-                <span className="shrink-0 font-semibold tabular-nums">Rs. {item.subtotal}</span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {items.length > 0 && savedItems.length > 0 && (
-          <p className="border-b px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-            New items
-          </p>
         )}
 
         {items.map((item) => (

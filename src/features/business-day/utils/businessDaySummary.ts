@@ -252,6 +252,7 @@ export function calculateBusinessDaySummary({
     );
   const dayOutsidePurchases = outsidePurchases.filter(
     (purchase) =>
+      purchase.status !== "cancelled" &&
       purchase.businessDayId === day.id &&
       isInsideBusinessDayWindow(purchase.createdAt, dayWindow)
   );
@@ -268,6 +269,8 @@ export function calculateBusinessDaySummary({
       (purchase) =>
         purchase.status === "cancelled" &&
         purchase.cancelledBusinessDayId === day.id &&
+        (purchase.businessDayId !== day.id ||
+          !isInsideBusinessDayWindow(purchase.createdAt, dayWindow)) &&
         isInsideBusinessDayWindow(purchase.cancelledAt, dayWindow)
     )
     .reduce(

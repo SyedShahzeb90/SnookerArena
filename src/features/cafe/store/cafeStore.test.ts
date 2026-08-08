@@ -29,6 +29,9 @@ async function loadStores() {
     "@/features/customers/store/customerAccountStore"
   );
   const table = await import("@/store/tableStore");
+  const checkout = await import(
+    "@/features/billing/store/checkoutStore"
+  );
 
   cafe.useCafeStore
     .getState()
@@ -39,12 +42,16 @@ async function loadStores() {
   table.useTableStore
     .getState()
     .resetTableStoreToDefault();
+  checkout.useCheckoutStore
+    .getState()
+    .resetBillingStore();
 
   return {
     useCafeStore: cafe.useCafeStore,
     useCustomerAccountStore:
       customers.useCustomerAccountStore,
     useTableStore: table.useTableStore,
+    useCheckoutStore: checkout.useCheckoutStore,
   };
 }
 
@@ -111,6 +118,134 @@ describe("running table cafe orders", () => {
     expect(
       useCafeStore.getState().getTableCafeTotal(1)
     ).toBe(100);
+  });
+
+  it("preserves attach-to-table ownership when cafe items enter the session", async () => {
+    const { useCafeStore } = await loadStores();
+    const participantKey = "S1:table-booking";
+
+    useCafeStore
+      .getState()
+      .addItemToPlayer(
+        1,
+        "S1",
+        "Table 1 Booking",
+        tea,
+        undefined,
+        participantKey
+      );
+    useCafeStore.getState().saveOrder({
+      tableId: 1,
+      tableName: "Table 1",
+      sessionId: "S1",
+      customerName: "Table 1 Booking",
+      participantKey,
+      orderItems:
+        useCafeStore
+          .getState()
+          .getPlayerOrder(
+            1,
+            "Table 1 Booking",
+            undefined,
+            "S1",
+            participantKey
+          )?.orderItems ?? [],
+    });
+
+    const [sessionItem] =
+      useCafeStore.getState().getTableOrderItems(1, "S1");
+
+    expect(sessionItem.participantKey).toBe(participantKey);
+    expect(sessionItem.playerName).toBe("Table 1 Booking");
+    expect(sessionItem.tableBill).toBe(true);
+  });
+
+  it("moves table-attached cafe items to the selected table-booking loser", async () => {
+    const {
+      useCafeStore,
+      useCheckoutStore,
+      useCustomerAccountStore,
+      useTableStore,
+    } = await loadStores();
+
+    const olderShahBill = useCustomerAccountStore
+      .getState()
+      .createCustomerAccount({ customerName: "Shah" });
+    useCustomerAccountStore.getState().addCafeChargeToCustomer({
+      customerId: olderShahBill.id,
+      customerName: "Shah",
+      itemId: "OLD-TEA",
+      name: "Old Tea",
+      quantity: 1,
+      price: 50,
+      subtotal: 50,
+      orderedAt: new Date("2026-08-08T05:00:00").toISOString(),
+    });
+    const shah = useCustomerAccountStore
+      .getState()
+      .createCustomerAccount({ customerName: "Shah" });
+    const ali = useCustomerAccountStore
+      .getState()
+      .createCustomerAccount({ customerName: "Ali" });
+
+    useTableStore.getState().startSession({
+      tableId: 1,
+      sessionType: "time",
+      player1: "Shah",
+      player1CustomerId: shah.id,
+      extraPlayers: ["Ali"],
+      extraPlayerCustomerIds: [ali.id],
+      startTime: new Date("2026-08-08T05:56:00"),
+    });
+    const sessionId =
+      useTableStore.getState().tables[0].session!.id;
+    const participantKey = `${sessionId}:table-booking`;
+
+    useCafeStore
+      .getState()
+      .addItemToPlayer(
+        1,
+        sessionId,
+        "Table 1 Booking",
+        tea,
+        undefined,
+        participantKey
+      );
+    useTableStore.getState().endSession({
+      tableId: 1,
+      endTime: new Date("2026-08-08T05:58:00"),
+      loserName: "Shah",
+      payerName: "Shah",
+      loserCustomerId: shah.id,
+      payerCustomerId: shah.id,
+      loserParticipantKey: `${sessionId}:player1`,
+    });
+
+    const shahSessionBill =
+      useCustomerAccountStore
+        .getState()
+        .accounts.find((account) =>
+          account.id === shah.id &&
+          account.gameCharges.some(
+            (charge) => charge.sessionId === sessionId
+          )
+        );
+
+    expect(shahSessionBill?.customerName).toBe("Shah");
+    expect(shahSessionBill?.totalCafeAmount).toBe(100);
+    expect(shahSessionBill?.cafeCharges[0]?.name).toBe("Tea");
+
+    const pendingBill =
+      useCheckoutStore.getState().pendingBills.find(
+        (bill) => bill.session.id === sessionId
+      );
+    const pendingCafeTotal = pendingBill?.session.cafeOrders.reduce(
+      (total, item) => total + item.subtotal,
+      0
+    );
+
+    expect(pendingCafeTotal).toBe(100);
+    expect(pendingBill?.session.cafeAmount).toBe(100);
   });
 
   it("attaches Player 2 cafe orders to Player 2 instead of Player 1", async () => {

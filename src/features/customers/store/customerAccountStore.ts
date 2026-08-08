@@ -114,6 +114,10 @@ interface CustomerAccountStore {
   replaceCafeChargesForOrder: (
     input: ReplaceCafeChargesInput
   ) => CustomerAccount;
+  removeCafeCharge: (
+    customerId: string,
+    chargeId: string
+  ) => void;
   replaceAccessoryChargesForOrder: (
     input: ReplaceAccessoryChargesInput
   ) => CustomerAccount;
@@ -909,6 +913,21 @@ export const useCustomerAccountStore =
 
           return nextAccount;
         },
+
+        removeCafeCharge: (customerId, chargeId) =>
+          set((state) => ({
+            accounts: state.accounts.map((account) =>
+              account.id === customerId
+                ? withTotals({
+                    ...account,
+                    cafeCharges: account.cafeCharges.filter(
+                      (charge) => charge.id !== chargeId
+                    ),
+                    updatedAt: new Date().toISOString(),
+                  })
+                : account
+            ),
+          })),
 
         replaceAccessoryChargesForOrder: (
           input

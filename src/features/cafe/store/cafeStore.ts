@@ -972,9 +972,19 @@ export const useCafeStore =
             (!sessionId ||
               order.sessionId === sessionId)
         )
-        .flatMap(
-          (order) => order.orderItems
-        ),
+        .flatMap((order) => {
+          const isTableBill =
+            order.participantKey?.endsWith(":table-booking") ?? false;
+
+          return order.orderItems.map((item) => ({
+            ...item,
+            playerName: item.playerName ?? order.playerName,
+            playerId: item.playerId ?? order.playerId,
+            participantKey:
+              item.participantKey ?? order.participantKey,
+            tableBill: item.tableBill ?? isTableBill,
+          }));
+        }),
 
     getSavedOrderForTable: (
       tableId,
@@ -1487,12 +1497,14 @@ saveOrder: (input) => {
         (order) =>
           order.tableId === input.tableId &&
           order.sessionId === input.sessionId &&
-          isSamePlayerIdentity(order, {
-            playerId:
-              input.customerAccountId,
-            playerName:
-              input.customerName,
-          })
+          (input.participantKey && order.participantKey
+            ? input.participantKey === order.participantKey
+            : isSamePlayerIdentity(order, {
+                playerId:
+                  input.customerAccountId,
+                playerName:
+                  input.customerName,
+              }))
       );
 
     const playerOrders =
@@ -1503,12 +1515,14 @@ saveOrder: (input) => {
                 input.tableId &&
               order.sessionId ===
                 input.sessionId &&
-              isSamePlayerIdentity(order, {
-                playerId:
-                  input.customerAccountId,
-                playerName:
-                  input.customerName,
-              })
+              (input.participantKey && order.participantKey
+                ? input.participantKey === order.participantKey
+                : isSamePlayerIdentity(order, {
+                    playerId:
+                      input.customerAccountId,
+                    playerName:
+                      input.customerName,
+                  }))
                 ? {
                     ...order,
                     playerId:
@@ -1522,6 +1536,9 @@ saveOrder: (input) => {
                         playerName:
                           input.customerName,
                       }),
+                    participantKey:
+                      input.participantKey ??
+                      order.participantKey,
                     orderItems:
                       savedOrder.orderItems,
                     totalAmount:
@@ -1546,6 +1563,8 @@ saveOrder: (input) => {
                     playerName:
                       input.customerName,
                   }),
+                participantKey:
+                  input.participantKey,
                 orderItems:
                   savedOrder.orderItems,
                 totalAmount:

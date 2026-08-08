@@ -548,6 +548,14 @@ function CafePage() {
       : undefined;
   const selectedPanelAccount =
     selectedBillAccount ??
+    (selectedTarget?.type === "runningTable" &&
+    selectedTarget.customerId
+      ? customerAccounts.find(
+          (account) =>
+            account.id ===
+            selectedTarget.customerId
+        )
+      : undefined) ??
     (selectedTarget?.type ===
       "waitingCustomer" &&
     selectedTarget.customerAccountId
@@ -745,10 +753,10 @@ function CafePage() {
         ...item,
         timeAdded: new Date(item.timeAdded),
       };
-      mergedItems.set(
-        getItemKey(normalizedItem),
-        normalizedItem
-      );
+      const key = getItemKey(normalizedItem);
+      if (!mergedItems.has(key)) {
+        mergedItems.set(key, normalizedItem);
+      }
     });
 
     return Array.from(mergedItems.values());
@@ -1085,6 +1093,43 @@ function CafePage() {
       selectedTarget.type ===
       "waitingCustomer"
     ) {
+      const account = selectedTarget.customerAccountId
+        ? useCustomerAccountStore
+            .getState()
+            .getCustomerById(selectedTarget.customerAccountId)
+        : undefined;
+
+      if (account?.cafeCharges.length) {
+        useCafeStore.setState((state) => ({
+          waitingCustomers: state.waitingCustomers.map((customer) => {
+            if (customer.id !== selectedTarget.customerId) {
+              return customer;
+            }
+
+            const orderItems = customer.orderItems.filter((cartItem) =>
+              !account.cafeCharges.some((charge) =>
+                charge.itemId === cartItem.menuItemId &&
+                charge.quantity === cartItem.quantity &&
+                charge.subtotal === cartItem.subtotal &&
+                Boolean(charge.orderedAt) &&
+                charge.orderedAt === cartItem.orderedAt
+              )
+            );
+
+            return orderItems.length === customer.orderItems.length
+              ? customer
+              : {
+                  ...customer,
+                  orderItems,
+                  totalAmount: orderItems.reduce(
+                    (total, orderItem) => total + orderItem.subtotal,
+                    0
+                  ),
+                };
+          }),
+        }));
+      }
+
       addItemToWaitingCustomer(
         selectedTarget.customerId,
         item,
@@ -1895,11 +1940,9 @@ function CafePage() {
       (attachedOrder?.orderItems.length ||
         selectedAttachAccount.cafeCharges.length > 0)
     ) {
-      updateSessionCafe({
-        tableId: table.id,
-        cafeOrders: attachedOrder?.orderItems.length
-          ? attachedOrder.orderItems
-          : selectedAttachAccount.cafeCharges.map((charge) => ({
+      const attachedItems = attachedOrder?.orderItems.length
+        ? attachedOrder.orderItems
+        : selectedAttachAccount.cafeCharges.map((charge) => ({
             menuItemId: charge.itemId,
             name: charge.name,
             price: charge.price,
@@ -1915,7 +1958,40 @@ function CafePage() {
             playerId:
               selectedAttachAccount.id,
             orderedAt: charge.orderedAt,
-          })),
+          }));
+
+      useCafeStore.setState((state) => ({
+        playerOrders: [
+          ...state.playerOrders.filter(
+            (order) =>
+              !(
+                order.tableId === table.id &&
+                order.sessionId ===
+                  attachedSession.id &&
+                order.playerId ===
+                  selectedAttachAccount.id
+              )
+          ),
+          {
+            tableId: table.id,
+            sessionId: attachedSession.id,
+            playerName:
+              selectedAttachAccount.customerName,
+            playerId: selectedAttachAccount.id,
+            playerKey: selectedAttachAccount.id,
+            orderItems: attachedItems,
+            totalAmount: attachedItems.reduce(
+              (total, item) =>
+                total + item.subtotal,
+              0
+            ),
+          },
+        ],
+      }));
+
+      updateSessionCafe({
+        tableId: table.id,
+        cafeOrders: attachedItems,
       });
     }
 
@@ -2512,9 +2588,6 @@ function CafePage() {
                   customerMeta={undefined}
                   items={
                     selectedOrder?.orderItems ?? []
-                  }
-                  savedItems={
-                    selectedSavedCafeItems
                   }
                   onIncrease={handleIncrease}
                   onDecrease={handleDecrease}

@@ -48,6 +48,7 @@ export function calculateGamePrice({
       break;
 
     case "time":
+    case "century":
       gameAmount =
         duration.totalMinutes *
         tableRate;
